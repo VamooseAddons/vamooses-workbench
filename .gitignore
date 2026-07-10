@@ -1,2 +1,4 @@
-.DS_Store
-*.bak
+# Internal dev artifacts -- NEVER published (repo is public)
+TODO_VamoosesWorkbench.md
+docs/
+.claude/
