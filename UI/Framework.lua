@@ -359,29 +359,99 @@ function VWB.UI:CreateMainFrame(name, title)
 end
 
 -- ============================================================================
--- BUTTON
+-- BUTTON (HDG's common-button-tertiary chrome -- unification 2026-07-11:
+-- ONE button look addon-wide, ported from HDGR_Components/_Theme)
 -- ============================================================================
+-- Fixed dark Blizzard atlas family that vertex-tints cleanly. States: normal
+-- tint = scheme border, hover = accent, pushed = darkened accent, active
+-- (toggled) = -depressed- atlas variants + accent tint. Text sits on the
+-- FIXED DARK atlas in every scheme, so its base tone is a constant light
+-- gray, NOT scheme.text (a light scheme's dark text would vanish on it);
+-- active text = scheme.text_header (the scheme's header accent).
 
-function VWB.UI:CreateButton(parent, text, width, height)
-    local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
+local TERTIARY_NORMAL        = "common-button-tertiary-normal"
+local TERTIARY_HOVER         = "common-button-tertiary-hover"
+local TERTIARY_PRESSED       = "common-button-tertiary-pressed"
+local TERTIARY_DISABLED      = "common-button-tertiary-disabled"
+local TERTIARY_ACTIVE_NORMAL = "common-button-tertiary-depressed-normal"
+local TERTIARY_ACTIVE_HOVER  = "common-button-tertiary-depressed-hover"
+local TERTIARY_TEXT          = { r = 0.88, g = 0.88, b = 0.88 }
+
+local function ApplyTertiaryChrome(btn)
+    btn:SetNormalAtlas(TERTIARY_NORMAL)
+    btn:SetHighlightAtlas(TERTIARY_HOVER)
+    btn:SetPushedAtlas(TERTIARY_PRESSED)
+    btn:SetDisabledAtlas(TERTIARY_DISABLED)
+    for _, getter in ipairs({ "GetNormalTexture", "GetHighlightTexture",
+                              "GetPushedTexture", "GetDisabledTexture" }) do
+        local t = btn[getter](btn)
+        t:ClearAllPoints()
+        t:SetAllPoints(btn)
+    end
+    -- y=1: the atlas interior shades upward; nudge text to visual center (HDG).
+    local fs = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    fs:SetPoint("CENTER", 0, 1)
+    btn:SetFontString(fs)
+    btn.text = fs -- legacy alias: pre-unification widgets exposed .text
+    btn._tertiary = true
+    btn._active = false
+    return fs
+end
+
+local function TintButtonTextures(btn, normal, hover, pushed, disabled)
+    local function paint(getter, c, mult)
+        local t = btn[getter](btn)
+        t:SetVertexColor(c.r * (mult or 1), c.g * (mult or 1), c.b * (mult or 1), c.a or 1)
+    end
+    paint("GetNormalTexture", normal)
+    paint("GetHighlightTexture", hover)
+    paint("GetPushedTexture", pushed, 0.7)
+    paint("GetDisabledTexture", disabled)
+end
+
+-- Public: the ThemeEngine Button/SegmentedToggle skinners route tertiary
+-- widgets here on theme switch; toggles call it on state flips.
+function VWB.UI:PaintTertiaryButton(btn, c)
+    local fs = btn:GetFontString()
+    if btn._active then
+        btn:SetNormalAtlas(TERTIARY_ACTIVE_NORMAL)
+        btn:SetHighlightAtlas(TERTIARY_ACTIVE_HOVER)
+        TintButtonTextures(btn, c.accent, c.accent, c.accent, c.button_inactive)
+        fs:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b, 1)
+    else
+        btn:SetNormalAtlas(TERTIARY_NORMAL)
+        btn:SetHighlightAtlas(TERTIARY_HOVER)
+        TintButtonTextures(btn, c.border, c.accent, c.accent, c.button_inactive)
+        fs:SetTextColor(TERTIARY_TEXT.r, TERTIARY_TEXT.g, TERTIARY_TEXT.b, 1)
+    end
+end
+
+function VWB.UI:CreateButton(parent, text, width, height, opts)
+    if opts and opts.flat then
+        -- Legacy flat-backdrop construction, kept ONLY for callers that own
+        -- their backdrop painting (Settings' Hard Reset danger button -- the
+        -- one deliberate exception to the tertiary unification).
+        local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
+        btn:SetSize(width or 100, height or 24)
+        btn:SetNormalFontObject("GameFontHighlight")
+        btn:SetText(text)
+        btn:SetBackdrop(BACKDROP_FLAT)
+        local scheme = GetScheme()
+        btn:SetBackdropColor(scheme.button_normal.r, scheme.button_normal.g, scheme.button_normal.b, scheme.button_normal.a)
+        btn:SetBackdropBorderColor(scheme.border.r, scheme.border.g, scheme.border.b, scheme.border.a)
+        RegisterWidget(btn, "Button")
+        return btn
+    end
+
+    local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(width or 100, height or 24)
-    btn:SetNormalFontObject("GameFontHighlight")
+    ApplyTertiaryChrome(btn)
     btn:SetText(text)
-    btn:SetBackdrop(BACKDROP_FLAT)
-
-    local scheme = GetScheme()
-    btn:SetBackdropColor(scheme.button_normal.r, scheme.button_normal.g, scheme.button_normal.b, scheme.button_normal.a)
-    btn:SetBackdropBorderColor(scheme.border.r, scheme.border.g, scheme.border.b, scheme.border.a)
-
-    btn:SetScript("OnEnter", function(self)
-        local c = GetScheme()
-        self:SetBackdropColor(c.button_hover.r, c.button_hover.g, c.button_hover.b, c.button_hover.a)
-    end)
-    btn:SetScript("OnLeave", function(self)
-        local c = GetScheme()
-        self:SetBackdropColor(c.button_normal.r, c.button_normal.g, c.button_normal.b, c.button_normal.a)
-    end)
-
+    function btn:SetActive(v)
+        self._active = v and true or false
+        VWB.UI:PaintTertiaryButton(self, GetScheme())
+    end
+    VWB.UI:PaintTertiaryButton(btn, GetScheme())
     RegisterWidget(btn, "Button")
     return btn
 end
@@ -1412,57 +1482,30 @@ end
 -- SEGMENTED TOGGLE (Direct/Raw mode switch)
 -- ============================================================================
 
--- Atlas pill textures (auctionhouse-nav-button family, verified in
--- Reference/ATLAS_REFERENCE.md + texture atlas data). options.pill = true swaps
--- the flat segment fills for these; the container border is dropped so only the
--- pills read. Segments still take the same callbacks -- purely visual.
-local PILL_ATLAS_INACTIVE = "auctionhouse-nav-button"
-local PILL_ATLAS_ACTIVE = "auctionhouse-nav-button-select"
-local PILL_ATLAS_HIGHLIGHT = "auctionhouse-nav-button-highlight"
-
 function VWB.UI:CreateSegmentedToggle(parent, options)
+    -- Tertiary chrome per segment (unification 2026-07-11): a segmented
+    -- toggle is a row of CreateButton-style buttons where exactly one is
+    -- active (HDG's Grid|List pair). The old flat-backdrop container box and
+    -- the pill-atlas variant (whose unselected state read as DISABLED --
+    -- "Decor greyed out") are both gone.
     options = options or {}
-    local pill = options.pill
-    local scheme = GetScheme()
 
-    local container = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    local container = CreateFrame("Frame", nil, parent)
     container:SetSize(options.width or 160, options.height or 24)
-    -- Pill mode carries its own atlas per segment; deliberately no container
-    -- backdrop so no box shows AND the SegmentedToggle theme skinner's
-    -- SetBackdropColor is a no-op (no backdrop set) instead of re-boxing it.
-    if not pill then
-        container:SetBackdrop(BACKDROP_FLAT)
-        container:SetBackdropColor(scheme.panel.r, scheme.panel.g, scheme.panel.b, scheme.panel.a)
-        container:SetBackdropBorderColor(scheme.border.r, scheme.border.g, scheme.border.b, scheme.border.a)
-    end
 
     local btns = {}
     local selected = options.default or options.segments[1].key
 
-    local segWidth = (options.width or 160) / #options.segments
+    local n = #options.segments
+    local gap = 2
+    local segWidth = ((options.width or 160) - gap * (n - 1)) / n
     for i, seg in ipairs(options.segments) do
-        local btn = CreateFrame("Button", nil, container, "BackdropTemplate")
-        btn:SetSize(pill and (segWidth - 2) or segWidth, (options.height or 24) - 2)
-        btn:SetPoint("LEFT", (i - 1) * segWidth + 1, 0)
+        local btn = CreateFrame("Button", nil, container)
+        btn:SetSize(segWidth, options.height or 24)
+        btn:SetPoint("LEFT", (i - 1) * (segWidth + gap), 0)
         btn.key = seg.key
-
-        if pill then
-            local pbg = btn:CreateTexture(nil, "BACKGROUND")
-            pbg:SetAllPoints()
-            pbg:SetAtlas(PILL_ATLAS_INACTIVE)
-            btn.pillBg = pbg
-            local phl = btn:CreateTexture(nil, "HIGHLIGHT")
-            phl:SetAllPoints()
-            phl:SetAtlas(PILL_ATLAS_HIGHLIGHT)
-            phl:SetAlpha(0.5)
-        else
-            btn:SetBackdrop(BACKDROP_BORDERLESS)
-        end
-
-        local text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        text:SetPoint("CENTER")
-        text:SetText(seg.label or seg.key)
-        btn.text = text
+        ApplyTertiaryChrome(btn)
+        btn:SetText(seg.label or seg.key)
 
         btn:SetScript("OnClick", function()
             selected = seg.key
@@ -1478,21 +1521,8 @@ function VWB.UI:CreateSegmentedToggle(parent, options)
     function container:UpdateAppearance()
         local c = GetScheme()
         for _, btn in ipairs(btns) do
-            local isActive = btn.key == selected
-            if pill then
-                btn.pillBg:SetAtlas(isActive and PILL_ATLAS_ACTIVE or PILL_ATLAS_INACTIVE)
-                if isActive then
-                    btn.text:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b, 1)
-                else
-                    btn.text:SetTextColor(c.text.r, c.text.g, c.text.b, 1)
-                end
-            elseif isActive then
-                btn:SetBackdropColor(c.button_active.r, c.button_active.g, c.button_active.b, c.button_active.a)
-                btn.text:SetTextColor(c.button_text_norm.r, c.button_text_norm.g, c.button_text_norm.b, 1)
-            else
-                btn:SetBackdropColor(c.button_inactive.r, c.button_inactive.g, c.button_inactive.b, c.button_inactive.a)
-                btn.text:SetTextColor(c.button_text_dis.r, c.button_text_dis.g, c.button_text_dis.b, 1)
-            end
+            btn._active = btn.key == selected
+            VWB.UI:PaintTertiaryButton(btn, c)
         end
     end
 
@@ -1558,36 +1588,21 @@ local FILTER_PILL_HPAD = 11
 local FILTER_PILL_MIN_WIDTH = 34
 
 function VWB.UI:CreateFilterPill(parent, label, onClick)
+    -- Tertiary chrome (unification 2026-07-11): same button family as
+    -- CreateButton -- checked = the depressed/accent active state. The old
+    -- auctionhouse-nav-button pill atlas is gone (its unselected state read
+    -- as a DISABLED button).
     local btn = CreateFrame("Button", nil, parent)
     btn:SetHeight(FILTER_PILL_HEIGHT)
     btn:RegisterForClicks("AnyUp")
-
-    local bg = btn:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetAtlas(PILL_ATLAS_INACTIVE)
-    btn.bg = bg
-
-    local hl = btn:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetAtlas(PILL_ATLAS_HIGHLIGHT)
-    hl:SetAlpha(0.5)
-
-    local text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    text:SetPoint("CENTER", 0, 0)
-    text:SetText(label)
-    btn.text = text
+    local text = ApplyTertiaryChrome(btn)
+    btn:SetText(label)
     btn:SetWidth(math.max(math.ceil(text:GetUnboundedStringWidth()) + FILTER_PILL_HPAD * 2, FILTER_PILL_MIN_WIDTH))
 
     btn.checked = false
     local function Repaint()
-        local c = GetScheme()
-        if btn.checked then
-            bg:SetAtlas(PILL_ATLAS_ACTIVE)
-            text:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b)
-        else
-            bg:SetAtlas(PILL_ATLAS_INACTIVE)
-            text:SetTextColor(c.text.r, c.text.g, c.text.b)
-        end
+        btn._active = btn.checked
+        VWB.UI:PaintTertiaryButton(btn, GetScheme())
     end
     Repaint()
 

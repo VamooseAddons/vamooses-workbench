@@ -24,9 +24,10 @@ done
 # RecipeHarvest one is a NormalizeExpansion annotation gap. Gate on a COUNT
 # BASELINE -- fail only when the count RISES (a new warning = candidate real bug).
 # Soft-skip when the binary isn't built.
-# Baseline 6 (2026-07-11): -1 from prior 7 (SendChatMessage FP + NormalizeExpansion);
-# wowlua-ls naturally resolved one FP. Lower as warnings clear.
-WLL_BASELINE=6
+# Baseline 5 (2026-07-11 evening): -1 from 6; the button unification deleted
+# the pill-atlas SegmentedToggle branch that carried one warning. Lower as
+# warnings clear.
+WLL_BASELINE=5
 WLL="$DIR/../wowlua-ls/target/release/wowlua_ls"
 wll_fail=0
 echo "=== wowlua-ls (WoW-API type tier -- count baseline $WLL_BASELINE) ==="

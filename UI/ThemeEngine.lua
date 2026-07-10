@@ -201,6 +201,14 @@ VWB.Theme.Skinners = {
 
     -- Button
     Button = function(b, c)
+        -- Tertiary atlas buttons (the addon-wide standard, unification
+        -- 2026-07-11) repaint through their own painter -- re-tints the four
+        -- state textures + text for the new scheme, honoring _active.
+        if b._tertiary then
+            VWB.UI:PaintTertiaryButton(b, c)
+            b._scheme = c
+            return
+        end
         if b.SetBackdropColor then
             b:SetBackdropColor(c.button_normal.r, c.button_normal.g, c.button_normal.b, c.button_normal.a)
             b:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a)
@@ -399,23 +407,11 @@ VWB.Theme.Skinners = {
         f:SetVertexColor(c.border.r, c.border.g, c.border.b, c.border.a)
     end,
 
-    -- Segmented toggle (Direct/Raw)
-    SegmentedToggle = function(f, c)
-        if f.SetBackdropColor then
-            f:SetBackdropColor(c.panel.r, c.panel.g, c.panel.b, c.panel.a)
-        end
-        if f.buttons then
-            local selected = f:GetSelected()
-            for _, btn in ipairs(f.buttons) do
-                if btn.key == selected then
-                    btn:SetBackdropColor(c.button_active.r, c.button_active.g, c.button_active.b, c.button_active.a)
-                    if btn.text then btn.text:SetTextColor(c.button_text_norm.r, c.button_text_norm.g, c.button_text_norm.b, 1) end
-                else
-                    btn:SetBackdropColor(c.button_inactive.r, c.button_inactive.g, c.button_inactive.b, c.button_inactive.a)
-                    if btn.text then btn.text:SetTextColor(c.button_text_dis.r, c.button_text_dis.g, c.button_text_dis.b, 1) end
-                end
-            end
-        end
+    -- Segmented toggle: segments are tertiary atlas buttons; UpdateAppearance
+    -- repaints each through the shared painter with the current scheme
+    -- (unification 2026-07-11 -- the per-segment backdrop painting is gone).
+    SegmentedToggle = function(f, _c)
+        if f.UpdateAppearance then f:UpdateAppearance() end
     end,
 
     -- Progress bar

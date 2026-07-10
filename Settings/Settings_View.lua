@@ -289,8 +289,9 @@ function Settings.buildView(container)
             -- Styled as destructive via the DangerButton skinner (already in
             -- UI/ThemeEngine.lua, ported from VPC); OnEnter/OnLeave overridden
             -- so CreateButton's own hover handlers don't flip it back to
-            -- normal button colors.
-            local btn = VWB.UI:CreateButton(parent, "Hard Reset", (node.size and node.size.w) or 140, (node.size and node.size.h) or 26)
+            -- normal button colors. flat: the ONE exception to the tertiary
+            -- button unification -- the danger treatment owns its backdrop.
+            local btn = VWB.UI:CreateButton(parent, "Hard Reset", (node.size and node.size.w) or 140, (node.size and node.size.h) or 26, { flat = true })
             btn:SetScript("OnEnter", function(self)
                 local c = VWB.UI:GetScheme()
                 self:SetBackdropColor(c.error.r, c.error.g, c.error.b, c.error.a)
