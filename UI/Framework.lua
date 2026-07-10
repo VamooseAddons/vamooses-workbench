@@ -47,7 +47,17 @@ local itemNameRes
 function VWB.UI:ItemNameResource()
     if not itemNameRes then
         itemNameRes = VWB.Reactor.resource({
-            read = function(itemID) return C_Item.GetItemInfo(itemID) end, -- exception(boundary): nil on cold cache -> pending + request
+            -- Cold probe via IsItemDataCachedByID, NOT bare GetItemInfo: the
+            -- bare nil-probe fires an implicit server request every call, and
+            -- the resource re-reads a key on each of its load results -- for a
+            -- DEAD id (success=false, never caches) that ping-ponged
+            -- request->fail->re-read->request at server latency forever
+            -- (2026-07-11 evening loop). Gated, a dead key just stays pending
+            -- quietly after its one explicit request.
+            read = function(itemID)
+                if not C_Item.IsItemDataCachedByID(itemID) then return nil end -- exception(boundary): cold/dead item cache -> pending, no probe request
+                return C_Item.GetItemInfo(itemID)
+            end,
             request = function(itemID) C_Item.RequestLoadItemDataByID(itemID) end,
             event = "ITEM_DATA_LOAD_RESULT", -- fires (itemID, success); keyOf routes O(1)
             keyOf = function(itemID) return itemID end,

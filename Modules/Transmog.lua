@@ -99,23 +99,34 @@ function VWB.Transmog:GetStatus(itemID)
     -- Return cached result
     if cache[itemID] then return cache[itemID] end
 
-    -- Get item link
-    local itemLink = select(2, C_Item.GetItemInfo(itemID))
-    if not itemLink then -- exception(boundary): cold item cache; request once and retry on ITEM_DATA_LOAD_RESULT
-        if deadItemIDs[itemID] then
-            -- The server refused this id (load result success=false): the honest
-            -- answer is final. Latch it so walks stop re-requesting -- retrying
-            -- looped forever (live 2026-07-11: 35k load results and climbing,
-            -- one full fan-out per settle, sustained ~30ms/s of jank).
-            cache[itemID] = { hasAppearance = false, isCollected = false }
-            return cache[itemID]
-        end
+    if deadItemIDs[itemID] then
+        -- The server refused this id (load result success=false): the honest
+        -- answer is final. Latch it so walks stop re-requesting -- retrying
+        -- looped forever (live 2026-07-11: 35k load results and climbing,
+        -- one full fan-out per settle, sustained ~30ms/s of jank).
+        cache[itemID] = { hasAppearance = false, isCollected = false }
+        return cache[itemID]
+    end
+
+    -- Cold probe MUST be IsItemDataCachedByID, never a bare C_Item.GetItemInfo
+    -- nil-check: GetItemInfo on a cold item fires an implicit server request
+    -- EVERY call, and the pend latch below only guards the explicit request --
+    -- so every corpus walk (recount, settle re-reads) re-requested the whole
+    -- cold set each pass: the unbounded ITEM_DATA_LOAD_RESULT climb
+    -- (live 2026-07-11 evening, second loop of the day).
+    if not C_Item.IsItemDataCachedByID(itemID) then -- exception(boundary): cold item cache; request once and retry on ITEM_DATA_LOAD_RESULT
         if not pendingItemIDs[itemID] then
             pendingItemIDs[itemID] = true
             stats.pendsCreated = stats.pendsCreated + 1
             C_Item.RequestLoadItemDataByID(itemID)
         end
         return { hasAppearance = false, isCollected = false }
+    end
+
+    local itemLink = select(2, C_Item.GetItemInfo(itemID)) -- cached: no implicit request
+    if not itemLink then -- exception(boundary): cached-but-linkless server edge; final honest false
+        cache[itemID] = { hasAppearance = false, isCollected = false }
+        return cache[itemID]
     end
 
     -- Check appearance
@@ -142,6 +153,13 @@ function VWB.Transmog:IsUnknown(itemID)
     return status.hasAppearance and not status.isCollected
 end
 
+-- Shared dead-id authority: true when the server refused this id's load
+-- (ITEM_DATA_LOAD_RESULT success=false). Final for the session -- consumers
+-- (Showroom resources) resolve such keys instead of pending forever.
+function VWB.Transmog:IsDeadItem(itemID)
+    return deadItemIDs[itemID] == true
+end
+
 -- Clear cache
 function VWB.Transmog:ClearCache()
     cache = {}
@@ -161,16 +179,18 @@ function VWB.Transmog:Initialize()
         elseif event == "ITEM_DATA_LOAD_RESULT" then
             -- (itemID, success). keyOf pattern; O(1) vs full scan.
             local itemID, success = arg1, arg2
+            if not success then
+                -- Dead id: latch for EVERY requester, not only our own pends --
+                -- the Showroom resources issue their own RequestLoadItemDataByID,
+                -- and their dead ids previously latched NOWHERE, staying PENDING
+                -- forever and getting re-read (and re-requested) every settle.
+                stats.loadDead = stats.loadDead + 1
+                deadItemIDs[itemID] = true
+                pendingItemIDs[itemID] = nil
+                return
+            end
             if pendingItemIDs[itemID] then
                 pendingItemIDs[itemID] = nil
-                if not success then
-                    -- Dead id: mark it so GetStatus never re-requests. Without
-                    -- this, walk -> request -> failure -> settle-fire -> walk
-                    -- self-sustained forever (the post-coalescer loop).
-                    stats.loadDead = stats.loadDead + 1
-                    deadItemIDs[itemID] = true
-                    return
-                end
                 stats.loadResolved = stats.loadResolved + 1
                 cache[itemID] = nil -- clear the stub entry so GetStatus re-reads
                 armSettle()

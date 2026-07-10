@@ -117,7 +117,14 @@ function VWB.Graph:GetDirectMaterials(recipeID, qty)
             local owned = (VWB.Inventory and VWB.Inventory:GetItemCountWithVariants(slot.itemID)) or 0
             local missing = math.max(0, reqQty - owned)
 
-            local name = slot.name or C_Item.GetItemInfo(slot.itemID)
+            -- Cold probe via IsItemDataCachedByID, not bare GetItemInfo (which
+            -- fires an implicit request per call); requestNameOnce is the ONE
+            -- requester, latched. Stale queue slots with dead ids re-probed on
+            -- every rebuild otherwise.
+            local name = slot.name
+            if not name and C_Item.IsItemDataCachedByID(slot.itemID) then -- exception(boundary): cold item cache
+                name = C_Item.GetItemInfo(slot.itemID)
+            end
             if not name then
                 requestNameOnce(slot.itemID)
                 name = "Loading..."
@@ -197,7 +204,7 @@ function VWB.Graph:CalculateTotalMats(input)
         local owned = (VWB.Inventory and VWB.Inventory:GetItemCountWithVariants(itemID)) or 0
         local missing = math.max(0, reqQty - owned)
 
-        local name = C_Item.GetItemInfo(itemID)
+        local name = C_Item.IsItemDataCachedByID(itemID) and C_Item.GetItemInfo(itemID) or nil -- exception(boundary): cold item cache; gated probe, requestNameOnce is the one requester
         if not name then
             requestNameOnce(itemID)
             name = "Loading..."

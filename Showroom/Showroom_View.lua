@@ -68,6 +68,9 @@ local function ensureResources()
             -- item cached and decor needs the housing catalog -- if the item isn't
             -- cached we can't honestly rule out pet, so stay PENDING and re-read on
             -- ITEM_DATA_LOAD_RESULT rather than latching a wrong "none".
+            -- Dead ids (server refused the load) can never cache: resolve them to
+            -- a final "none" or the key pends forever and every settle re-reads it.
+            if ns.Transmog:IsDeadItem(itemID) then return "none" end
             if not C_Item.IsItemDataCachedByID(itemID) then return nil end -- exception(boundary): pet lookup needs the item cached; re-read on load
             if ns.DecorOwnership:IsCatalogCold() then return nil end -- might be decor; retry when catalog warms
             return "none"
@@ -83,7 +86,12 @@ local function ensureResources()
             local m = ns.Collectibles:IsMountCollected(itemID); if m ~= nil then return m end
             local p = ns.Collectibles:IsPetCollected(itemID); if p ~= nil then return p end
             if ns.Transmog:IsTransmoggable(itemID) then
-                if not C_Item.GetItemInfo(itemID) then return nil end -- transmog "collected" needs the item link -> pending
+                if ns.Transmog:IsDeadItem(itemID) then return false end -- server refused the id: final
+                -- Cold probe via IsItemDataCachedByID, NOT bare GetItemInfo: a
+                -- GetItemInfo nil-probe fires an implicit server request every
+                -- call, and this read re-runs per settle for pending keys --
+                -- the re-request pump behind the unbounded load-result climb.
+                if not C_Item.IsItemDataCachedByID(itemID) then return nil end -- transmog "collected" needs the item link -> pending
                 return ns.Transmog:GetStatus(itemID).isCollected
             end
             local dec = ns.DecorOwnership:IsUncollected(itemID); if dec ~= nil then return not dec end
@@ -154,8 +162,20 @@ local function ensureResources()
     -- line ~123 already handles that for kindRes; collectedRes.invalidateAll() there
     -- covers the collected side too. Net: no event is dropped; coalescing is strictly
     -- better than raw for TRANSMOG_COLLECTION_SOURCE_ADDED (multiple sources per craft).
+    -- The listener fires for ALL collection sources (mounts, pets, transmog
+    -- settles, decor updates), but transmog/decor keys are already covered by
+    -- the two filtered EventBus registrations above. Unfiltered, this re-read
+    -- the FULL universe -- every cold key included -- once per transmog settle
+    -- during item-load warmup: the biggest per-settle pump in the 2026-07-11
+    -- evening loop. Scope it to the only domain no other path covers.
+    local function isCollectedMountPetOrPending(key, entry)
+        local v = entry.value
+        if v == R.PENDING or v == nil then return true end -- unknown domain; may be mount/pet
+        local k = kindRes.peek(key)
+        return k == "mount" or k == "pet" or k == R.PENDING or k == nil
+    end
     VWB.Collectibles:RegisterCollectionListener(function()
-        collectedRes.invalidateAll()
+        collectedRes.invalidateAll(isCollectedMountPetOrPending)
     end)
 end
 
