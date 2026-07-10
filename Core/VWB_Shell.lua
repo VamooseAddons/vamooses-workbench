@@ -194,16 +194,18 @@ function Shell.openWindow()
                 return 0.72, 0.72, 0.76
             end
         end)
-        -- badge: bind count + pill visibility if the registry entry carries a badge fn
+        -- badge: bind count + pill visibility if the registry entry carries a badge fn.
+        -- Wrap badgeFn in a named computed so a single recompute feeds both bindText
+        -- and bindShown (avoids calling badgeFn twice per reactive flush).
         if v.badge then
-            local badgeFn = v.badge
+            local badgeMemo = R.named("shell:badge:" .. v.id, v.badge)
             R.bindText(btn.badgeCount, function()
-                local n = badgeFn()
+                local n = badgeMemo()
                 if n <= 0 then return "" end
                 if n >= 1000 then return string.format("%.1fk", n / 1000) end -- four digits burst the pill
                 return tostring(n)
             end)
-            R.bindShown(btn.badgePill, function() return badgeFn() > 0 end)
+            R.bindShown(btn.badgePill, function() return badgeMemo() > 0 end)
         end
         -- subtitle tooltip via the codebase's VWB.UI.Tooltip engine (same surface
         -- used by QueueRow hover -- Begin/AddLine/Show, Hide on leave)
@@ -255,22 +257,25 @@ function Shell.openWindow()
     -- number on first Show; subsequent shows leave it in place (session-scoped).
     local craftableBaseline = R.signal(nil) -- exception(nullable): nil until first open; set once
 
-    -- Helper: count how many queued recipes are craftable right now.
-    -- ns.RecipeQuery is guaranteed post-init (openWindow only called after ADDON_LOADED).
-    local function countCraftable(st)
+    -- Named computed: count how many queued recipes are craftable right now.
+    -- Subscribes Version("crafting") so it recomputes when the queue changes.
+    -- Both the baseline-capture effect and the delta bindText/bindShown read this
+    -- single computed, avoiding the double O(queue) CanCraft scan per flush.
+    local craftableCount = R.named("shell:craftableCount", function()
+        ns.Store:Version("crafting")
+        local st = ns.Store:GetState()
         local n = 0
         for _, r in ipairs(st.crafting.queuedRecipes) do
             if ns.RecipeQuery:CanCraft(r.recipeID) then n = n + 1 end
         end
         return n
-    end
+    end)
 
     -- Capture baseline on first window open (this effect runs once; subsequent
     -- opens find baseline already set and return immediately)
     R.effect(function()
         if craftableBaseline() ~= nil then return end
-        ns.Store:Version("crafting")
-        craftableBaseline(countCraftable(ns.Store:GetState()))
+        craftableBaseline(craftableCount())
     end, "shell:craftableBaseline")
 
     -- Left label: queued count + scan age (mats-short moved to its own button)
@@ -329,24 +334,23 @@ function Shell.openWindow()
         ns.Nav.Go("stockroom", { filter = "queue" })
     end)
 
-    -- Delta label: "+N craftable since open"; right-aligned; hidden when delta <= 0
+    -- Delta label: "+N craftable since open"; right-aligned; hidden when delta <= 0.
+    -- Both effects read craftableCount() (the named computed above) so the O(queue)
+    -- CanCraft scan runs once per flush, not twice.
     local deltaFS = status:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     deltaFS:SetPoint("RIGHT", -8, 0)
     R.bindText(deltaFS, function()
-        ns.Store:Version("crafting")
         local baseline = craftableBaseline()
         if baseline == nil then return "" end
-        local current = countCraftable(ns.Store:GetState())
-        local delta = current - baseline
+        local delta = craftableCount() - baseline
         if delta <= 0 then return "" end
         local c = VWB.UI:GetScheme()
         return "|cFF" .. VWB.UI:ToHex(c.success) .. "+" .. delta .. " craftable since open|r"
     end)
     R.bindShown(deltaFS, function()
-        ns.Store:Version("crafting")
         local baseline = craftableBaseline()
         if baseline == nil then return false end
-        return countCraftable(ns.Store:GetState()) > baseline
+        return craftableCount() > baseline
     end)
 
     -- 6. Craft-complete toast (ported from VPC): a brief fading "Crafted Nx <item>"
@@ -369,6 +373,37 @@ function Shell.openWindow()
         toast:SetAlpha(1); toast:Show()
         fade:Stop(); fade:Play()
     end)
+
+    -- Option F: pre-build-on-idle. After the window is FIRST shown, schedule
+    -- background mounts for the two heaviest cold-start views (Workbench then
+    -- Showroom) one frame apart so the open-frame itself isn't burdened.
+    -- Guard: runs once per session (Shell._preBuildDone). Reuses the existing
+    -- mounted[] table and viewById.build() so it's idempotent: if the user
+    -- navigates to either view before the timer fires, mount already happened and
+    -- the scheduled callback is a no-op. Pre-built views are left HIDDEN.
+    local preBuildDone = false
+    local origShow = win.Show
+    win.Show = function(self)
+        origShow(self)
+        if not preBuildDone then
+            preBuildDone = true
+            VWB.ReactorWoW.after(0.05, function()
+                if not mounted["workbench"] then
+                    mounted["workbench"] = viewById["workbench"].build(contentHost).root
+                    -- CreateFrame roots default SHOWN; only the switch effect's
+                    -- Show() may reveal a view -- hide the pre-built root or it
+                    -- stacks over the active view.
+                    mounted["workbench"]:Hide()
+                end
+                VWB.ReactorWoW.after(0.05, function()
+                    if not mounted["showroom"] then
+                        mounted["showroom"] = viewById["showroom"].build(contentHost).root
+                        mounted["showroom"]:Hide()
+                    end
+                end)
+            end)
+        end
+    end
 
     Shell._win = win
     return win

@@ -115,13 +115,30 @@ local function ensureResources()
         return v == R.PENDING or v == nil or v == "transmog"
     end
 
+    -- B4: Mirror the kind-filter pattern for collectedRes. collectedRes.value is
+    -- a bool (or nil/PENDING), so we can't classify from its value directly.
+    -- Instead peek kindRes (untracked) to determine which collection domain
+    -- each itemID belongs to, then only re-read keys that could have changed.
+    local function isCollectedDecorOrPending(key, entry)
+        local v = entry.value
+        if v == R.PENDING or v == nil then return true end -- unknown domain; may be decor
+        local k = kindRes.peek(key)
+        return k == "decor" or k == R.PENDING or k == nil
+    end
+    local function isCollectedTransmogOrPending(key, entry)
+        local v = entry.value
+        if v == R.PENDING or v == nil then return true end -- unknown domain; may be transmog
+        local k = kindRes.peek(key)
+        return k == "transmog" or k == R.PENDING or k == nil
+    end
+
     VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", function()
         kindRes.invalidateAll(isDecorOrPending) -- re-read only decor/PENDING kind keys
-        collectedRes.invalidateAll() -- collected: decor IsUncollected; re-read all is cheap (bool)
+        collectedRes.invalidateAll(isCollectedDecorOrPending) -- re-read only decor-or-unknown collected keys
     end)
     VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", function()
         kindRes.invalidateAll(isTransmogOrPending) -- re-read only transmog/PENDING kind keys
-        collectedRes.invalidateAll()
+        collectedRes.invalidateAll(isCollectedTransmogOrPending) -- re-read only transmog-or-unknown collected keys
     end)
 
     -- Mounts/pets/transmog/decor collection events are now unified under

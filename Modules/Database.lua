@@ -39,6 +39,7 @@ function VWB.Database:InvalidateIndexes()
     itemIDIndex = nil
     VWB.ReagentSource:InvalidateIndexes()   -- else Stockroom's reagent index freezes after a harvest
     VWB.Inventory:InvalidateVariantsCache()  -- quality-variant slot lists re-derive too
+    VWB.Graph:InvalidateCyclicCache()        -- cyclicity depends on the harvested corpus (perf A2)
 end
 
 function VWB.Database:IsCraftedReagent(itemID)
@@ -99,7 +100,9 @@ function VWB.Database:GetRecipeByItemID(itemID, craftedOnly)
     return nil, nil
 end
 
--- Get all recipes that produce this itemID
+-- Get all recipes that produce this itemID. DIAGNOSTIC-ONLY (perf E7): full
+-- corpus walk with no index -- sole caller is /vwb classify. Route any future
+-- render/event-path consumer through GetRecipeByItemID's itemIDIndex instead.
 function VWB.Database:GetAllRecipesForItem(itemID)
     if not itemID then return {} end
 

@@ -16,6 +16,7 @@ local GQ = VWB.Constants.GuildQuery
 
 GC.roster = {}             -- [fullName] = { class, classFile, online, zone, rank, level, prof1Name, prof1ID, prof2Name, prof2ID, presence }
 GC.craftersByRecipe = {}   -- session cache: [recipeID] = { crafters = {...}, dataHole = bool }
+GC.craftersByRecipeCount = 0 -- maintained counter; avoids O(N) pairs loop on every FinishQuery
 GC.rosterDebounceTimer = nil
 
 GC.scanSession = 0          -- integer token; bumped per Query() call, re-checked in every deferred closure
@@ -223,13 +224,15 @@ function GC:FinishQuery(session, recipeID, crafters, dataHole)
 
     self.pendingRecipeID = nil
 
-    local cacheCount = 0
-    for _ in pairs(self.craftersByRecipe) do cacheCount = cacheCount + 1 end
-    if cacheCount >= GQ.MAX_CACHED_RECIPES then
+    if self.craftersByRecipeCount >= GQ.MAX_CACHED_RECIPES then
         for k in pairs(self.craftersByRecipe) do
             self.craftersByRecipe[k] = nil -- arbitrary eviction; session cache, not correctness-critical
+            self.craftersByRecipeCount = self.craftersByRecipeCount - 1
             break
         end
+    end
+    if not self.craftersByRecipe[recipeID] then
+        self.craftersByRecipeCount = self.craftersByRecipeCount + 1
     end
     self.craftersByRecipe[recipeID] = { crafters = crafters, dataHole = dataHole }
 
@@ -320,6 +323,7 @@ end)
 
 function GC:ClearCache()
     self.craftersByRecipe = {}
+    self.craftersByRecipeCount = 0
     self.pendingRecipeID = nil
 end
 

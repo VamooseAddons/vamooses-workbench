@@ -29,8 +29,9 @@ end
 -- consumes, and vice versa). Chaining these as "craft first" steps is garbage
 -- (transmutes are cooldown-gated and reversible; you buy the primal). One-way
 -- intermediates (Arcanite Bar: Thorium Bar + Arcane Crystal, never back to
--- Arcanite) are NOT cyclic and still expand. Memoized; cleared on rebuild
--- since cyclicity depends on which recipes are currently harvested.
+-- Arcanite) are NOT cyclic and still expand. Memoized; cleared on corpus
+-- change (Database:InvalidateIndexes) since cyclicity depends on which
+-- recipes are currently harvested -- NOT on queue edits (perf A2).
 local cyclicCache = {}
 local function IsCyclicRecipe(recipeID)
     if cyclicCache[recipeID] ~= nil then return cyclicCache[recipeID] end
@@ -55,6 +56,12 @@ local function IsCyclicRecipe(recipeID)
     local result = reaches(recipeID)
     cyclicCache[recipeID] = result
     return result
+end
+
+-- Called from Database:InvalidateIndexes when the recipe corpus changes
+-- (ADD_RECIPES) -- the only event that can alter cyclicity.
+function VWB.Graph:InvalidateCyclicCache()
+    cyclicCache = {}
 end
 
 -- Reagent-conversion recipes churn one material into another (Midnight's
@@ -130,6 +137,23 @@ function VWB.Graph:GetDirectMaterials(recipeID, qty)
     end
 
     return list
+end
+
+-- Perf D6 (2026-07-11): paint-path variant of GetDirectMaterials for the
+-- recipe-row "short N" chip -- counts basic slots short on mats for ONE craft
+-- without allocating row tables, resolving names (GetDirectMaterials fires
+-- requestNameOnce per unnamed slot; a repaint must never send server
+-- requests), or classifying reagent sources.
+function VWB.Graph:CountShortMaterials(recipeID)
+    local recipe = VWB.Database:GetRecipe(recipeID)
+    if not recipe or not recipe.slots then return 0 end -- exception(nullable): chip paint on recipes without slot data on file
+    local short = 0
+    for _, slot in ipairs(recipe.slots) do
+        if slot.type == "basic" and VWB.Inventory:GetItemCountWithVariants(slot.itemID) < slot.qty then
+            short = short + 1
+        end
+    end
+    return short
 end
 
 -- Calculate total raw materials (fully expanded shopping list)
@@ -292,9 +316,11 @@ end
 
 -- Rebuild expanded queue and shopping list from queuedRecipes state
 function VWB.Graph:RebuildCraftingState(state)
-    -- Cyclicity depends on the currently-harvested recipe set (a reverse
-    -- transmute may arrive in a later scan), so re-derive it each rebuild
-    cyclicCache = {}
+    -- Perf A2 (2026-07-11): cyclicCache is NOT cleared here. Cyclicity depends
+    -- only on the harvested recipe corpus (a reverse transmute arriving in a
+    -- later scan), so the cache is invalidated from Database:InvalidateIndexes
+    -- on ADD_RECIPES -- clearing it per queue edit re-derived every root's DFS
+    -- on each qty-stepper click.
 
     -- Phase 1: Merge demand from all queued recipes
     local demandByRecipe = {}

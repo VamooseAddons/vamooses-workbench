@@ -85,9 +85,27 @@ end
 -- required -- AddCallback only subscribes, RequestLoad initiates the stream).
 -- Callback receives the loaded name; pooled-row callers must repaint behind a
 -- token check because rows get reused before names arrive.
+-- D5: deduplicate by itemID -- multiple calls for the same item before the
+-- event fires would register N closures on ItemEventListener. Instead: first
+-- call registers ONE shared closure; subsequent calls add their fn to the
+-- fan-out list. All pending fns are called when the item data arrives.
+local _resolveItemPendingFns = {}  -- [itemID] = {fn, ...} or nil
 function VWB.UI.ResolveItemName(itemID, fn)
+    if _resolveItemPendingFns[itemID] then
+        -- Registration already in flight; queue this fn into the fan-out.
+        local list = _resolveItemPendingFns[itemID]
+        list[#list + 1] = fn
+        C_Item.RequestLoadItemDataByID(itemID) -- exception(boundary): idempotent; re-arm in case prior request timed out
+        return
+    end
+    _resolveItemPendingFns[itemID] = { fn }
     ItemEventListener:AddCallback(itemID, function()
-        fn(C_Item.GetItemInfo(itemID))
+        local name = C_Item.GetItemInfo(itemID) -- exception(boundary): Blizzard async; nil if cache missed again
+        local list = _resolveItemPendingFns[itemID]
+        _resolveItemPendingFns[itemID] = nil
+        if list then
+            for i = 1, #list do list[i](name) end
+        end
     end)
     C_Item.RequestLoadItemDataByID(itemID)
 end
@@ -123,15 +141,26 @@ function VWB.UI:HideUnusedRows(content)
     end
 end
 
-function VWB.UI:ColorCode(colorName)
-    local c = GetScheme()
-    if not c then return "|cFFffffff" end
-    local colorMap = {
+-- D2: ColorCode cache — rebuilt lazily when the scheme table identity changes
+-- (theme switches swap VWB.Theme.currentScheme to a new table). The map is
+-- module-scoped so updateRow + tooltip paths share a single allocation per
+-- theme lifetime instead of 8-entry table per call.
+local _colorCodeScheme = nil  -- scheme table that produced _colorCodeMap
+local _colorCodeMap = {}
+local function _rebuildColorCodeMap(c)
+    _colorCodeScheme = c
+    _colorCodeMap = {
         cyan = c.accent, yellow = c.warning, green = c.success, red = c.error,
         blue = c.accent, base0 = c.text, base1 = c.text_header, base01 = c.text,
         base02 = c.panel, base03 = c.bg,
     }
-    local color = colorMap[colorName]
+end
+
+function VWB.UI:ColorCode(colorName)
+    local c = GetScheme()
+    if not c then return "|cFFffffff" end
+    if c ~= _colorCodeScheme then _rebuildColorCodeMap(c) end
+    local color = _colorCodeMap[colorName]
     if color then
         return string.format("|cFF%02x%02x%02x", math.floor(color.r * 255), math.floor(color.g * 255), math.floor(color.b * 255))
     end
@@ -1069,15 +1098,24 @@ function VWB.UI:CreateSearchBox(parent, options)
     placeholder:SetText(options.placeholder or "Search...")
     box.placeholder = placeholder
 
-    -- INSTANT onChange (debounce timer deleted 2026-07-11): every consumer's
-    -- search is a small Lua corpus walk behind a Reactor computed -- the old
-    -- 0.3s delay just made typing feel laggy. The userInput check already
-    -- blocks programmatic SetText loops.
+    -- D1: 150ms trailing debounce on onChange. Each keystroke cancels the
+    -- pending timer and arms a new one; the signal write fires in the callback.
+    -- Placeholder visibility updates immediately (no debounce needed there).
+    -- ReactorWoW.after is the addon-wide timer primitive (no C_Timer).
+    -- text is re-read from the box inside the callback so it reflects the
+    -- actual final content, not the character at schedule time.
+    local _searchDebounce = nil
     box:SetScript("OnTextChanged", function(self, userInput)
         if not userInput then return end
         local text2 = self:GetText()
         placeholder:SetShown(text2 == "")
-        if options.onChange then options.onChange(text2) end
+        if options.onChange then
+            if _searchDebounce then _searchDebounce:Cancel() end
+            _searchDebounce = VWB.ReactorWoW.after(0.15, function()
+                _searchDebounce = nil
+                options.onChange(box:GetText())
+            end)
+        end
     end)
 
     box:SetScript("OnEscapePressed", function(self)
@@ -2624,10 +2662,34 @@ function VWB.UI:CreateNavTree(parent, options)
         return row
     end
 
+    -- D7: pre-bake theme hex strings per Refresh. c.text and c.text_header are
+    -- stable within a theme lifetime; computing them per-section/per-item pays
+    -- repeated string.format costs for no reason. Cache keyed by scheme identity.
+    local _navHexScheme = nil
+    local _navHexText, _navHexHeader = nil, nil
+    -- Section colors are session-stable (expansion colors don't change at
+    -- runtime); store the pre-baked hex on the section table itself, keyed by
+    -- the color table pointer. Invalidated cheaply when color table identity
+    -- changes (only on corpus reload -- effectively never at runtime).
+    local function _sectionColorHex(section)
+        local col = section.color
+        if section._hexColor ~= col then
+            section._hexColor = col
+            section._hexStr = VWB.UI:ToHex(col)
+        end
+        return section._hexStr
+    end
+
     function nav:Refresh()
         VWB.UI:ResetRows(content)
         local c = GetScheme()
         local d = VWB.Constants:GetDerivedColors(c)
+        -- Rebuild theme hex cache when scheme table identity changes (theme switch).
+        if c ~= _navHexScheme then
+            _navHexScheme = c
+            _navHexText   = VWB.UI:ToHex(c.text)
+            _navHexHeader = VWB.UI:ToHex(c.text_header)
+        end
         local yOff = 0
 
         for _, section in ipairs(self.sections or {}) do
@@ -2641,13 +2703,13 @@ function VWB.UI:CreateNavTree(parent, options)
             header.arrow:SetTextColor(c.text.r, c.text.g, c.text.b)
             if section.color then
                 header.accentBar:SetColorTexture(section.color.r, section.color.g, section.color.b, 1)
-                header.text:SetText(string.format("|cFF%s%s|r", VWB.UI:ToHex(section.color), section.label))
+                header.text:SetText(string.format("|cFF%s%s|r", _sectionColorHex(section), section.label))
             else
                 header.accentBar:SetColorTexture(c.accent.r, c.accent.g, c.accent.b, 1)
                 header.text:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b)
                 header.text:SetText(section.label)
             end
-            header.countText:SetText(section.itemCount and ("|cFF" .. VWB.UI:ToHex(c.text) .. section.itemCount .. "|r") or "")
+            header.countText:SetText(section.itemCount and ("|cFF" .. _navHexText .. section.itemCount .. "|r") or "")
             yOff = yOff - 23
 
             if not section.collapsed and section.items then
@@ -2671,7 +2733,7 @@ function VWB.UI:CreateNavTree(parent, options)
                         row.text:SetTextColor(c.text.r, c.text.g, c.text.b)
                     end
                     row.text:SetText(item.label)
-                    row.countText:SetText(item.count and ("|cFF" .. VWB.UI:ToHex(c.text) .. item.count .. "|r") or "")
+                    row.countText:SetText(item.count and ("|cFF" .. _navHexText .. item.count .. "|r") or "")
                     yOff = yOff - 19
                 end
             end

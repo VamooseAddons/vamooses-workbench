@@ -203,7 +203,31 @@ reducers.SAVE_CHARACTER_PROFESSIONS = function(st, p)
     -- Prune: a recipe belonging to a profession this character does NOT have
     -- cannot be known by them. Heals the pre-2026-07-11 union pollution for
     -- professions the character never opens (replace-by-profession can't reach those).
+    -- Gate: skip the O(~500 x recipeStore) walk when the profession NAME SET is
+    -- unchanged -- during Craft All, SKILL_LINES_CHANGED fires repeatedly but the
+    -- set of professions the character has never changes mid-session. The prune
+    -- only matters after a learn/unlearn event, which DOES change the set.
+    local pruneNeeded = false
     if p.professions then
+        local existingProfs = existing and existing.professions
+        if not existingProfs then
+            pruneNeeded = true
+        else
+            -- Count incoming names and verify each exists in the saved set.
+            local incomingCount = 0
+            for name in pairs(p.professions) do
+                incomingCount = incomingCount + 1
+                if existingProfs[name] == nil then pruneNeeded = true; break end
+            end
+            if not pruneNeeded then
+                -- Also check count in reverse (saved set may have names not in incoming).
+                local savedCount = 0
+                for _ in pairs(existingProfs) do savedCount = savedCount + 1 end
+                if savedCount ~= incomingCount then pruneNeeded = true end
+            end
+        end
+    end
+    if pruneNeeded and p.professions then
         for recipeID in pairs(known) do
             local r = st.recipeStore[recipeID] -- exception(nullable): entry may predate the current recipe store
             if r and r.profession and p.professions[r.profession] == nil then

@@ -3,11 +3,17 @@ VWB.Transmog = {}
 
 -- Appearance collection detection with cache
 
-local cache = {} -- [itemID] = { hasAppearance = bool, isCollected = bool }
+-- E4: session-lifetime caches -- no eviction; sizes are bounded by the item corpus.
+-- cache: one entry per distinct itemID whose GetStatus was called; worst case ~5k
+--   (full craftable corpus). Dead and pending IDs excluded once resolved/latched.
+-- kindCache: not present in this module (kind lives in Collectibles + Showroom resources).
+-- deadItemIDs: one entry per invalid itemID the server refused; typically <100 in a
+--   session (bad DB entries, deleted items); counted in DebugReport's "dead" field.
+local cache = {} -- [itemID] = { hasAppearance = bool, isCollected = bool }; ~5k max
 local eventFrame = nil
 local pendingItemIDs = {} -- [itemID] = true; awaiting ITEM_DATA_LOAD_RESULT to retry GetStatus
 local loadSettle = nil -- trailing-edge coalescer for ALL VWB_TRANSMOG_UPDATED fires
-local deadItemIDs = {} -- load answered success=false (removed/invalid id): NEVER re-request
+local deadItemIDs = {} -- load answered success=false (removed/invalid id): NEVER re-request; ~100 max
 local sourceAddedDirty = false -- SOURCE_ADDED burst pending: wipe uncollected cache ONCE at settle
 local stats = { srcAdded = 0, loadResolved = 0, loadDead = 0, pendsCreated = 0, fires = 0 } -- Debug tab
 

@@ -138,18 +138,52 @@ function C:BumpCollectionEpoch()
     VWB.Reactor.untrack(function() collectionEpoch(collectionEpoch() + 1) end)
 end
 
-C.UncollectedCount = VWB.Reactor.named("collectibles:uncollectedCount", function()
-    VWB.Store:Version("corpus")
-    collectionEpoch()
-    local seen, n = {}, 0
-    for _, recipe in pairs(VWB.Store:GetState().recipeStore) do
+-- Perf B1 (2026-07-11): the walk used to run synchronously inside this
+-- computed on every collect event / harvest batch -- during cache warmup
+-- (cold ClassifyKind entries re-query decor/transmog/mount/pet sources) that
+-- was an API-call storm inside the reactive flush. The walk is now a
+-- budget-ticked recount (RecipeHarvest's token discipline) whose ticks run
+-- from the timer driver, OUTSIDE any flush; the finished total lands in a
+-- plain signal. Consumers lag one recount (a few frames), never stall a flush.
+local uncollectedCount = VWB.Reactor.signal(0)
+local recountToken = 0
+local RECOUNT_CHUNK = 400 -- recipeStore keys per tick (~5k corpus = ~13 frames)
+
+local function recountTick(token, lastKey, seen, n)
+    if token ~= recountToken then return end -- superseded: a newer recount owns the answer
+    local store = VWB.Store:GetState().recipeStore
+    local processed = 0
+    local k, recipe = lastKey, nil
+    while true do
+        k, recipe = next(store, k)
+        if k == nil then
+            uncollectedCount(n)
+            return
+        end
         local itemID = recipe.itemID
         if itemID and not seen[itemID] then
             seen[itemID] = true
             if C:IsUncollectedCollectible(itemID) then n = n + 1 end
         end
+        processed = processed + 1
+        if processed >= RECOUNT_CHUNK then
+            -- Resuming next(store, k) across ticks is safe: key INSERTION only
+            -- happens via ADD_RECIPES, which bumps corpus and restarts the
+            -- recount under a fresh token before the stale walk resumes.
+            VWB.ReactorWoW.after(0, function() recountTick(token, k, seen, n) end)
+            return
+        end
     end
-    return n
+end
+
+local function requestRecount()
+    recountToken = recountToken + 1
+    local token = recountToken
+    VWB.ReactorWoW.after(0, function() recountTick(token, nil, {}, 0) end)
+end
+
+C.UncollectedCount = VWB.Reactor.named("collectibles:uncollectedCount", function()
+    return uncollectedCount()
 end)
 
 -- Collection-event fan-out: ONE owner for the mount/pet/transmog/decor
@@ -180,4 +214,12 @@ function C:Initialize()
     f:SetScript("OnEvent", onCollectionChanged)
     VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", onCollectionChanged)
     VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", onCollectionChanged)
+    -- Recount triggers: corpus growth + any collection event. The effect only
+    -- ARMS the chunked walk (no signal writes, no API calls in the flush);
+    -- runs once at init so the badge is live from login without the Showroom.
+    VWB.Reactor.effect(function()
+        VWB.Store:Version("corpus")
+        collectionEpoch()
+        requestRecount()
+    end, "collectibles:recountTrigger")
 end

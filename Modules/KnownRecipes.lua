@@ -5,6 +5,11 @@ VWB.KnownRecipes = {}
 
 local knownCache = {} -- [recipeID] = true/false
 local eventFrame = nil
+-- Last-dispatched scan set per "profession::charKey" key. Avoids re-dispatching
+-- SET_KNOWN_RECIPES (and its downstream reducer + recomputes) when TRADE_SKILL_
+-- LIST_UPDATE fires during Craft All but the learned set hasn't changed.
+-- Stores { count = N, recipes = {[recipeID]=true} }. Reset on ClearCache.
+local lastDispatchedScan = {} -- [key] = { count = N, recipes = {...} }
 
 -- ============================================================================
 -- OWN-PROFESSION FULL-RECORD HARVEST (source="own")
@@ -134,13 +139,31 @@ function VWB.KnownRecipes:ScanCurrentProfession()
     -- bug 2026-07-11: "tooltip lists all of my characters as knowing it").
     -- The profession tag lets the reducer replace-by-profession, healing
     -- already-polluted per-char maps as windows are opened.
+    -- Skip dispatch when the scan set is IDENTICAL to the last dispatched set
+    -- for this profession+char. During Craft All, TRADE_SKILL_LIST_UPDATE fires
+    -- once per craft; the learned set never changes mid-session unless a recipe
+    -- rank unlocks. Same count + every key present = identical.
     if VWB.Store then
         local baseInfo = C_TradeSkillUI.GetBaseProfessionInfo()
-        VWB.Store:Dispatch("SET_KNOWN_RECIPES", {
-            recipes = scanned,
-            charKey = VWB.CharacterData:GetCharacterKey(),
-            profession = baseInfo and baseInfo.professionName, -- exception(boundary): header may not have loaded; nil = merge-only
-        })
+        local profName = baseInfo and baseInfo.professionName -- exception(boundary): header may not have loaded; nil = merge-only
+        local charKey = VWB.CharacterData:GetCharacterKey()
+        local cacheKey = (profName or "nil") .. "::" .. charKey
+        local last = lastDispatchedScan[cacheKey]
+        local identical = false
+        if last and last.count == count then
+            identical = true
+            for recipeID in pairs(scanned) do
+                if not last.recipes[recipeID] then identical = false; break end
+            end
+        end
+        if not identical then
+            lastDispatchedScan[cacheKey] = { count = count, recipes = scanned }
+            VWB.Store:Dispatch("SET_KNOWN_RECIPES", {
+                recipes = scanned,
+                charKey = charKey,
+                profession = profName,
+            })
+        end
     end
 
     -- Trigger event
@@ -163,6 +186,7 @@ end
 -- Clear cache
 function VWB.KnownRecipes:ClearCache()
     knownCache = {}
+    lastDispatchedScan = {}
 end
 
 -- Initialize event handling

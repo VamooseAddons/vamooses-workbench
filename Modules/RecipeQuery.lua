@@ -324,11 +324,6 @@ function VWB.RecipeQuery:GetFiltered(filters)
             if VWB.DecorOwnership:IsUncollected(recipe.itemID) == false then passes = false end
         end
 
-        -- Can craft only
-        if passes and filters.canCraftOnly then
-            if not self:CanCraft(recipeID) then passes = false end
-        end
-
         -- Transmoggable scope: output is equippable gear with a visual slot
         -- (synchronous, cache-independent -- collection state is
         -- unknownTransmogOnly's job)
@@ -378,6 +373,12 @@ function VWB.RecipeQuery:GetFiltered(filters)
         -- Direct category name filter (from nav tree)
         if passes and filters.categoryName and recipe.categoryName ~= filters.categoryName then
             passes = false
+        end
+
+        -- Can craft only: runs LAST -- calls GetItemCountWithVariants per slot,
+        -- so cheaper filters above must cut the candidate set first (E5).
+        if passes and filters.canCraftOnly then
+            if not self:CanCraft(recipeID) then passes = false end
         end
 
         if passes then

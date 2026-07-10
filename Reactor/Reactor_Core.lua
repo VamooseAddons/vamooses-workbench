@@ -39,13 +39,25 @@ local function defaultEquals(a, b) return a == b end
 
 -- Drop every source->observer link for this node (called before a recompute so
 -- dynamic dependencies are re-derived fresh each run).
+-- Perf E1 (2026-07-11): swap-remove instead of table.remove -- the shift was
+-- O(observers) per unlink on top of the find scan. The scan runs from the END
+-- because hot nodes (frequent recomputers) relink there on every run. Sibling
+-- observer ORDER is not part of the contract (the coloring algorithm is
+-- order-independent; only timer fire order is specified, in ReactorWoW).
+-- The find scan itself stays O(observers); the alien-signals linked-link
+-- design that makes it O(1) is the deferred tuning pass named in the header.
 local function unlinkSources(node)
     local srcs = node.sources
     if not srcs then node.sources = {}; return end
     for i = 1, #srcs do
         local obs = srcs[i].observers
         for j = #obs, 1, -1 do
-            if obs[j] == node then table.remove(obs, j); break end
+            if obs[j] == node then
+                local last = #obs
+                obs[j] = obs[last]
+                obs[last] = nil
+                break
+            end
         end
     end
     node.sources = {}

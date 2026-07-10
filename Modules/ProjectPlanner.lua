@@ -205,8 +205,16 @@ end
 
 local prevBelowPar = {} -- [projectId] = true while a stock project sits below par
 
+-- B3: cheap early-return when there are no active projects of the relevant kind,
+-- skipping the per-project IsCollected/GetItemCount API calls and any dispatches.
 local function sweepCollectCompletions()
-    for _, p in ipairs(VWB.Store:GetState().projects.items) do
+    local items = VWB.Store:GetState().projects.items
+    local hasActive = false
+    for _, p in ipairs(items) do
+        if p.kind == "collect" and not p.completedAt then hasActive = true; break end
+    end
+    if not hasActive then return end
+    for _, p in ipairs(items) do
         if p.kind == "collect" and not p.completedAt and P:IsCollected(p.itemID) == true then
             VWB.Store:Dispatch("COMPLETE_PROJECT", { id = p.id })
         end
@@ -214,7 +222,13 @@ local function sweepCollectCompletions()
 end
 
 local function sweepStockRefills()
-    for _, p in ipairs(VWB.Store:GetState().projects.items) do
+    local items = VWB.Store:GetState().projects.items
+    local hasStock = false
+    for _, p in ipairs(items) do
+        if p.kind == "stock" then hasStock = true; break end
+    end
+    if not hasStock then return end
+    for _, p in ipairs(items) do
         if p.kind == "stock" then
             local below = P:StockLevel(p.itemID) < (p.par or 1)
             if prevBelowPar[p.id] and not below then
@@ -226,11 +240,11 @@ local function sweepStockRefills()
 end
 
 function P:Initialize()
-    local f = CreateFrame("Frame")
-    f:RegisterEvent("NEW_MOUNT_ADDED")
-    f:RegisterEvent("NEW_PET_ADDED")
-    f:SetScript("OnEvent", sweepCollectCompletions)
-    VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", sweepCollectCompletions)
-    VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", sweepCollectCompletions)
+    -- B2: Replace the duplicate CreateFrame(NEW_MOUNT_ADDED/NEW_PET_ADDED) plus the
+    -- direct VWB_TRANSMOG_UPDATED and VWB_DECOR_OWNERSHIP_UPDATE registrations with a
+    -- single canonical listener. Collectibles fans out on all four collection events
+    -- (NEW_MOUNT_ADDED, NEW_PET_ADDED, VWB_TRANSMOG_UPDATED, VWB_DECOR_OWNERSHIP_UPDATE),
+    -- so one registration covers the full collect domain with no duplicate sweeps.
+    VWB.Collectibles:RegisterCollectionListener(sweepCollectCompletions)
     VWB.EventBus:Register("VWB_INVENTORY_UPDATE", sweepStockRefills)
 end

@@ -278,10 +278,10 @@ local function ComputeRecipeChips(item, c, currentCharKey)
     if ready then
         specs[#specs + 1] = { label = "Ready", r = c.success.r, g = c.success.g, b = c.success.b }
     else
-        local shortCount = 0
-        for _, mat in ipairs(ns.Graph:GetDirectMaterials(recipeID, 1)) do
-            if mat.missing > 0 then shortCount = shortCount + 1 end
-        end
+        -- Perf D6: CountShortMaterials is the paint-path variant of
+        -- GetDirectMaterials -- no row-table allocs, no name resolution (which
+        -- fires requestNameOnce server requests a paint must never trigger).
+        local shortCount = ns.Graph:CountShortMaterials(recipeID)
         if shortCount > 0 then
             specs[#specs + 1] = { label = "short " .. shortCount, r = c.warning.r, g = c.warning.g, b = c.warning.b }
         end
@@ -331,32 +331,18 @@ local function PaintRecipeChips(row, specs)
     return textRight
 end
 
--- Group RecipeQuery:GetFiltered results into expansion sections / category
--- items for CreateNavTree (header = expansion, item = "exp::category"). Pure
--- derivation only -- a stale nav selection (filtered down to zero) is left
--- for the user to clear by clicking elsewhere; no write happens from a read
--- path (Reactor computeds must stay side-effect free).
-local function BuildNavSections(prof, searchFilter, sf, canCraftOnly, skillUpOnly, missingActive)
-    local results = ns.RecipeQuery:GetFiltered({
-        profession = prof,
-        search = searchFilter ~= "" and searchFilter or nil,
-        decorOnly = sf.decorOnly,
-        uncollectedDecorOnly = sf.uncollectedDecorOnly,
-        transmogOnly = sf.transmogOnly,
-        unknownTransmogOnly = sf.unknownTransmogOnly,
-        canCraftOnly = canCraftOnly,
-        skillUpOnly = skillUpOnly,
-        collapseRanks = true,
-    })
-
+-- Group an already-filtered entry array ({recipeID, recipe} from the shared
+-- filteredBase computed -- perf A1 2026-07-11: this used to run its own
+-- GetFiltered corpus walk) into expansion sections / category items for
+-- CreateNavTree (header = expansion, item = "exp::category"). Pure derivation
+-- only -- a stale nav selection (filtered down to zero) is left for the user
+-- to clear by clicking elsewhere; no write happens from a read path (Reactor
+-- computeds must stay side-effect free).
+local function BuildNavSections(results, searchFilter, exps)
     local expCatCounts = {}
     for _, entry in ipairs(results) do
         local r = entry.recipe
-        -- Mirror the recipeList post-filter so nav counts match the list.
-        if missingActive and not sf.unknownTransmogOnly and not sf.uncollectedDecorOnly
-            and not _isMissingCollectible(r.itemID) then
-            -- skip: missing pill excludes this non-collectible/collected item
-        elseif r.expansion then
+        if r.expansion then
             local cats = expCatCounts[r.expansion]
             if not cats then cats = {}; expCatCounts[r.expansion] = cats end
             local cat = r.categoryName or "Uncategorized"
@@ -366,7 +352,6 @@ local function BuildNavSections(prof, searchFilter, sf, canCraftOnly, skillUpOnl
 
     local forceOpenTree = searchFilter ~= ""
     local navCollapsed = ns.Store:GetState().ui.navCollapsed
-    local exps = ns.RecipeQuery:GetExpansions(prof)
 
     local sections = {}
     for _, exp in ipairs(exps) do
@@ -415,7 +400,10 @@ end
 -- recipeID so pooled rows can detect the false->true transition and Flash().
 -- Keyed by recipeID; value = bool (last rendered craftable state). Lives at
 -- module scope so it persists across row reuse (pooled rows can't hold it).
+-- Perf E3: capped -- wiped past 4096 entries (a wipe only costs the flash
+-- baseline; the next paint of each row re-seeds it).
 local priorCraftable = {}
+local priorCraftableCount = 0
 
 function Recipes.buildView(container)
     local R = ns.Reactor
@@ -445,73 +433,96 @@ function Recipes.buildView(container)
     local emptyCard
     local scopePill  -- "planning as <name> [x]" pill; shown when scope is active
 
-    -- Rank-collapsed recipe records, re-derived on recipe/queue/character/nav
-    -- changes. Scoped to the exact slices the filters touch (NOT the blanket
+    -- Perf A1 (2026-07-11): ONE shared corpus walk. filteredBase runs
+    -- GetFiltered WITHOUT expansion/category (the nav tree IS that selector);
+    -- recipeList post-filters the base array (cheap) and navSections groups it.
+    -- Previously recipeList and BuildNavSections each ran their own full
+    -- GetFiltered walk, and GetExpansions added a third.
+    --
+    -- Scoped to the exact slices the filters touch (NOT the blanket
     -- Store:Version()) so a config/minimap-only dispatch never re-derives this.
     -- nav slice covers SET_SCOPE writes so effectiveCharKey() re-derives live.
-    local recipeList = R.named("recipes:recipeList", function()
+    -- The crafting slice is subscribed ONLY while the Craftable pill is on
+    -- (CanCraft nets out queue commitments) -- with the pill off, a queue
+    -- keystroke no longer re-runs any corpus walk.
+    local filteredBase = R.named("recipes:filteredBase", function()
         ns.Store:Version("recipes")
-        ns.Store:Version("crafting")
         ns.Store:Version("characters")
         ns.Store:Version("nav") -- covers SET_SCOPE / CLEAR_SCOPE writes
 
         local prof = profession()
         if not prof then return {} end
 
-        local uiState = ns.Store:GetState().ui
-        local filterCategoryName = nil
-        if uiState.navSelectedItem then
-            local _, cat = uiState.navSelectedItem:match("^(.-)::(.+)$")
-            filterCategoryName = cat
-        end
-
         local missing = missingPill()
         -- Subscribe to collection epoch when the pill is on so mount/pet collects
         -- re-derive this computed (collection state lives outside the Store).
         if missing then VWB.Collectibles.CollectionEpoch() end
+        local cco = canCraftOnly()
+        if cco then ns.Store:Version("crafting") end
         local sf = ScopeFilters(transmogScope(), decorMode(), missing)
         local q = search()
-        local out = {}
-        for _, e in ipairs(ns.RecipeQuery:GetFiltered({
+        local results = ns.RecipeQuery:GetFiltered({
             collapseRanks = true,
             profession = prof,
-            expansion = uiState.navSelectedExp,
-            categoryName = filterCategoryName,
             search = q ~= "" and q or nil,
-            canCraftOnly = canCraftOnly(),
+            canCraftOnly = cco,
             skillUpOnly = skillUpOnly(),
             transmogOnly = sf.transmogOnly,
             unknownTransmogOnly = sf.unknownTransmogOnly,
             decorOnly = sf.decorOnly,
             uncollectedDecorOnly = sf.uncollectedDecorOnly,
-        })) do
-            -- Missing pill post-filter: exclude collected collectibles.
-            -- Decor (when decorMode=="decor") is already filtered by
-            -- uncollectedDecorOnly above; this post-filter covers the remaining
-            -- kinds (mount/pet/transmog) when the pill is on without transmog
-            -- scope, and decor in "all" type mode.
-            -- When transmog scope is on, unknownTransmogOnly already handled it.
-            if not missing or sf.unknownTransmogOnly or sf.uncollectedDecorOnly
-                or _isMissingCollectible(e.recipe.itemID) then
-                out[#out + 1] = e.recipe
+        })
+        -- Missing pill post-filter: exclude collected collectibles. Decor
+        -- (when decorMode=="decor") is already filtered by uncollectedDecorOnly
+        -- above; transmog scope by unknownTransmogOnly. This covers the
+        -- remaining kinds (mount/pet/transmog without scope, decor in "all"
+        -- type mode). Applied HERE so list rows and nav counts stay in step.
+        if not missing or sf.unknownTransmogOnly or sf.uncollectedDecorOnly then
+            return results
+        end
+        local out = {}
+        for _, e in ipairs(results) do
+            if _isMissingCollectible(e.recipe.itemID) then out[#out + 1] = e end
+        end
+        return out
+    end)
+
+    local recipeList = R.named("recipes:recipeList", function()
+        ns.Store:Version("nav") -- navSelectedExp / navSelectedItem clicks
+        local uiState = ns.Store:GetState().ui
+        local exp = uiState.navSelectedExp
+        if exp == "AllExps" then exp = nil end -- GetFiltered's "no filter" spelling
+        local cat = nil
+        if uiState.navSelectedItem then
+            local _, c = uiState.navSelectedItem:match("^(.-)::(.+)$")
+            cat = c
+        end
+        local out = {}
+        for _, e in ipairs(filteredBase()) do
+            local r = e.recipe
+            if (not exp or r.expansion == exp) and (not cat or r.categoryName == cat) then
+                out[#out + 1] = r
             end
         end
         return out
     end)
 
-    -- Nav tree mirrors the list's filter universe MINUS expansion/category (the
-    -- tree IS that selector) so section counts match what the list would show.
-    local navSections = R.named("recipes:navSections", function()
+    -- Expansion list for the nav tree: corpus + profession only -- a search
+    -- keystroke or queue edit must not re-walk the corpus for this.
+    local profExpansions = R.named("recipes:profExpansions", function()
         ns.Store:Version("recipes")
-        ns.Store:Version("crafting")
-        ns.Store:Version("characters")
-        ns.Store:Version("nav")
-
         local prof = profession()
         if not prof then return {} end
-        local missing = missingPill()
-        if missing then VWB.Collectibles.CollectionEpoch() end
-        return BuildNavSections(prof, search(), ScopeFilters(transmogScope(), decorMode(), missing), canCraftOnly(), skillUpOnly(), missing)
+        return ns.RecipeQuery:GetExpansions(prof)
+    end)
+
+    -- Nav tree mirrors the list's filter universe MINUS expansion/category (the
+    -- tree IS that selector) so section counts match what the list would show.
+    -- No profession guard needed: filteredBase and profExpansions both return
+    -- {} pre-profession, and BuildNavSections over empty inputs is {}.
+    local navSections = R.named("recipes:navSections", function()
+        ns.Store:Version("nav") -- navCollapsed toggles
+        return BuildNavSections(filteredBase(), search(), profExpansions())
     end)
 
     -- Crafting queue + materials come from state.crafting, which the queue
@@ -612,6 +623,10 @@ function Recipes.buildView(container)
                     local prev = priorCraftable[item.recipeID]
                     if craftableNow and prev == false then
                         if row._washHandle then row._washHandle:Flash() end
+                    end
+                    if prev == nil then
+                        priorCraftableCount = priorCraftableCount + 1
+                        if priorCraftableCount > 4096 then priorCraftable = {}; priorCraftableCount = 1 end
                     end
                     priorCraftable[item.recipeID] = craftableNow
                 end,
@@ -1071,20 +1086,27 @@ function Recipes.buildView(container)
         VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
         ns.Store:Version("crafting")
         local mats = ns.Store:GetState().crafting.shoppingList
-        local out = {}
+        -- Perf A4: allocate the joined array only when some name actually
+        -- resolved differently; the common no-mismatch repaint passes the
+        -- Graph-built list straight through (SetData never mutates it).
+        local out = nil
         for i = 1, #mats do
             local mat = mats[i]
             local resolved = matNameRes(mat.itemID)
             if resolved ~= R.PENDING and resolved ~= mat.name then
+                if not out then
+                    out = {}
+                    for j = 1, i - 1 do out[j] = mats[j] end
+                end
                 local copy = {}
                 for k, v in pairs(mat) do copy[k] = v end
                 copy.name = resolved
                 out[i] = copy
-            else
+            elseif out then
                 out[i] = mat
             end
         end
-        materialsWidget:SetData(out)
+        materialsWidget:SetData(out or mats)
     end, "recipes:materials")
     R.bindText(handle.byId.rcpMatHeader.label, function() return "Reagents for Crafting Queue" end)
 

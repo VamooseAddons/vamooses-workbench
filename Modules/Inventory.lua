@@ -30,9 +30,10 @@ function VWB.Inventory:InvalidateVariantsCache()
     variantsCache = nil
 end
 
--- Tracked items = shopping-list materials + queued crafted outputs. Counts are
--- snapshotted so the update event only fires when one actually moves --
--- consumers repaint (and will pulse) on it, so no-op fires must not happen.
+-- Tracked items = shopping-list materials + queued crafted outputs + stock-
+-- project pars. Counts are snapshotted so the update event only fires when one
+-- actually moves -- consumers repaint (and will pulse) on it, so no-op fires
+-- must not happen.
 local lastCounts = nil
 
 local function CollectTrackedCounts()
@@ -48,23 +49,42 @@ local function CollectTrackedCounts()
             counts[itemID] = VWB.Inventory:GetItemCountWithVariants(itemID)
         end
     end
+    -- Stock projects par-watch their item INDEPENDENT of the crafting queue:
+    -- ProjectPlanner's refill sweep and the Projects view's level bars ride
+    -- VWB_INVENTORY_UPDATE, so their items must be in the tracked set or an
+    -- empty queue starves them of events entirely (perf-review follow-up
+    -- 2026-07-11). Dormant (stocked) projects stay tracked -- dropping below
+    -- par is exactly the transition the sweep exists to catch.
+    for _, p in ipairs(state.projects.items) do
+        if p.kind == "stock" and p.itemID and counts[p.itemID] == nil then
+            counts[p.itemID] = VWB.Inventory:GetItemCountWithVariants(p.itemID)
+        end
+    end
     return counts
 end
 
--- Initialize event handling. NO debounce timer (deleted 2026-07-11): the old
--- 0.3s coalescer duplicated BAG_UPDATE_DELAYED, which IS Blizzard's own
--- fires-once-after-the-burst event -- so per-bag BAG_UPDATE isn't registered
--- at all. Bank events are singular; same-frame multiples coalesce in the
--- Reactor flush downstream anyway.
-function VWB.Inventory:Initialize()
-    local frame = CreateFrame("Frame")
-    frame:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
-    frame:RegisterEvent("PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED") -- counts include warband bank
-    frame:RegisterEvent("BAG_UPDATE_DELAYED") -- Blizzard-coalesced: once per bag-change burst
-    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+-- Initialize event handling. All four event paths coalesce through a single
+-- 0.25s trailing-edge settle (armSettle pattern, same as Transmog.lua).
+-- PLAYERBANKSLOTS_CHANGED fires PER SLOT during bank sessions -- the settle
+-- absorbs the burst. BAG_UPDATE_DELAYED is already Blizzard-coalesced, but
+-- still runs through the same settle so we have one code path.
+-- Empty-list short-circuit: when neither shoppingList nor expandedQueue has
+-- items there is nothing to count and no downstream consumer cares -- skip
+-- both the scan and the event fire entirely.
+local inventorySettle = nil
 
-    frame:SetScript("OnEvent", function()
+local function armInventorySettle()
+    if inventorySettle then inventorySettle:Cancel() end
+    inventorySettle = VWB.ReactorWoW.after(0.25, function()
+        inventorySettle = nil
+        -- Short-circuit AFTER collecting: an empty tracked set (no queue, no
+        -- stock projects) makes zero GetItemCount calls in the collect anyway,
+        -- and checking the RESULT covers all three tracked sources at once.
         local counts = CollectTrackedCounts()
+        if next(counts) == nil then
+            lastCounts = nil -- reset so a later add re-scans cleanly
+            return
+        end
         local changed = {}
         for id, c in pairs(counts) do
             if not lastCounts or lastCounts[id] ~= c then
@@ -80,6 +100,18 @@ function VWB.Inventory:Initialize()
         if #changed > 0 then
             VWB.EventBus:Trigger("VWB_INVENTORY_UPDATE", { changed = changed })
         end
+    end)
+end
+
+function VWB.Inventory:Initialize()
+    local frame = CreateFrame("Frame")
+    frame:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
+    frame:RegisterEvent("PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED") -- counts include warband bank
+    frame:RegisterEvent("BAG_UPDATE_DELAYED") -- Blizzard-coalesced: once per bag-change burst
+    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+
+    frame:SetScript("OnEvent", function()
+        armInventorySettle()
     end)
 end
 

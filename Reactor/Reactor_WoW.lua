@@ -95,20 +95,26 @@ function ReactorWoW.install(opts)
     timerDriver:SetScript("OnUpdate", function(self)
         local t = now()
         local due
-        local i = 1
-        while i <= #timers do
+        -- Perf E2 (2026-07-11): stable in-place compaction (write index)
+        -- instead of table.remove per expired/cancelled entry -- one pass,
+        -- no per-removal shifts, schedule order preserved. The numeric-for
+        -- limit is captured before the body nils slots, so the sweep covers
+        -- exactly the entries present when the frame began.
+        local w = 0
+        for i = 1, #timers do
             local e = timers[i]
+            timers[i] = nil
             if e.cancelled then
-                table.remove(timers, i)
+                -- dropped
             elseif e.at <= t then
-                table.remove(timers, i)
                 due = due or {}
                 due[#due + 1] = e
             else
-                i = i + 1
+                w = w + 1
+                timers[w] = e
             end
         end
-        if #timers == 0 then self:Hide() end -- before callbacks: they may re-arm via after()
+        if w == 0 then self:Hide() end -- before callbacks: they may re-arm via after()
         if due then
             for j = 1, #due do due[j].fn() end
         end

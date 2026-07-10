@@ -337,10 +337,16 @@ function Projects.buildView(container)
         return n
     end
     -- Overlay a resolved name without mutating the derived plan row.
+    -- D4: plain shallow copy instead of setmetatable -- avoids a table+metatable
+    -- alloc per row per flush; these are small rows (5-8 fields) so pairs-copy is
+    -- cheaper than rooting a metatable chain.
     local function withLiveName(row)
         local resolved = liveName(row.itemID, row.name)
         if resolved == row.name then return row end
-        return setmetatable({ name = resolved }, { __index = row })
+        local copy = {}
+        for k, v in pairs(row) do copy[k] = v end
+        copy.name = resolved
+        return copy
     end
 
     -- goal list -> derived plans, split active/shelf, board-sorted
