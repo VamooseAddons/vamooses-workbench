@@ -123,7 +123,11 @@ local function navMakeFrame(node, parent)
 end
 
 function Shell.openWindow()
-    if Shell._win then Shell._win:Show(); return Shell._win end
+    if Shell._win then
+        ns.CharacterData:ScanCurrentProfessions() -- refresh own slots per open (first-open path scans below)
+        Shell._win:Show()
+        return Shell._win
+    end
 
     local s = VWB.UI:GetScheme()
     local win = CreateFrame("Frame", "VWB_Main", UIParent, "BackdropTemplate")
