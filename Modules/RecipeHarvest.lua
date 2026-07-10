@@ -356,7 +356,7 @@ function Harvest:Start()
 
     VWB.EventBus:Trigger("VWB_HARVEST_PROGRESS", { phase = "headers", done = 0, total = 0 })
 
-    C_Timer.After(HC.HEADER_TIMEOUT, function()
+    VWB.ReactorWoW.after(HC.HEADER_TIMEOUT, function()
         if self.token ~= token then return end
         if self.active and #self.queue == 0 and self.professionsTotal == 0 then
             self:Finish(token, "No guild profession data received")
@@ -474,13 +474,13 @@ function Harvest:LoadNextProfession()
 
     -- Timeout safety: Mining is the largest profession (every ore node variant
     -- across every expansion), 10s covers it comfortably.
-    C_Timer.After(HC.PROFESSION_TIMEOUT, function()
+    VWB.ReactorWoW.after(HC.PROFESSION_TIMEOUT, function()
         if self.token ~= token then return end
         if self.loadingProfession == prof.id then
             DebugPrint("Timeout on profession " .. prof.name .. ", skipping...")
             self.loadingProfession = nil
             self:RestoreProfessionsFrame()
-            C_Timer.After(HC.INTER_PROFESSION_PAUSE, function()
+            VWB.ReactorWoW.after(HC.INTER_PROFESSION_PAUSE, function()
                 if self.token ~= token then return end
                 self:LoadNextProfession()
             end)
@@ -497,7 +497,7 @@ function Harvest:OnProfessionLoaded()
     local recipeIDs = C_TradeSkillUI.GetAllRecipeIDs() -- exception(boundary): nil if the profession isn't ready yet
     if not recipeIDs then
         self:RestoreProfessionsFrame()
-        C_Timer.After(HC.INTER_PROFESSION_PAUSE, function()
+        VWB.ReactorWoW.after(HC.INTER_PROFESSION_PAUSE, function()
             if self.token ~= token then return end
             self:LoadNextProfession()
         end)
@@ -542,7 +542,7 @@ function Harvest:ScanCurrentProfession(recipeIDs, prof, token)
         })
 
         if idx <= total then
-            C_Timer.After(0, tick)
+            VWB.ReactorWoW.after(0, tick) -- next frame, same as C_Timer.After(0)
             return
         end
 
@@ -559,7 +559,7 @@ function Harvest:ScanCurrentProfession(recipeIDs, prof, token)
         end
 
         self:RestoreProfessionsFrame()
-        C_Timer.After(HC.INTER_PROFESSION_PAUSE, function()
+        VWB.ReactorWoW.after(HC.INTER_PROFESSION_PAUSE, function()
             if self.token ~= token then return end
             self:LoadNextProfession()
         end)

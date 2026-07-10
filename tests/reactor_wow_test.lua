@@ -63,5 +63,74 @@ do
     check("resource resolved after event + flush", got == 42)
 end
 
+-- 3. ReactorWoW.after: the C_Timer replacement (virtual clock via opts.now) ---
+do
+    local clock = 0
+    local created2 = {}
+    ns.ReactorWoW.install({
+        createFrame = function() local m = mockFrame(); created2[#created2 + 1] = m; return m end,
+        now = function() return clock end,
+    })
+    local tdriver = created2[3] -- driver(1), eventFrame(2), timerDriver(3)
+    local function ttick() tdriver._scripts.OnUpdate(tdriver) end
+    local after = ns.ReactorWoW.after
+
+    -- fires at/after the delay, not before
+    local fired = 0
+    after(1.0, function() fired = fired + 1 end)
+    check("timer driver armed on schedule", tdriver._shown == true)
+    ttick()
+    check("not fired before the delay", fired == 0)
+    clock = 0.99; ttick()
+    check("not fired just under the delay", fired == 0)
+    clock = 1.0; ttick()
+    check("fired at the delay", fired == 1)
+    check("driver hid itself when drained", tdriver._shown == false)
+    ttick()
+    check("one-shot: does not refire", fired == 1)
+
+    -- zero delay = next tick (C_Timer.After(0) parity)
+    local zero = false
+    after(0, function() zero = true end)
+    check("zero-delay not synchronous", zero == false)
+    ttick()
+    check("zero-delay fired on next tick", zero == true)
+
+    -- cancel prevents firing
+    local dead = false
+    local h = after(0, function() dead = true end)
+    h:Cancel()
+    ttick()
+    check("cancelled timer never fires", dead == false)
+    check("driver drained after cancel sweep", tdriver._shown == false)
+
+    -- same-tick fire order = schedule order
+    local order = {}
+    after(0, function() order[#order + 1] = "a" end)
+    after(0, function() order[#order + 1] = "b" end)
+    ttick()
+    check("same-tick timers fire in schedule order", order[1] == "a" and order[2] == "b")
+
+    -- a timer scheduled DURING a callback waits for the next sweep (C_Timer parity)
+    local chain = {}
+    after(0, function()
+        chain[#chain + 1] = "outer"
+        after(0, function() chain[#chain + 1] = "inner" end)
+    end)
+    ttick()
+    check("callback-scheduled timer did not run same sweep", #chain == 1 and chain[1] == "outer")
+    check("driver re-armed by the callback's schedule", tdriver._shown == true)
+    ttick()
+    check("callback-scheduled timer ran next sweep", chain[2] == "inner")
+
+    -- debounce idiom: cancel + reschedule keeps only the last
+    local hits = 0
+    local d = after(0.5, function() hits = hits + 1 end)
+    d:Cancel()
+    d = after(0.5, function() hits = hits + 1 end)
+    clock = clock + 0.5; ttick()
+    check("debounce idiom: exactly one fire after re-arm", hits == 1)
+end
+
 print(string.format("Reactor WoW: %d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

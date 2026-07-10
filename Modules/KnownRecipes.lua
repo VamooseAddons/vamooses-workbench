@@ -74,7 +74,7 @@ local function HarvestOwnProfession(recipeIDs, profName)
         end
 
         if idx <= total then
-            C_Timer.After(0, tick)
+            VWB.ReactorWoW.after(0, tick) -- next frame, same as C_Timer.After(0)
             return
         end
 
@@ -167,19 +167,16 @@ end
 
 -- Initialize event handling
 function VWB.KnownRecipes:Initialize()
+    -- No TRADE_SKILL_SHOW handler (deleted 2026-07-11): the delayed SHOW scan
+    -- raced the exact same work as the LIST_UPDATE path below -- Blizzard
+    -- bursts LIST_UPDATE 3-5x on initial window load, so the debounced scan
+    -- always runs anyway. One trigger, one owner.
     eventFrame = CreateFrame("Frame")
-    eventFrame:RegisterEvent("TRADE_SKILL_SHOW")
     eventFrame:RegisterEvent("TRADE_SKILL_LIST_UPDATE")
     eventFrame:RegisterEvent("TRADE_SKILL_ITEM_CRAFTED_RESULT")
 
     eventFrame:SetScript("OnEvent", function(self, event, ...)
-        if event == "TRADE_SKILL_SHOW" then
-            if IsGuildOrOtherPlayerSession() then return end -- guild-harvest choreography (or another player's linked skill) owns this session
-            C_Timer.After(0.1, function()
-                if IsGuildOrOtherPlayerSession() then return end
-                VWB.KnownRecipes:ScanCurrentProfession()
-            end)
-        elseif event == "TRADE_SKILL_LIST_UPDATE" then
+        if event == "TRADE_SKILL_LIST_UPDATE" then
             if C_TradeSkillUI.IsTradeSkillReady() then
                 if IsGuildOrOtherPlayerSession() then return end -- not the player's own data; don't contaminate known-recipe/skill/harvest caches
 
@@ -188,7 +185,7 @@ function VWB.KnownRecipes:Initialize()
                 -- scan + skill-scan + own-harvest into ONE pass after the burst settles
                 -- -- otherwise every craft re-walks the profession + re-dispatches.
                 if ownHarvestDebounce then ownHarvestDebounce:Cancel() end
-                ownHarvestDebounce = C_Timer.NewTimer(VWB.Constants.Harvest.OWN_HARVEST_DEBOUNCE, function()
+                ownHarvestDebounce = VWB.ReactorWoW.after(VWB.Constants.Harvest.OWN_HARVEST_DEBOUNCE, function()
                     ownHarvestDebounce = nil
                     if IsGuildOrOtherPlayerSession() then return end -- session may have changed during the debounce wait
                     if not C_TradeSkillUI.IsTradeSkillReady() then return end -- exception(boundary): window may have closed during the 0.5s wait

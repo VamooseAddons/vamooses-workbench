@@ -4,7 +4,6 @@ VWB.Inventory = {}
 -- Bag/bank/warband counting with quality variant support and debounced updates
 
 local variantsCache = nil -- [baseItemID] = { variantID1, variantID2, ... }
-local debounceTimer = nil
 
 -- Build quality variants lookup from the live recipe store
 local function BuildVariantsCache()
@@ -52,39 +51,35 @@ local function CollectTrackedCounts()
     return counts
 end
 
--- Initialize event handling
+-- Initialize event handling. NO debounce timer (deleted 2026-07-11): the old
+-- 0.3s coalescer duplicated BAG_UPDATE_DELAYED, which IS Blizzard's own
+-- fires-once-after-the-burst event -- so per-bag BAG_UPDATE isn't registered
+-- at all. Bank events are singular; same-frame multiples coalesce in the
+-- Reactor flush downstream anyway.
 function VWB.Inventory:Initialize()
     local frame = CreateFrame("Frame")
-    frame:RegisterEvent("BAG_UPDATE")
     frame:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
     frame:RegisterEvent("PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED") -- counts include warband bank
-    frame:RegisterEvent("BAG_UPDATE_DELAYED")
+    frame:RegisterEvent("BAG_UPDATE_DELAYED") -- Blizzard-coalesced: once per bag-change burst
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
-    frame:SetScript("OnEvent", function(self, event, ...)
-        if debounceTimer then
-            debounceTimer:Cancel()
+    frame:SetScript("OnEvent", function()
+        local counts = CollectTrackedCounts()
+        local changed = {}
+        for id, c in pairs(counts) do
+            if not lastCounts or lastCounts[id] ~= c then
+                table.insert(changed, id)
+            end
         end
-
-        debounceTimer = C_Timer.NewTimer(0.3, function()
-            debounceTimer = nil
-            local counts = CollectTrackedCounts()
-            local changed = {}
-            for id, c in pairs(counts) do
-                if not lastCounts or lastCounts[id] ~= c then
-                    table.insert(changed, id)
-                end
+        if lastCounts then
+            for id in pairs(lastCounts) do
+                if counts[id] == nil then table.insert(changed, id) end -- left the tracked set
             end
-            if lastCounts then
-                for id in pairs(lastCounts) do
-                    if counts[id] == nil then table.insert(changed, id) end -- left the tracked set
-                end
-            end
-            lastCounts = counts
-            if #changed > 0 then
-                VWB.EventBus:Trigger("VWB_INVENTORY_UPDATE", { changed = changed })
-            end
-        end)
+        end
+        lastCounts = counts
+        if #changed > 0 then
+            VWB.EventBus:Trigger("VWB_INVENTORY_UPDATE", { changed = changed })
+        end
     end)
 end
 

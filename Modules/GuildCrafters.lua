@@ -56,7 +56,7 @@ function GC:DebouncedRosterRefresh()
     if self.rosterDebounceTimer then
         self.rosterDebounceTimer:Cancel()
     end
-    self.rosterDebounceTimer = C_Timer.NewTimer(GQ.ROSTER_DEBOUNCE, function()
+    self.rosterDebounceTimer = VWB.ReactorWoW.after(GQ.ROSTER_DEBOUNCE, function()
         self:RefreshRoster()
     end)
 end
@@ -171,7 +171,7 @@ function GC:TryNextProfession(session, recipeID)
 
     C_GuildInfo.QueryGuildMembersForRecipe(skillLineID, recipeID, 1)
 
-    C_Timer.After(GQ.CRAFTER_TIMEOUT, function()
+    VWB.ReactorWoW.after(GQ.CRAFTER_TIMEOUT, function()
         if session ~= self.scanSession then return end
         if self.pendingRecipeID == recipeID and self.queryList[self.queryIndex] == skillLineID then
             self:TryNextProfession(session, recipeID)

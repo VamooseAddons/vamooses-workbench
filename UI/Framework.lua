@@ -1011,7 +1011,6 @@ end
 function VWB.UI:CreateSearchBox(parent, options)
     options = options or {}
     local scheme = GetScheme()
-    local debounceTime = options.debounce or 0.3
 
     local box = CreateFrame("EditBox", nil, parent, "BackdropTemplate")
     box:SetSize(options.width or 200, options.height or 22)
@@ -1031,16 +1030,15 @@ function VWB.UI:CreateSearchBox(parent, options)
     placeholder:SetText(options.placeholder or "Search...")
     box.placeholder = placeholder
 
-    -- Debounced onChange
-    local timer = nil
+    -- INSTANT onChange (debounce timer deleted 2026-07-11): every consumer's
+    -- search is a small Lua corpus walk behind a Reactor computed -- the old
+    -- 0.3s delay just made typing feel laggy. The userInput check already
+    -- blocks programmatic SetText loops.
     box:SetScript("OnTextChanged", function(self, userInput)
         if not userInput then return end
         local text2 = self:GetText()
         placeholder:SetShown(text2 == "")
-        if timer then timer:Cancel() end
-        timer = C_Timer.NewTimer(debounceTime, function()
-            if options.onChange then options.onChange(text2) end
-        end)
+        if options.onChange then options.onChange(text2) end
     end)
 
     box:SetScript("OnEscapePressed", function(self)

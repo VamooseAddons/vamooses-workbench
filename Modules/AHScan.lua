@@ -133,7 +133,7 @@ function VWB.AHScan:StartScan(force)
 
     scan.active = true
     scan.pages = 0
-    scan.timeoutTimer = C_Timer.NewTimer(SCAN_TIMEOUT, function()
+    scan.timeoutTimer = VWB.ReactorWoW.after(SCAN_TIMEOUT, function()
         VWB.AHScan:_FinalizeScan()
     end)
     VWB.EventBus:Trigger("VWB_AH_SCAN_STARTED", {})
