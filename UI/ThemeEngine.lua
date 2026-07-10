@@ -1,0 +1,534 @@
+-- ============================================================================
+-- VamoosesWorkbench - Theme Engine
+-- Weak-table widget registry with pure-function skinners for live switching
+-- ============================================================================
+
+VWB = VWB or {}
+VWB.Theme = {}
+
+-- Weak table: widgets auto-removed on garbage collection
+VWB.Theme.registry = setmetatable({}, { __mode = "k" })
+VWB.Theme.currentScheme = nil
+
+-- ============================================================================
+-- CENTRALIZED BACKDROP DEFINITIONS
+-- ============================================================================
+
+VWB.Theme.BACKDROP_FLAT = {
+    bgFile = "Interface\\Buttons\\WHITE8x8",
+    edgeFile = "Interface\\Buttons\\WHITE8x8",
+    edgeSize = 1,
+    insets = { left = 0, right = 0, top = 0, bottom = 0 }
+}
+
+VWB.Theme.BACKDROP_BORDERLESS = {
+    bgFile = "Interface\\Buttons\\WHITE8x8",
+    edgeFile = nil,
+    tile = false,
+}
+
+VWB.Theme.BACKDROP_PANEL = {
+    bgFile = "Interface\\FrameGeneral\\UI-Background-Marble",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 64, edgeSize = 12,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+}
+
+VWB.Theme.BACKDROP_CARD = {
+    bgFile = "Interface\\FrameGeneral\\UI-Background-Marble",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 32, edgeSize = 10,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+}
+
+-- ============================================================================
+-- INITIALIZATION
+-- ============================================================================
+
+function VWB.Theme:Initialize()
+    -- Store:Initialize ran first (VWB_Init), so state.config aliases the persisted
+    -- VWB_DB.config -- read the saved theme strictly.
+    local themeKey = VWB.Store:GetState().config.theme or "solarizeddark" -- exception(optional): unset until the user first picks a theme
+    local themeName = VWB.Constants.ThemeNames[themeKey] or "SolarizedDark" -- exception(boundary): stale/legacy persisted key -> safe default
+    self.currentScheme = VWB.Colors.Schemes[themeName]
+
+    VWB.EventBus:Register("VWB_THEME_UPDATE", function(payload)
+        if payload.themeName then -- font/opacity refreshes fire without themeName; keep current scheme
+            self.currentScheme = VWB.Colors.Schemes[payload.themeName]
+        end
+        self:UpdateAll()
+    end)
+end
+
+-- ============================================================================
+-- REGISTRY API
+-- ============================================================================
+
+function VWB.Theme:Register(widget, widgetType)
+    self.registry[widget] = widgetType
+    if self.Skinners[widgetType] and self.currentScheme then
+        self.Skinners[widgetType](widget, self.currentScheme)
+    end
+end
+
+function VWB.Theme:UpdateAll()
+    for widget, widgetType in pairs(self.registry) do
+        if self.Skinners[widgetType] then
+            self.Skinners[widgetType](widget, self.currentScheme)
+        end
+    end
+end
+
+function VWB.Theme:GetScheme()
+    return self.currentScheme or VWB.Colors.Schemes.SolarizedDark
+end
+
+-- ============================================================================
+-- HELPERS
+-- ============================================================================
+
+
+local function GetBgOpacity()
+    if VWB.Store then
+        local state = VWB.Store:GetState()
+        if state and state.config then return state.config.bgOpacity or 0.9 end
+    end
+    return 0.9
+end
+VWB.Theme.GetBgOpacity = GetBgOpacity
+
+local function ApplyFont(fontString, scheme, fontType)
+    if not fontString or not fontString.SetFont then return end
+    fontType = fontType or "body"
+    scheme = scheme or VWB.Theme.currentScheme
+    if not scheme or not scheme.fonts then return end
+    local f = scheme.fonts[fontType] or scheme.fonts.body
+    if f then
+        local fontFile = VWB.Constants:GetFontFile()
+        fontString:SetFont(fontFile, f.size, f.flags or "")
+    end
+end
+VWB.Theme.ApplyFont = ApplyFont
+
+-- Atlas texture helpers
+local function ApplyAtlasBackground(frame, atlasName)
+    if not frame or not atlasName then return end
+    if not frame._atlasBg then
+        frame._atlasBg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
+        frame._atlasBg:SetAllPoints()
+    end
+    frame._atlasBg:SetAtlas(atlasName, true)
+    frame._atlasBg:Show()
+end
+
+local function ApplyAtlasHeader(titleBar, atlasName)
+    if not titleBar or not atlasName then return end
+    if not titleBar._atlasHeader then
+        titleBar._atlasHeader = titleBar:CreateTexture(nil, "BACKGROUND", nil, -8)
+        titleBar._atlasHeader:SetAllPoints()
+    end
+    titleBar._atlasHeader:SetAtlas(atlasName, true)
+    titleBar._atlasHeader:Show()
+end
+
+local function HideAtlasTextures(frame)
+    if frame._atlasBg then frame._atlasBg:Hide() end
+    if frame._atlasHeader then frame._atlasHeader:Hide() end
+end
+
+VWB.Theme.ApplyAtlasBackground = ApplyAtlasBackground
+VWB.Theme.ApplyAtlasHeader = ApplyAtlasHeader
+VWB.Theme.HideAtlasTextures = HideAtlasTextures
+
+-- ============================================================================
+-- SKINNERS (Pure functions applying colors + fonts to widgets)
+-- ============================================================================
+
+VWB.Theme.Skinners = {
+
+    -- Main window frame (Atlas-aware)
+    Frame = function(f, c)
+        if c.atlas and c.atlas.background then
+            ApplyAtlasBackground(f, c.atlas.background)
+            if f.SetBackdropColor then
+                f:SetBackdropColor(0, 0, 0, 0)
+                f:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a)
+            end
+        else
+            HideAtlasTextures(f)
+            if f.SetBackdropColor then
+                f:SetBackdropColor(c.bg.r, c.bg.g, c.bg.b, c.bg.a)
+                f:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a)
+            end
+        end
+        if f.title then
+            f.title:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b, c.text_header.a)
+            ApplyFont(f.title, c, "header")
+        end
+    end,
+
+    -- Panel (marble tint + tooltip border colors)
+    Panel = function(f, c)
+        if f.SetBackdropColor then
+            local d = VWB.Constants:GetDerivedColors(c)
+            f:SetBackdropColor(d.marble_tint.r, d.marble_tint.g, d.marble_tint.b, d.marble_tint.a * GetBgOpacity())
+            f:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a)
+        end
+    end,
+
+    -- Title bar (Atlas-aware)
+    TitleBar = function(f, c)
+        if c.atlas and c.atlas.headerBar then
+            ApplyAtlasHeader(f, c.atlas.headerBar)
+            if f.SetBackdropColor then f:SetBackdropColor(0, 0, 0, 0) end
+        else
+            HideAtlasTextures(f)
+            if f.SetBackdropColor then
+                f:SetBackdropColor(c.accent.r, c.accent.g, c.accent.b, c.accent.a * 0.3)
+            end
+        end
+        if f.titleText then
+            f.titleText:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b, c.text_header.a)
+            ApplyFont(f.titleText, c, "header")
+        end
+    end,
+
+    -- Button
+    Button = function(b, c)
+        if b.SetBackdropColor then
+            b:SetBackdropColor(c.button_normal.r, c.button_normal.g, c.button_normal.b, c.button_normal.a)
+            b:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a)
+        end
+        local fs = b:GetFontString()
+        if fs then
+            fs:SetTextColor(c.button_text_norm.r, c.button_text_norm.g, c.button_text_norm.b, c.button_text_norm.a)
+            ApplyFont(fs, c)
+        end
+        b._scheme = c
+    end,
+
+    -- Active button (highlighted state)
+    ActiveButton = function(b, c)
+        if b.SetBackdropColor then
+            b:SetBackdropColor(c.button_active.r, c.button_active.g, c.button_active.b, c.button_active.a)
+            b:SetBackdropBorderColor(c.accent.r, c.accent.g, c.accent.b, 1)
+        end
+        local fs = b:GetFontString()
+        if fs then
+            fs:SetTextColor(c.button_text_norm.r, c.button_text_norm.g, c.button_text_norm.b, c.button_text_norm.a)
+            ApplyFont(fs, c)
+        end
+        b._scheme = c
+    end,
+
+    -- Danger button (destructive actions -- Hard Reset etc.). Registered a
+    -- second time over CreateButton's own "Button" role so the last-write-wins
+    -- registry entry keeps it red across theme switches; OnEnter/OnLeave are
+    -- overridden by the caller to match (see Config.lua Danger Zone section).
+    DangerButton = function(b, c)
+        if b.SetBackdropColor then
+            b:SetBackdropColor(c.error.r * 0.55, c.error.g * 0.55, c.error.b * 0.55, c.error.a)
+            b:SetBackdropBorderColor(c.error.r, c.error.g, c.error.b, 1)
+        end
+        local fs = b:GetFontString()
+        if fs then
+            fs:SetTextColor(c.button_text_norm.r, c.button_text_norm.g, c.button_text_norm.b, c.button_text_norm.a)
+            ApplyFont(fs, c)
+        end
+        b._scheme = c
+    end,
+
+    -- Tab (inactive)
+    Tab = function(b, c)
+        if b.SetBackdropColor then
+            b:SetBackdropColor(c.button_inactive.r, c.button_inactive.g, c.button_inactive.b, c.button_inactive.a)
+            b:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a * 0.5)
+        end
+        local fs = b:GetFontString()
+        if fs then
+            fs:SetTextColor(c.button_text_dis.r, c.button_text_dis.g, c.button_text_dis.b, c.button_text_dis.a)
+            ApplyFont(fs, c)
+        end
+        b._scheme = c
+    end,
+
+    -- Active tab
+    ActiveTab = function(b, c)
+        if b.SetBackdropColor then
+            b:SetBackdropColor(c.accent.r, c.accent.g, c.accent.b, 0.3)
+            b:SetBackdropBorderColor(c.accent.r, c.accent.g, c.accent.b, 1)
+        end
+        local fs = b:GetFontString()
+        if fs then
+            fs:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b, c.text_header.a)
+            ApplyFont(fs, c)
+        end
+        if b.accent then
+            b.accent:SetVertexColor(c.accent.r, c.accent.g, c.accent.b, 1)
+        end
+        b._scheme = c
+    end,
+
+    -- Text label (body)
+    Label = function(fs, c)
+        fs:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a)
+        ApplyFont(fs, c)
+    end,
+
+    -- Header label
+    HeaderLabel = function(fs, c)
+        fs:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b, c.text_header.a)
+        ApplyFont(fs, c, "header")
+    end,
+
+    -- Dim text label
+    DimLabel = function(fs, c)
+        fs:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a)
+        ApplyFont(fs, c, "small")
+    end,
+
+    -- Search box (EditBox)
+    SearchBox = function(f, c)
+        if f.placeholder then
+            f.placeholder:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a)
+        end
+        if f.SetTextColor then
+            f:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a)
+        end
+        ApplyFont(f, c)
+    end,
+
+    -- Checkbox (UICheckButtonTemplate)
+    Checkbox = function(f, c)
+        if f.label then
+            f.label:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a)
+            ApplyFont(f.label, c)
+            if f.button then -- container-style checkbox: refit bounds to the re-fonted label
+                local w = math.ceil(f.label:GetUnboundedStringWidth())
+                f:SetSize(28 + w, 24)
+                f.button:SetHitRectInsets(0, -(w + 4), 0, 0)
+            end
+        end
+    end,
+
+    -- Section header with divider
+    SectionHeader = function(f, c)
+        if f.text then
+            f.text:SetTextColor(c.accent.r, c.accent.g, c.accent.b, c.accent.a)
+            ApplyFont(f.text, c, "header")
+        end
+        if f.divider then
+            f.divider:SetVertexColor(c.text.r, c.text.g, c.text.b, c.text.a)
+        end
+    end,
+
+    -- ScrollBox container
+    ScrollBox = function(f, c)
+        if f.bg and f.bg.SetBackdropColor then
+            f.bg:SetBackdropColor(c.panel.r, c.panel.g, c.panel.b, c.panel.a)
+            f.bg:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a)
+        end
+    end,
+
+    -- Filter button row
+    FilterButtonRow = function(f, c)
+        if not f.buttons then return end
+        for _, btn in ipairs(f.buttons) do
+            local isActive = f.selectedKeys and f.selectedKeys[btn.key]
+            if isActive then
+                btn:SetBackdropColor(c.button_active.r, c.button_active.g, c.button_active.b, c.button_active.a)
+                if btn.text then btn.text:SetTextColor(c.button_text_norm.r, c.button_text_norm.g, c.button_text_norm.b, 1) end
+            else
+                btn:SetBackdropColor(c.button_inactive.r, c.button_inactive.g, c.button_inactive.b, c.button_inactive.a)
+                if btn.text then btn.text:SetTextColor(c.button_text_dis.r, c.button_text_dis.g, c.button_text_dis.b, 1) end
+            end
+            btn._scheme = c
+        end
+    end,
+
+    -- Icon filter button row (profession icons)
+    IconFilterButtonRow = function(f, c)
+        if not f.buttons then return end
+        for _, btn in ipairs(f.buttons) do
+            local isActive = f.selectedKeys and f.selectedKeys[btn.key]
+            if isActive then
+                btn:SetBackdropColor(c.button_active.r, c.button_active.g, c.button_active.b, c.button_active.a)
+                btn:SetBackdropBorderColor(c.accent.r, c.accent.g, c.accent.b, 1)
+                if btn.icon then btn.icon:SetDesaturated(false); btn.icon:SetAlpha(1) end
+            else
+                btn:SetBackdropColor(c.button_inactive.r, c.button_inactive.g, c.button_inactive.b, c.button_inactive.a * 0.5)
+                btn:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a * 0.5)
+                if btn.icon then btn.icon:SetDesaturated(true); btn.icon:SetAlpha(0.6) end
+            end
+            btn._scheme = c
+        end
+    end,
+
+    -- Recipe row
+    RecipeRow = function(f, c)
+        if f.text then f.text:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a) end
+        f._scheme = c
+    end,
+
+    -- Queue row
+    QueueRow = function(f, c)
+        if f.SetBackdropColor then f:SetBackdropColor(c.panel.r, c.panel.g, c.panel.b, c.panel.a) end
+        f._scheme = c
+    end,
+
+    -- Material row
+    MaterialRow = function(f, c)
+        if f.name then f.name:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a) end
+    end,
+
+    -- Category header (collapsible)
+    CategoryHeader = function(f, c)
+        if f.arrow then f.arrow:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a) end
+        if f.text then f.text:SetTextColor(c.accent.r, c.accent.g, c.accent.b, c.accent.a) end
+        if f.countText then f.countText:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a) end
+    end,
+
+    -- Divider line
+    Divider = function(f, c)
+        f:SetVertexColor(c.border.r, c.border.g, c.border.b, c.border.a)
+    end,
+
+    -- Segmented toggle (Direct/Raw)
+    SegmentedToggle = function(f, c)
+        if f.SetBackdropColor then
+            f:SetBackdropColor(c.panel.r, c.panel.g, c.panel.b, c.panel.a)
+        end
+        if f.buttons then
+            local selected = f:GetSelected()
+            for _, btn in ipairs(f.buttons) do
+                if btn.key == selected then
+                    btn:SetBackdropColor(c.button_active.r, c.button_active.g, c.button_active.b, c.button_active.a)
+                    if btn.text then btn.text:SetTextColor(c.button_text_norm.r, c.button_text_norm.g, c.button_text_norm.b, 1) end
+                else
+                    btn:SetBackdropColor(c.button_inactive.r, c.button_inactive.g, c.button_inactive.b, c.button_inactive.a)
+                    if btn.text then btn.text:SetTextColor(c.button_text_dis.r, c.button_text_dis.g, c.button_text_dis.b, 1) end
+                end
+            end
+        end
+    end,
+
+    -- Progress bar
+    ProgressBar = function(f, c)
+        if f.bg and f.bg.SetVertexColor then
+            f.bg:SetVertexColor(c.panel.r, c.panel.g, c.panel.b, c.panel.a)
+        end
+        if f.fill and f.fill.SetVertexColor then
+            f.fill:SetVertexColor(c.accent.r, c.accent.g, c.accent.b, c.accent.a)
+        end
+        if f.text then
+            f.text:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a)
+            ApplyFont(f.text, c, "small")
+            -- The % sits over the bright accent fill; a light glyph on light gold
+            -- washes out. OUTLINE + a dark shadow keep it readable over BOTH the
+            -- fill and the dark track (which side the centred text lands on varies).
+            local ff, fs = f.text:GetFont() -- exception(boundary): GetFont nil if ApplyFont set no font
+            if ff then f.text:SetFont(ff, fs, "OUTLINE") end
+            f.text:SetShadowColor(0, 0, 0, 0.9)
+            f.text:SetShadowOffset(1, -1)
+        end
+    end,
+
+    -- Craft-complete toast (window chrome; success-bordered card so it reads
+    -- distinct from ordinary panels across all 11 themes)
+    CraftToast = function(f, c)
+        local d = VWB.Constants:GetDerivedColors(c)
+        if f.SetBackdropColor then
+            f:SetBackdropColor(d.marble_tint.r, d.marble_tint.g, d.marble_tint.b, 0.95)
+            f:SetBackdropBorderColor(c.success.r, c.success.g, c.success.b, 1)
+        end
+        if f.text then f.text:SetTextColor(c.text.r, c.text.g, c.text.b) end
+    end,
+
+    -- Page button (inactive rail button)
+    PageButton = function(b, c)
+        b:SetBackdropColor(0, 0, 0, 0)
+        b:SetBackdropBorderColor(0, 0, 0, 0)
+        if b.icon then b.icon:SetDesaturated(true); b.icon:SetAlpha(0.5) end
+    end,
+
+    -- Active page button (highlighted rail button - golden amber glow)
+    ActivePageButton = function(b, c)
+        local d = VWB.Constants:GetDerivedColors(c)
+        b:SetBackdropColor(d.selected_fill.r, d.selected_fill.g, d.selected_fill.b, d.selected_fill.a)
+        b:SetBackdropBorderColor(d.border_glow.r, d.border_glow.g, d.border_glow.b, 1)
+        if b.icon then b.icon:SetDesaturated(false); b.icon:SetAlpha(1) end
+        if b.glow then b.glow:SetVertexColor(d.selected_glow.r, d.selected_glow.g, d.selected_glow.b, d.selected_glow.a); b.glow:Show() end
+        if b.selectedTex then b.selectedTex:SetVertexColor(d.selected_fill.r, d.selected_fill.g, d.selected_fill.b, d.selected_fill.a); b.selectedTex:Show() end
+    end,
+
+    -- Nav header (expansion header in nav tree - marble bg + tooltip border)
+    NavHeader = function(f, c)
+        if f.SetBackdropColor then
+            f:SetBackdropColor(c.panel.r, c.panel.g, c.panel.b, c.panel.a * 0.6)
+            f:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a * 0.8)
+        end
+        if f.arrow then f.arrow:SetTextColor(c.text.r, c.text.g, c.text.b) end
+    end,
+
+    -- Nav item (category row - selected bar + fill support)
+    NavItem = function(f, c)
+        local d = VWB.Constants:GetDerivedColors(c)
+        if f._isSelected then
+            if f.SetBackdropColor then f:SetBackdropColor(d.selected_fill.r, d.selected_fill.g, d.selected_fill.b, d.selected_fill.a) end
+            if f.text then f.text:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b) end
+            if f.selBar then f.selBar:SetVertexColor(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 1); f.selBar:Show() end
+        else
+            if f.SetBackdropColor then f:SetBackdropColor(0, 0, 0, 0) end
+            if f.text then f.text:SetTextColor(c.text.r, c.text.g, c.text.b) end
+            if f.selBar then f.selBar:Hide() end
+        end
+    end,
+
+    -- Panel header (section header bar in panels)
+    PanelHeader = function(f, c)
+        if f.SetBackdropColor then
+            f:SetBackdropColor(c.panel.r * 0.7, c.panel.g * 0.7, c.panel.b * 0.7, 1)
+            f:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a)
+        end
+        if f.title then f.title:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b) end
+    end,
+
+    -- Recipe card (warm tinted card row)
+    RecipeCard = function(f, c)
+        local d = VWB.Constants:GetDerivedColors(c)
+        if f._isSelected then
+            if f.SetBackdropColor then
+                f:SetBackdropColor(d.selected_fill.r, d.selected_fill.g, d.selected_fill.b, d.selected_fill.a)
+                f:SetBackdropBorderColor(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 0.6)
+            end
+        else
+            if f.SetBackdropColor then
+                f:SetBackdropColor(d.marble_tint.r * 1.1, d.marble_tint.g, d.marble_tint.b * 0.85, d.marble_tint.a * 0.5)
+                f:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a * 0.4)
+            end
+        end
+        if f.text then
+            if f._isSelected then
+                f.text:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b)
+            else
+                f.text:SetTextColor(c.text.r, c.text.g, c.text.b)
+            end
+        end
+    end,
+
+    -- Slider
+    Slider = function(f, c)
+        if f.label then
+            f.label:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a)
+            ApplyFont(f.label, c)
+        end
+        if f.valueText then
+            f.valueText:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a)
+            ApplyFont(f.valueText, c, "small")
+        end
+        local thumb = f.slider:GetThumbTexture() -- CreateSlider registers its container; the Slider widget is f.slider
+        if thumb then
+            thumb:SetVertexColor(c.accent.r, c.accent.g, c.accent.b, c.accent.a)
+        end
+    end,
+}

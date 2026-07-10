@@ -1,0 +1,81 @@
+## Interface: 120005
+## Title: Vamoose's Workbench
+## Notes: Reactor-based crafting workbench (in development)
+## Author: Vamoose
+## Version: 0.1.0
+## SavedVariables: VWB_DB
+## X-Category: Development
+## DefaultState: enabled
+## IconTexture: Interface\Icons\Trade_Engineering
+## AddonCompartmentFunc: VWB_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: VWB_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: VWB_OnAddonCompartmentLeave
+
+Core\VWB_Namespace.lua
+
+# --- Ported chrome/theme/widget layer (from VPC, VPC->VWB rename) ---
+Core\Log.lua
+Core\EventBus.lua
+Core\SchemeConstants.lua
+Core\Constants.lua
+UI\ThemeEngine.lua
+Data\VWB_ExpansionData.lua
+UI\Framework.lua
+UI\Tooltip.lua
+UI\VWB_ViewKit.lua
+UI\Minimap.lua
+
+# --- Reactor framework (signals-native) ---
+Reactor\Reactor_Core.lua
+Reactor\Reactor_Resource.lua
+Reactor\Reactor_Bind.lua
+Reactor\Reactor_WoW.lua
+
+# --- Data layer (signals Store shim + ported VPC modules) ---
+Core\VWB_Store.lua
+Core\VWB_Debug.lua
+Modules\CharacterData.lua
+Modules\Database.lua
+Modules\ReagentSource.lua
+Modules\Inventory.lua
+Modules\RecipeHarvest.lua
+Modules\KnownRecipes.lua
+Modules\RecipeQuery.lua
+Modules\Graph.lua
+Modules\AHScan.lua
+Modules\AuctionatorBridge.lua
+Modules\PSLBridge.lua
+Modules\PriceIntegration.lua
+Modules\ProfitCalculator.lua
+Modules\DecorOwnership.lua
+Modules\Transmog.lua
+Modules\Collectibles.lua
+Modules\GuildCrafters.lua
+Modules\AmbientTooltips.lua
+
+# AmbientTooltips.lua is ported but intentionally NOT loaded -- it hooks EVERY
+# game tooltip at file load (no dormant option). Add it here only after deciding.
+
+# --- Layout box model ---
+Layout\Layout.lua
+Layout\LayoutConfig_Shell.lua
+Layout\LayoutConfig_Showroom.lua
+Layout\LayoutConfig_Recipes.lua
+Layout\LayoutConfig_Stockroom.lua
+Layout\LayoutConfig_Ledger.lua
+Layout\LayoutConfig_Roster.lua
+Layout\LayoutConfig_Records.lua
+Layout\LayoutConfig_Settings.lua
+
+# --- Showroom view + app shell ---
+Showroom\Showroom_Model.lua
+Showroom\Showroom_View.lua
+Recipes\Recipes_View.lua
+Records\Records_View.lua
+Roster\Roster_View.lua
+Stockroom\Stockroom_View.lua
+Settings\Settings_View.lua
+Ledger\Ledger_View.lua
+Debug\Debug_View.lua
+Core\VWB_Shell.lua
+Core\VWB_Init.lua

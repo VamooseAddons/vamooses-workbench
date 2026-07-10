@@ -1,0 +1,728 @@
+-- ============================================================================
+-- VWB Workbench (Recipes) - VIEW / controller. Slice: FULL FILTER SURFACE.
+-- ============================================================================
+-- The flagship crafting tab's left side, wired to real data: profession tab
+-- bar (RecipeQuery:GetProfessions) + filter pills (Transmog/Craftable/
+-- Skill-Up) + decor scope toggle + an expansion/category nav tree all feed
+-- ONE recipeList computed that calls RecipeQuery:GetFiltered. Recipe rows
+-- show icon / name / up to CHIP_MAX status chips (Ready / short N /
+-- uncollected / new mog / alt-known), a hover tooltip (known-by, appearance,
+-- short mats, guild crafters), and click-to-queue (also pushes the MRU
+-- strip). The right column (queue / materials) is the earlier working slice,
+-- untouched. Same box-model Layout as the Showroom list.
+-- ============================================================================
+
+local _, ns = ...
+local Recipes = ns.Recipes or {}
+ns.Recipes = Recipes
+
+local ED = ns.Data.ExpansionData
+
+local QUESTION_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+-- Reagent-name resolver. shoppingList entries are named at Graph-build time, so
+-- an item uncached then is baked "Loading..." and never refreshes on its own
+-- (Graph re-runs only on a queue change). This resource re-reads on
+-- ITEM_DATA_LOAD_RESULT (what RequestLoadItemDataByID fires), so the materials
+-- effect re-derives the name live.
+local matNameRes
+local function ensureMatNameRes()
+    if matNameRes then return end
+    matNameRes = ns.Reactor.resource({
+        read = function(itemID)
+            return C_Item.GetItemInfo(itemID) -- exception(boundary): nil on cold cache -> resource stays pending + requests a load
+        end,
+        request = function(itemID) C_Item.RequestLoadItemDataByID(itemID) end,
+        event = "ITEM_DATA_LOAD_RESULT", -- RequestLoadItemDataByID fires THIS, not GET_ITEM_INFO_RECEIVED
+        keyOf = function(itemID) return itemID end, -- O(1): the event names exactly this itemID
+    })
+end
+
+-- Status chip layout (recipe row, right-aligned, pooled 1:1 with CHIP_MAX). --
+local CHIP_MAX = 2
+local CHIP_HEIGHT = 13
+local CHIP_HPAD = 5
+local CHIP_GAP = 3
+
+-- MRU strip (recent-queued icon chips above the crafting queue). -----------
+local MRU_BTN_SIZE = 18
+local MRU_BTN_GAP = 3
+
+-- ============================================================================
+-- ROW TEMPLATES (chrome built once per pooled frame; painted per repaint)
+-- ============================================================================
+
+local function rowTemplate(frame)
+    local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 3, 0)
+    frame.icon = icon
+
+    -- Status chip pool: pooled bg+text pairs, never created per paint.
+    frame.chips = {}
+    for i = 1, CHIP_MAX do
+        local bg = frame:CreateTexture(nil, "ARTWORK", nil, 2)
+        bg:SetTexture("Interface\\Buttons\\WHITE8x8"); bg:Hide()
+        local t = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        t:SetPoint("CENTER", bg, "CENTER", 0, 0); t:Hide()
+        frame.chips[i] = { bg = bg, text = t }
+    end
+
+    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetJustifyH("LEFT")
+    frame.text = text
+end
+
+-- Queue row: icon + name(xqty) + a dedicated remove button. The remove click
+-- reads frame.data at click time (set fresh by updateRow every repaint) so the
+-- handler is wired ONCE at row creation, same idiom as CreateVirtualizedList's
+-- own onRowClick (row.data lookup).
+local function queueRowTemplate(frame)
+    local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 3, 0)
+    frame.icon = icon
+    local removeBtn = CreateFrame("Button", nil, frame)
+    removeBtn:SetSize(14, 14); removeBtn:SetPoint("RIGHT", -3, 0); removeBtn:RegisterForClicks("AnyUp")
+    local removeText = removeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    removeText:SetAllPoints(); removeText:SetText("x"); removeText:SetTextColor(1, 0.4, 0.4)
+    removeBtn:SetScript("OnClick", function()
+        ns.Store:Dispatch("REMOVE_FROM_QUEUE", { recipeID = frame.data.recipeID, charKey = frame.data.charKey })
+    end)
+    frame.removeBtn = removeBtn
+    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetPoint("RIGHT", removeBtn, "LEFT", -4, 0); text:SetJustifyH("LEFT")
+    frame.text = text
+end
+
+-- Materials row: icon + name + owned/required count (colored short vs covered).
+local function matRowTemplate(frame)
+    local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 3, 0)
+    frame.icon = icon
+    local countText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    countText:SetPoint("RIGHT", -4, 0); countText:SetJustifyH("RIGHT")
+    frame.countText = countText
+    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetPoint("RIGHT", countText, "LEFT", -6, 0); text:SetJustifyH("LEFT")
+    frame.text = text
+end
+
+-- ============================================================================
+-- FILTER / CHIP / NAV HELPERS (pure -- safe to call from a Reactor computed)
+-- ============================================================================
+
+-- The Transmog pill is a SCOPE (everything with an appearance, collected or
+-- not); the decor segment's "Missing" is the collection-STATE filter inside
+-- whichever scope is active: mog scope -> unknown appearances, otherwise
+-- decor scope -> uncollected decor.
+local function ScopeFilters(transmogScope, decorMode)
+    return {
+        transmogOnly = transmogScope,
+        unknownTransmogOnly = transmogScope and decorMode == "missing",
+        decorOnly = decorMode == "decor" or (decorMode == "missing" and not transmogScope),
+        uncollectedDecorOnly = decorMode == "missing" and not transmogScope,
+    }
+end
+
+-- Chip specs by priority (capped CHIP_MAX): Ready > short N > uncollected >
+-- new mog > known-by-alt. "Ready" and "short N" are gated on KNOWN-BY-THIS-
+-- CHARACTER (IsKnownBy), NOT the blanket IsKnown (known by ANY scanned alt) --
+-- an alt-only recipe must show "alt", never a green Ready tick.
+local function ComputeRecipeChips(item, c, currentCharKey)
+    local specs = {}
+    local recipeID, itemID = item.recipeID, item.itemID
+    local knownHere = ns.KnownRecipes:IsKnownBy(recipeID, currentCharKey)
+    local ready = knownHere and ns.RecipeQuery:CanCraft(recipeID)
+
+    if ready then
+        specs[#specs + 1] = { label = "Ready", r = c.success.r, g = c.success.g, b = c.success.b }
+    else
+        local shortCount = 0
+        for _, mat in ipairs(ns.Graph:GetDirectMaterials(recipeID, 1)) do
+            if mat.missing > 0 then shortCount = shortCount + 1 end
+        end
+        if shortCount > 0 then
+            specs[#specs + 1] = { label = "short " .. shortCount, r = c.warning.r, g = c.warning.g, b = c.warning.b }
+        end
+    end
+
+    if itemID and ns.DecorOwnership:IsUncollected(itemID) == true then
+        specs[#specs + 1] = { label = "uncollected", r = c.accent.r, g = c.accent.g, b = c.accent.b }
+    end
+    if itemID then
+        local mog = ns.Transmog:GetStatus(itemID)
+        if mog.hasAppearance and not mog.isCollected then
+            specs[#specs + 1] = { label = "new mog", r = c.accent.r, g = c.accent.g, b = c.accent.b }
+        end
+    end
+    if not knownHere and ns.KnownRecipes:IsKnown(recipeID) then
+        specs[#specs + 1] = { label = "alt", r = c.text.r, g = c.text.g, b = c.text.b }
+    end
+
+    while #specs > CHIP_MAX do table.remove(specs) end
+    return specs
+end
+
+-- Positions pooled chips right-to-left; returns the text's right x-offset so
+-- the label reserves exactly the used gutter (or a small fixed gutter when
+-- there are none).
+local function PaintRecipeChips(row, specs)
+    local x = -4
+    local textRight = -8
+    for i = 1, CHIP_MAX do
+        local chip, spec = row.chips[i], specs[i]
+        if spec then
+            chip.text:SetText(spec.label)
+            local w = math.ceil(chip.text:GetUnboundedStringWidthForText(spec.label)) + CHIP_HPAD * 2
+            chip.bg:ClearAllPoints()
+            chip.bg:SetPoint("RIGHT", row, "RIGHT", x, 0)
+            chip.bg:SetSize(w, CHIP_HEIGHT)
+            chip.bg:SetVertexColor(spec.r, spec.g, spec.b, 0.20)
+            chip.text:SetTextColor(spec.r, spec.g, spec.b, 1)
+            chip.bg:Show(); chip.text:Show()
+            x = x - w
+            textRight = x - 4
+            x = x - CHIP_GAP
+        else
+            chip.bg:Hide(); chip.text:Hide()
+        end
+    end
+    return textRight
+end
+
+-- Group RecipeQuery:GetFiltered results into expansion sections / category
+-- items for CreateNavTree (header = expansion, item = "exp::category"). Pure
+-- derivation only -- a stale nav selection (filtered down to zero) is left
+-- for the user to clear by clicking elsewhere; no write happens from a read
+-- path (Reactor computeds must stay side-effect free).
+local function BuildNavSections(prof, searchFilter, sf, canCraftOnly, skillUpOnly)
+    local results = ns.RecipeQuery:GetFiltered({
+        profession = prof,
+        search = searchFilter ~= "" and searchFilter or nil,
+        decorOnly = sf.decorOnly,
+        uncollectedDecorOnly = sf.uncollectedDecorOnly,
+        transmogOnly = sf.transmogOnly,
+        unknownTransmogOnly = sf.unknownTransmogOnly,
+        canCraftOnly = canCraftOnly,
+        skillUpOnly = skillUpOnly,
+        collapseRanks = true,
+    })
+
+    local expCatCounts = {}
+    for _, entry in ipairs(results) do
+        local r = entry.recipe
+        if r.expansion then
+            local cats = expCatCounts[r.expansion]
+            if not cats then cats = {}; expCatCounts[r.expansion] = cats end
+            local cat = r.categoryName or "Uncategorized"
+            cats[cat] = (cats[cat] or 0) + 1
+        end
+    end
+
+    local forceOpenTree = searchFilter ~= ""
+    local navCollapsed = ns.Store:GetState().ui.navCollapsed
+    local exps = ns.RecipeQuery:GetExpansions(prof)
+
+    local sections = {}
+    for _, exp in ipairs(exps) do
+        local catCounts = expCatCounts[exp.key]
+        if exp.key ~= "AllExps" and catCounts then
+            local expInfo = ED.GetExpansionInfo(exp.key)
+            local items = {}
+            local catOrder = {}
+            for cat in pairs(catCounts) do catOrder[#catOrder + 1] = cat end
+            table.sort(catOrder)
+            local totalCount = 0
+            for _, cat in ipairs(catOrder) do
+                totalCount = totalCount + catCounts[cat]
+                items[#items + 1] = { key = exp.key .. "::" .. cat, label = cat, count = catCounts[cat] }
+            end
+            sections[#sections + 1] = {
+                key = exp.key,
+                label = expInfo and expInfo.display or exp.key,
+                color = ED.GetColor(exp.key),
+                collapsed = not forceOpenTree and navCollapsed[exp.key],
+                itemCount = totalCount,
+                items = items,
+            }
+        end
+    end
+    return sections
+end
+
+-- Signature of the CURRENT profession key set (sorted, joined) -- lets the
+-- profession-tab-bar effect skip a teardown+rebuild when "recipes" bumps for
+-- an unrelated reason (new recipes added to an already-known profession).
+local function ProfessionSignature(profs)
+    local keys = {}
+    for i, p in ipairs(profs) do keys[i] = p.key end
+    table.sort(keys)
+    return table.concat(keys, "|")
+end
+
+-- Recent-queued ring lives in persisted ui state (state.ui.recentQueued); the
+-- reducer owns the dedupe+prepend+cap (keyed on item.itemID).
+local function PushRecent(recipeID, itemID, name)
+    ns.Store:Dispatch("PUSH_RECENT_QUEUED", { item = { recipeID = recipeID, itemID = itemID, name = name } })
+end
+
+function Recipes.buildView(container)
+    local R = ns.Reactor
+    ensureMatNameRes()
+    local currentCharKey = ns.CharacterData:GetCharacterKey()
+
+    local search = R.signal("")
+    local profession = R.signal(nil)
+    local transmogScope = R.signal(false)
+    local canCraftOnly = R.signal(false)
+    local skillUpOnly = R.signal(false)
+    local decorMode = R.signal("off")
+
+    local listWidget, queueWidget, materialsWidget, navTreeWidget
+    local profTabBarContainer, profBtnRow
+    local mruContainer, mruButtons = nil, {}
+    local emptyCard
+
+    -- Rank-collapsed recipe records, re-derived on recipe/queue/character/nav
+    -- changes. Scoped to the exact slices the filters touch (NOT the blanket
+    -- Store:Version()) so a config/minimap-only dispatch never re-derives this.
+    local recipeList = R.named("recipes:recipeList", function()
+        ns.Store:Version("recipes")
+        ns.Store:Version("crafting")
+        ns.Store:Version("characters")
+        ns.Store:Version("nav")
+
+        local prof = profession()
+        if not prof then return {} end
+
+        local uiState = ns.Store:GetState().ui
+        local filterCategoryName = nil
+        if uiState.navSelectedItem then
+            local _, cat = uiState.navSelectedItem:match("^(.-)::(.+)$")
+            filterCategoryName = cat
+        end
+
+        local sf = ScopeFilters(transmogScope(), decorMode())
+        local q = search()
+        local out = {}
+        for _, e in ipairs(ns.RecipeQuery:GetFiltered({
+            collapseRanks = true,
+            profession = prof,
+            expansion = uiState.navSelectedExp,
+            categoryName = filterCategoryName,
+            search = q ~= "" and q or nil,
+            canCraftOnly = canCraftOnly(),
+            skillUpOnly = skillUpOnly(),
+            transmogOnly = sf.transmogOnly,
+            unknownTransmogOnly = sf.unknownTransmogOnly,
+            decorOnly = sf.decorOnly,
+            uncollectedDecorOnly = sf.uncollectedDecorOnly,
+        })) do out[#out + 1] = e.recipe end
+        return out
+    end)
+
+    -- Nav tree mirrors the list's filter universe MINUS expansion/category (the
+    -- tree IS that selector) so section counts match what the list would show.
+    local navSections = R.named("recipes:navSections", function()
+        ns.Store:Version("recipes")
+        ns.Store:Version("crafting")
+        ns.Store:Version("characters")
+        ns.Store:Version("nav")
+
+        local prof = profession()
+        if not prof then return {} end
+        return BuildNavSections(prof, search(), ScopeFilters(transmogScope(), decorMode()), canCraftOnly(), skillUpOnly())
+    end)
+
+    -- Crafting queue + materials come from state.crafting, which the queue
+    -- reducers mutate IN PLACE (queuedRecipes is appended, not replaced) -- so a
+    -- computed would memo on the stable table ref and never re-fire. The effects
+    -- below read Store:Version("crafting") directly (a value that changes every
+    -- bump) so they re-run on any queue mutation.
+    local function makeFrame(node, parent)
+        if node.id == "rcpSearch" then
+            return ns.UI:CreateSearchBox(parent, { placeholder = "Search recipes...",
+                onChange = function(t) search((t or ""):lower()) end })
+        elseif node.id == "transmogPill" then
+            return ns.UI:CreateFilterPill(parent, "Transmog", function(checked) transmogScope(checked) end)
+        elseif node.id == "craftablePill" then
+            return ns.UI:CreateFilterPill(parent, "Craftable", function(checked) canCraftOnly(checked) end)
+        elseif node.id == "skillUpPill" then
+            return ns.UI:CreateFilterPill(parent, "Skill-Up", function(checked) skillUpOnly(checked) end)
+        elseif node.id == "decorToggle" then
+            return ns.UI:CreateSegmentedToggle(parent, {
+                width = 150, height = 18, pill = true,
+                segments = {
+                    { key = "off", label = "All" },
+                    { key = "decor", label = "Decor" },
+                    { key = "missing", label = "Missing" },
+                },
+                default = "off",
+                onSelect = function(key) decorMode(key) end,
+            })
+        elseif node.id == "rcpNavLabel" then
+            local f = ns.ViewKit.roleLabel(node, parent)
+            -- Expand-all / collapse-all: one button that flips whichever state
+            -- most sections are in. Label reflects the action (see the effect below).
+            local collapseBtn = ns.UI:CreateButton(f, "Collapse", 62, 14)
+            collapseBtn:SetPoint("RIGHT", -4, 0)
+            collapseBtn:SetScript("OnClick", function()
+                local keys, anyOpen = {}, false
+                for _, s in ipairs(navSections()) do
+                    keys[#keys + 1] = s.key
+                    if not s.collapsed then anyOpen = true end
+                end
+                ns.Store:Dispatch("SET_NAV_COLLAPSED_ALL", { keys = keys, collapsed = anyOpen }) -- any open -> collapse all; else expand all
+            end)
+            f.collapseBtn = collapseBtn
+            f.label:ClearAllPoints()
+            f.label:SetPoint("TOPLEFT", 4, -1)
+            f.label:SetPoint("BOTTOMRIGHT", collapseBtn, "BOTTOMLEFT", -4, 1)
+            return f
+        elseif node.id == "profTabBar" then
+            profTabBarContainer = CreateFrame("Frame", nil, parent)
+            return profTabBarContainer
+        elseif node.id == "rcpNavTree" then
+            navTreeWidget = ns.UI:CreateNavTree(parent, {
+                onArrowClick = function(key)
+                    ns.Store:Dispatch("TOGGLE_NAV_COLLAPSE", { key = key })
+                end,
+                onHeaderClick = function(key)
+                    local st = ns.Store:GetState().ui
+                    if st.navSelectedExp == key and not st.navSelectedItem then
+                        ns.Store:Dispatch("SET_NAV_SELECTION", { exp = "AllExps" })
+                    else
+                        ns.Store:Dispatch("SET_NAV_SELECTION", { exp = key })
+                    end
+                end,
+                onItemClick = function(key)
+                    local st = ns.Store:GetState().ui
+                    if st.navSelectedItem == key then
+                        ns.Store:Dispatch("SET_NAV_SELECTION", { exp = st.navSelectedExp })
+                    else
+                        local exp = key:match("^(.-)::(.+)$")
+                        ns.Store:Dispatch("SET_NAV_SELECTION", { exp = exp, item = key })
+                    end
+                end,
+            })
+            return navTreeWidget
+        elseif node.id == "rcpList" then
+            listWidget = ns.UI:CreateVirtualizedList(parent, {
+                rowHeight = 22, rowTemplate = rowTemplate,
+                updateRow = function(row, item)
+                    row.data = item
+                    row.icon:SetTexture(item.icon or C_Item.GetItemIconByID(item.itemID) or QUESTION_ICON)
+                    local c = ns.UI:GetScheme()
+                    local specs = ComputeRecipeChips(item, c, currentCharKey)
+                    local textRight = PaintRecipeChips(row, specs)
+                    row.text:SetText(item.name or ("recipe:" .. tostring(item.recipeID)))
+                    row.text:ClearAllPoints()
+                    row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
+                    row.text:SetPoint("RIGHT", textRight, 0)
+                end,
+                onRowClick = function(item)
+                    ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = item.recipeID, qty = IsShiftKeyDown() and 5 or 1 })
+                    PushRecent(item.recipeID, item.itemID, item.name)
+                end,
+                onRowEnter = function(item, row)
+                    local tip = ns.UI.Tooltip
+                    tip:Begin(row)
+                    if item.itemID then tip:SetItemHeader(item.itemID, item.name) else tip:AddTitle(item.name or "Unknown") end
+
+                    local knownBy = ns.KnownRecipes:KnownByList(item.recipeID)
+                    if #knownBy > 0 then
+                        tip:AddLine(" ")
+                        tip:AddLine(ns.UI:ColorCode("base01") .. "Known by: " .. table.concat(knownBy, ", ") .. "|r")
+                    end
+
+                    local mog = ns.Transmog:GetStatus(item.itemID)
+                    if mog.hasAppearance then
+                        tip:AddLine(" ")
+                        if mog.isCollected then
+                            tip:AddLine(ns.UI:ColorCode("base01") .. "Appearance: collected|r")
+                        else
+                            tip:AddLine(ns.UI:ColorCode("cyan") .. "Appearance: not in your collection|r")
+                        end
+                    end
+
+                    local missingMats = {}
+                    for _, mat in ipairs(ns.Graph:GetDirectMaterials(item.recipeID, 1)) do
+                        if mat.missing > 0 then missingMats[#missingMats + 1] = mat.name or ("#" .. mat.itemID) end
+                    end
+                    if #missingMats > 0 then
+                        tip:AddLine(" ")
+                        tip:AddLine(ns.UI:ColorCode("yellow") .. "Short for one craft:|r " ..
+                            ns.UI:ColorCode("base01") .. table.concat(missingMats, ", ") .. "|r")
+                    end
+
+                    tip:AddLine(" ")
+                    tip:AddLine(ns.UI:ColorCode("base01") .. "Click: queue 1  -  Shift-click: queue 5|r")
+                    tip:Show()
+                    ns.GuildCrafters:AppendCraftersToTooltip(tip, item.recipeID)
+                end,
+                onRowLeave = function(_, row)
+                    ns.GuildCrafters:CancelTooltip()
+                    ns.UI.Tooltip:Hide(row)
+                end,
+            })
+            return listWidget
+        elseif node.id == "rcpMru" then
+            mruContainer = CreateFrame("Frame", nil, parent)
+            return mruContainer
+        elseif node.id == "rcpQueue" then
+            queueWidget = ns.UI:CreateVirtualizedList(parent, {
+                rowHeight = 20, rowTemplate = queueRowTemplate,
+                updateRow = function(row, item)
+                    row.data = item
+                    -- Enchants/Writs have no output item -> use the recipe's own icon
+                    -- (what the recipe list already does), not the "?" fallback.
+                    local rec = item.recipeID and ns.Database:GetRecipe(item.recipeID)
+                    row.icon:SetTexture((rec and rec.icon) or (item.itemID and C_Item.GetItemIconByID(item.itemID)) or QUESTION_ICON)
+                    local label = item.name or ("recipe:" .. tostring(item.recipeID))
+                    if item.qty and item.qty > 1 then label = label .. " x" .. item.qty end
+                    row.text:SetText(label)
+                end,
+            })
+            return queueWidget
+        elseif node.id == "rcpMaterials" then
+            materialsWidget = ns.UI:CreateVirtualizedList(parent, {
+                rowHeight = 18, rowTemplate = matRowTemplate,
+                updateRow = function(row, item)
+                    row.data = item
+                    row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or QUESTION_ICON)
+                    row.text:SetText(item.name or ("item:" .. tostring(item.itemID)))
+                    row.countText:SetText((item.owned or 0) .. "/" .. (item.required or 0))
+                    local c = ns.UI:GetScheme()
+                    if item.missing and item.missing > 0 then
+                        row.countText:SetTextColor(c.warning.r, c.warning.g, c.warning.b)
+                    else
+                        row.countText:SetTextColor(c.success.r, c.success.g, c.success.b)
+                    end
+                end,
+            })
+            return materialsWidget
+        elseif node.id == "rcpQueueHeader" then
+            local f = ns.ViewKit.roleLabel(node, parent)
+            local clearBtn = ns.UI:CreateButton(f, "Clear", 40, 14)
+            clearBtn:SetPoint("RIGHT", -4, 0)
+            clearBtn:SetScript("OnClick", function() ns.Store:Dispatch("CLEAR_QUEUE") end)
+            -- Push the queue to Profession Shopping List (one-way; PSL owns shopping).
+            -- Only built when PSL is installed, so the label anchors to whichever
+            -- button is actually the left-most.
+            local rightAnchor = clearBtn
+            if ns.PSLBridge:IsAvailable() then
+                local pslBtn = ns.UI:CreateButton(f, "-> PSL", 50, 14)
+                pslBtn:SetPoint("RIGHT", clearBtn, "LEFT", -6, 0)
+                pslBtn:SetScript("OnClick", function()
+                    ns.PSLBridge:SendQueue(ns.Store:GetState().crafting.queuedRecipes)
+                end)
+                rightAnchor = pslBtn
+            end
+            f.label:ClearAllPoints()
+            f.label:SetPoint("TOPLEFT", 4, -3)
+            f.label:SetPoint("BOTTOMRIGHT", rightAnchor, "BOTTOMLEFT", -4, 3)
+            return f
+        elseif node.id == "rcpMatHeader" then
+            local f = ns.ViewKit.roleLabel(node, parent)
+            local matToggle = ns.UI:CreateSegmentedToggle(f, {
+                width = 100, height = 14,
+                segments = {
+                    { key = "direct", label = "Direct" },
+                    { key = "raw", label = "Raw" },
+                },
+                default = ns.Store:GetState().config.materialsMode,
+                onSelect = function(key)
+                    if ns.Store:GetState().config.materialsMode ~= key then
+                        ns.Store:Dispatch("TOGGLE_MATERIALS_MODE")
+                    end
+                end,
+            })
+            matToggle:SetPoint("RIGHT", -4, 0)
+            -- Send the current shortfall (required-owned > 0) to an Auctionator
+            -- shopping list. Merge per itemID first -- shoppingList repeats an
+            -- item once per queued recipe that needs it.
+            local ahBtn = ns.UI:CreateButton(f, "-> AH", 46, 14)
+            ahBtn:SetPoint("RIGHT", matToggle, "LEFT", -6, 0)
+            ahBtn:SetScript("OnClick", function()
+                local byID = {}
+                for _, mat in ipairs(ns.Store:GetState().crafting.shoppingList) do
+                    local e = byID[mat.itemID]
+                    if not e then e = { itemID = mat.itemID, required = 0, owned = mat.owned }; byID[mat.itemID] = e end
+                    e.required = e.required + mat.required
+                    e.owned = math.max(e.owned, mat.owned) -- dupes carry the same bag count
+                end
+                local rows = {}
+                for _, e in pairs(byID) do
+                    local missing = e.required - e.owned
+                    if missing > 0 then rows[#rows + 1] = { itemID = e.itemID, missing = missing } end
+                end
+                ns.AuctionatorBridge:SendShortfall(rows)
+            end)
+            f.label:ClearAllPoints()
+            f.label:SetPoint("TOPLEFT", 4, -3)
+            f.label:SetPoint("BOTTOMRIGHT", ahBtn, "BOTTOMLEFT", -4, 3)
+            return f
+        end
+        -- unhandled node -> Layout's default factory renders it (role label / container)
+    end
+
+    local handle = ns.Layout.build(container, ns.LayoutConfig.recipes, { makeFrame = makeFrame, measure = ns.ViewKit.measure })
+
+    handle.byId.rcpNavLabel.label:SetText("Categories")
+
+    -- First-run onboarding (no professions harvested yet) vs filtered-to-zero
+    -- (professions exist, current filters just don't match anything) share one
+    -- card widget; only the copy + CTA visibility differ per state.
+    emptyCard = ns.UI:CreateEmptyStateCard(handle.byId.rcpListCol, {
+        width = 300, height = 170,
+        icon = "Interface\\Icons\\INV_Misc_Book_09",
+        title = "The shelves are bare",
+        body = "Scan a profession window, or pull your guild's recipes in one pass.",
+        buttonText = "Scan Guild Recipes",
+        onClick = function()
+            ns:ShowPage("data")
+            ns.RecipeHarvest:Start()
+        end,
+    })
+    emptyCard:SetPoint("CENTER", handle.byId.rcpListCol, "CENTER", 0, 10)
+    emptyCard:SetFrameLevel(listWidget:GetFrameLevel() + 5)
+
+    -- Profession tab bar: rebuild only when the profession KEY SET actually
+    -- changes (new recipes for an already-known profession must not tear down
+    -- the bar and lose the current tab highlight).
+    local lastProfSignature = nil
+    R.effect(function()
+        ns.Store:Version("recipes")
+        local profs = ns.RecipeQuery:GetProfessions()
+        local sig = ProfessionSignature(profs)
+        if sig == lastProfSignature then return end
+        lastProfSignature = sig
+
+        ns.UI:ClearChildren(profTabBarContainer)
+        if #profs == 0 then
+            profBtnRow = nil
+            profession(nil)
+            return
+        end
+        profBtnRow = ns.UI:CreateProfessionTabBar(profTabBarContainer, profs, function(key)
+            profession(key)
+            ns.Store:Dispatch("SET_NAV_SELECTION", { exp = "AllExps" })
+        end)
+        local want = profession() or profs[1].key
+        profession(want)
+        profBtnRow:Select(want)
+    end, "recipes:profbar")
+
+    -- Recipe chips (ComputeRecipeChips) read live collection status --
+    -- Transmog:GetStatus / DecorOwnership:IsUncollected -- which live OUTSIDE the
+    -- Store, so recipeList's slice subscriptions never see a collect. Repaint the
+    -- visible rows when a collection event fires (the tick-only path Showroom's
+    -- collectionTick uses), else a "new mog"/"uncollected" chip stays stale until
+    -- an unrelated re-render.
+    VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", function() listWidget:Refresh() end)
+    VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", function() listWidget:Refresh() end)
+
+    R.effect(function()
+        local list = recipeList()
+        listWidget:SetData(list)
+        if not profession() then
+            emptyCard.title:SetText("The shelves are bare")
+            emptyCard.body:SetText("Scan a profession window, or pull your guild's recipes in one pass.")
+            emptyCard.button:Show()
+            emptyCard:Show()
+        elseif #list == 0 then
+            if decorMode() ~= "off" and ns.DecorOwnership:IsCatalogCold() then
+                emptyCard.title:SetText("Housing catalog not loaded")
+                emptyCard.body:SetText("Open the housing catalog once this session, then come back.")
+            else
+                emptyCard.title:SetText("Nothing matches")
+                emptyCard.body:SetText("Try loosening a filter or clearing your search.")
+            end
+            emptyCard.button:Hide()
+            emptyCard:Show()
+        else
+            emptyCard:Hide()
+        end
+    end, "recipes:list")
+    R.bindText(handle.byId.rcpListLabel.label, function() return "Recipes (" .. #recipeList() .. ")" end)
+
+    R.effect(function()
+        navTreeWidget.selected = ns.Store:GetState().ui.navSelectedItem
+        navTreeWidget:SetData(navSections())
+    end, "recipes:nav")
+
+    -- Collapse-all button label reflects the action it will take.
+    R.effect(function()
+        local anyOpen = false
+        for _, s in ipairs(navSections()) do if not s.collapsed then anyOpen = true; break end end
+        handle.byId.rcpNavLabel.collapseBtn:SetText(anyOpen and "Collapse" or "Expand")
+    end, "recipes:collapseAllLabel")
+
+    -- MRU strip: recent-queued icon chips (state.ui.recentQueued), click = requeue 1.
+    R.effect(function()
+        ns.Store:Version("recent")
+        local recent = ns.Store:GetState().ui.recentQueued
+        local xOff = 2
+        for i, entry in ipairs(recent) do
+            local b = mruButtons[i]
+            if not b then
+                b = CreateFrame("Button", nil, mruContainer)
+                b:SetSize(MRU_BTN_SIZE, MRU_BTN_SIZE)
+                b:RegisterForClicks("AnyUp")
+                local icon = b:CreateTexture(nil, "ARTWORK")
+                icon:SetAllPoints(); icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+                b.icon = icon
+                b:SetScript("OnEnter", function(self)
+                    local tip = ns.UI.Tooltip
+                    tip:Begin(self)
+                    tip:AddTitle(self._name or "Recipe")
+                    tip:AddLine(ns.UI:ColorCode("base01") .. "Click: queue 1|r")
+                    tip:Show()
+                end)
+                b:SetScript("OnLeave", function(self) ns.UI.Tooltip:Hide(self) end)
+                b:SetScript("OnClick", function(self)
+                    ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = self._recipeID, qty = 1, name = self._name, itemID = self._itemID })
+                    PushRecent(self._recipeID, self._itemID, self._name)
+                end)
+                mruButtons[i] = b
+            end
+            b._recipeID, b._itemID, b._name = entry.recipeID, entry.itemID, entry.name
+            local rec = entry.recipeID and ns.Database:GetRecipe(entry.recipeID)
+            b.icon:SetTexture((rec and rec.icon) or (entry.itemID and C_Item.GetItemIconByID(entry.itemID)) or QUESTION_ICON)
+            b:ClearAllPoints()
+            b:SetPoint("LEFT", mruContainer, "LEFT", xOff, 0)
+            b:Show()
+            xOff = xOff + MRU_BTN_SIZE + MRU_BTN_GAP
+        end
+        for i = #recent + 1, #mruButtons do mruButtons[i]:Hide() end
+    end, "recipes:mru")
+
+    R.effect(function() ns.Store:Version("crafting"); queueWidget:SetData(ns.Store:GetState().crafting.queuedRecipes) end, "recipes:queue")
+    R.bindText(handle.byId.rcpQueueHeader.label, function()
+        ns.Store:Version("crafting"); return "Crafting Queue (" .. #ns.Store:GetState().crafting.queuedRecipes .. ")"
+    end)
+
+    -- shoppingList carries Graph-baked names ("Loading..." for anything uncached
+    -- at build time). Join each entry with matNameRes so a name that resolves
+    -- later (GET_ITEM_INFO_RECEIVED) re-runs THIS effect and repaints the row --
+    -- otherwise "Loading..." sticks until the next queue change.
+    R.effect(function()
+        ns.Store:Version("crafting")
+        local mats = ns.Store:GetState().crafting.shoppingList
+        local out = {}
+        for i = 1, #mats do
+            local mat = mats[i]
+            local resolved = matNameRes(mat.itemID)
+            if resolved ~= R.PENDING and resolved ~= mat.name then
+                local copy = {}
+                for k, v in pairs(mat) do copy[k] = v end
+                copy.name = resolved
+                out[i] = copy
+            else
+                out[i] = mat
+            end
+        end
+        materialsWidget:SetData(out)
+    end, "recipes:materials")
+    R.bindText(handle.byId.rcpMatHeader.label, function() return "Reagents for Crafting Queue" end)
+
+    return handle
+end
+
+return Recipes

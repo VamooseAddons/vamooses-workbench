@@ -1,0 +1,30 @@
+{
+  "flavors": ["retail"],
+  "ignore": [
+    "tests/",
+    "docs/",
+    "archive/"
+  ],
+  "globals": {
+    "read": [
+      "VWB",
+      "VWB_DB",
+      "VAMOOSE_SchemeConstants",
+      "Auctionator",
+      "TSM_API",
+      "LibStub",
+      "GetMinimapShape",
+      "SexyMapCustomBackdrop",
+      "BasicMinimapSquare"
+    ],
+    "write": [
+      "VWB",
+      "VWB_DB",
+      "VAMOOSE_SchemeConstants",
+      "SLASH_VWB1",
+      "VWB_OnAddonCompartmentClick",
+      "VWB_OnAddonCompartmentEnter",
+      "VWB_OnAddonCompartmentLeave"
+    ]
+  }
+}
