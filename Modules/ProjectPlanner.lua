@@ -21,14 +21,13 @@ local P = VWB.ProjectPlanner
 -- Target classification + collection state
 -- ============================================================================
 
--- Same classification order the Showroom uses: decor -> transmog -> mount -> pet.
--- nil = not classifiable yet (cold item/catalog data) -- caller retries next derive.
+-- Canonical chain lives in the Collectibles module (decor -> transmog ->
+-- mount -> pet, cold-safe memoization). nil = not classifiable yet (cold
+-- item/catalog data) -- caller retries next derive.
 function P:ClassifyTarget(itemID)
-    if VWB.DecorOwnership:IsDecor(itemID) then return "decor" end
-    if VWB.Transmog:IsTransmoggable(itemID) then return "transmog" end
-    if VWB.Collectibles:IsMount(itemID) then return "mount" end
-    if VWB.Collectibles:IsPet(itemID) then return "pet" end
-    return nil -- exception(boundary): item data cold; kind unresolvable this pass
+    local k = VWB.Collectibles:ClassifyKind(itemID)
+    if k == "none" then return nil end -- exception(boundary): non-collectible OR cold identity; retried next pass
+    return k
 end
 
 -- true/false = definitive answer; nil = no answer yet (cold catalog/cache).

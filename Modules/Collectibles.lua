@@ -85,3 +85,80 @@ function C:PetDisplayID(itemID)
     local _, displayID = self:PetInfo(itemID)
     return displayID
 end
+
+-- ============================================================================
+-- KIND CLASSIFICATION + UNCOLLECTED COUNT (canonical, shared)
+-- ============================================================================
+-- ONE home for the decor -> transmog -> mount -> pet chain (was triplicated:
+-- Showroom kindRes, Workbench Missing pill, ProjectPlanner). The Showroom's
+-- kindRes stays separate on purpose -- it needs async PENDING/ready semantics
+-- per row; this is the synchronous memoized flavor for filters/counts/plans.
+
+local kindCache = {} -- itemID -> kind; identity is static, never invalidated
+function C:ClassifyKind(itemID)
+    if not itemID then return "none" end
+    local cached = kindCache[itemID]
+    if cached then return cached end
+    local k
+    if VWB.DecorOwnership:IsDecor(itemID) then k = "decor"
+    elseif VWB.Transmog:IsTransmoggable(itemID) then k = "transmog"
+    elseif self:IsMount(itemID) then k = "mount"
+    elseif self:IsPet(itemID) then k = "pet"
+    else k = "none"
+    end
+    -- Latch positives always. Latch "none" ONLY when both sources that can
+    -- produce a false negative are warm: cold item data blanks GetMountFromItem/
+    -- GetPetInfoByItemID, a cold housing catalog blanks IsDecor -- memoizing
+    -- "none" then would hide a real collectible for the whole session.
+    if k ~= "none"
+        or (C_Item.IsItemDataCachedByID(itemID) and not VWB.DecorOwnership:IsCatalogCold()) then -- exception(boundary): cold sources; retry next call
+        kindCache[itemID] = k
+    end
+    return k
+end
+
+-- true = an uncollected collectible; false = collected, not a collectible,
+-- or no definitive answer yet (cold catalog nil fails honest -- callers'
+-- empty states surface the "open the housing catalog" message).
+function C:IsUncollectedCollectible(itemID)
+    local k = self:ClassifyKind(itemID)
+    if k == "decor" then return VWB.DecorOwnership:IsUncollected(itemID) == true end -- exception(boundary): nil on cold catalog -> false
+    if k == "transmog" then return VWB.Transmog:IsUnknown(itemID) end
+    if k == "mount" then return self:IsMountCollected(itemID) == false end
+    if k == "pet" then return self:IsPetCollected(itemID) == false end
+    return false
+end
+
+-- Global uncollected count over the harvested corpus, deduped by output item
+-- (rank variants share one itemID). Filter-INDEPENDENT -- this is the nav
+-- badge's number, live from window open without mounting the Showroom, and it
+-- recomputes only on corpus growth or a collection event (lazy computed).
+local collectionEpoch = VWB.Reactor.signal(0)
+function C:BumpCollectionEpoch()
+    VWB.Reactor.untrack(function() collectionEpoch(collectionEpoch() + 1) end)
+end
+
+C.UncollectedCount = VWB.Reactor.named("collectibles:uncollectedCount", function()
+    VWB.Store:Version("corpus")
+    collectionEpoch()
+    local seen, n = {}, 0
+    for _, recipe in pairs(VWB.Store:GetState().recipeStore) do
+        local itemID = recipe.itemID
+        if itemID and not seen[itemID] then
+            seen[itemID] = true
+            if C:IsUncollectedCollectible(itemID) then n = n + 1 end
+        end
+    end
+    return n
+end)
+
+-- Registration only (no scanning): the same collection events the Showroom's
+-- resources and ProjectPlanner watch, bumping the count's epoch.
+function C:Initialize()
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("NEW_MOUNT_ADDED")
+    f:RegisterEvent("NEW_PET_ADDED")
+    f:SetScript("OnEvent", function() C:BumpCollectionEpoch() end)
+    VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", function() C:BumpCollectionEpoch() end)
+    VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", function() C:BumpCollectionEpoch() end)
+end

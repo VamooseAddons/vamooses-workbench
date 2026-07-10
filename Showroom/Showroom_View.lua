@@ -25,11 +25,10 @@ ns.Showroom = Showroom
 local QUESTION_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local TICK_TEXTURE = "Interface\\RaidFrame\\ReadyCheck-Ready"
 
--- Item 8: UncollectedCount() -- cheap count of uncollected items in the
--- current filtered universe, reusing the model's breadcrumb computed. Exported
--- so Shell (nav badge) can bind it. Set from buildView; nil until first mount.
--- Only wired if breadcrumb can be read cheaply (it can: it's already computed).
-Showroom.UncollectedCount = nil -- set to a function by buildView
+-- (UncollectedCount export removed 2026-07-11: the nav badge now reads the
+-- global filter-independent VWB.Collectibles.UncollectedCount computed, which
+-- is live WITHOUT mounting this view -- the old export was nil until first
+-- mount and counted only the current filter universe.)
 local TYPE_SEGMENTS = {
     { key = "all", label = "All" }, { key = "decor", label = "Decor" },
     { key = "transmog", label = "Transmog" }, { key = "mount", label = "Mount" },

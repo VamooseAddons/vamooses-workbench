@@ -127,48 +127,13 @@ local function ScopeFilters(transmogScope, decorMode, missingActive)
     }
 end
 
--- Module-local kind cache: IsMount/IsPet/IsTransmoggable/IsDecor per itemID.
--- These are STATIC properties (item identity doesn't change), so the cache is
--- never invalidated. Collection state is NOT cached here -- it's always queried
--- live via ns.Collectibles / ns.Transmog / ns.DecorOwnership.
-local _kindCache = {}
-local function _classifyKind(itemID)
-    if not itemID then return "none" end
-    local cached = _kindCache[itemID]
-    if cached then return cached end
-    local k
-    if ns.Transmog:IsTransmoggable(itemID) then k = "transmog"
-    elseif ns.Collectibles:IsMount(itemID) then k = "mount"
-    elseif ns.Collectibles:IsPet(itemID) then k = "pet"
-    elseif ns.DecorOwnership:IsDecor(itemID) then k = "decor"
-    else k = "none"
-    end
-    _kindCache[itemID] = k
-    return k
-end
-
--- Returns true when itemID is an uncollected collectible (for the Missing pill).
--- Returns false for non-collectibles and collected items.
--- Decor cold-catalog: IsUncollected returns nil (not false/true) when the
--- catalog is unloaded -- treat nil as "unknown" -> fail the pill (false). The
--- empty-state logic in the list effect surfaces the honest catalog message.
--- exception(boundary): IsUncollected, IsMountCollected, IsPetCollected, IsUnknown
--- each call into Blizzard APIs that may return nil for cold/uncached items.
+-- Missing-pill check delegates to the Collectibles module's canonical chain
+-- (decor -> transmog -> mount -> pet, cold-safe memoization) -- shared with
+-- the nav badge and ProjectPlanner. Collection state is always queried live;
+-- decor's cold-catalog nil fails the pill and the list effect's empty state
+-- surfaces the honest "open the housing catalog" message.
 local function _isMissingCollectible(itemID)
-    local k = _classifyKind(itemID)
-    if k == "transmog" then return ns.Transmog:IsUnknown(itemID) end
-    if k == "mount" then
-        local c = ns.Collectibles:IsMountCollected(itemID) -- exception(boundary): nil if not a mount (already filtered by _classifyKind)
-        return c == false
-    end
-    if k == "pet" then
-        local c = ns.Collectibles:IsPetCollected(itemID) -- exception(boundary): nil if not a pet (already filtered by _classifyKind)
-        return c == false
-    end
-    if k == "decor" then
-        return ns.DecorOwnership:IsUncollected(itemID) == true -- exception(boundary): nil on cold catalog -> fails pill; empty-state shows catalog message
-    end
-    return false -- k == "none": non-collectible, can never be "missing"
+    return ns.Collectibles:IsUncollectedCollectible(itemID)
 end
 
 -- Chip specs by priority (capped CHIP_MAX): Ready > short N > uncollected >

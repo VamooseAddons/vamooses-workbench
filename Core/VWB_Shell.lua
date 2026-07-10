@@ -50,11 +50,8 @@ local VIEWS = {
       end },
     { id = "showroom",  text = "Showroom",  subtitle = "Browse craftable collectibles",
       build = function(c) return ns.Showroom.buildView(c) end,
-      badge = function()
-          -- exception(nullable): UncollectedCount is assigned at first mount (lazy views); 0 until then
-          local count = ns.Showroom.UncollectedCount
-          return count and count() or 0
-      end },
+      -- Global filter-independent count, live from window open (no mount needed)
+      badge = function() return ns.Collectibles.UncollectedCount() end },
     { id = "workbench", text = "Workbench", subtitle = "Recipes, queue and materials",
       build = function(c) return ns.Recipes.buildView(c) end,
       badge = function()

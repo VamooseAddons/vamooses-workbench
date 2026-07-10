@@ -48,6 +48,7 @@ boot:SetScript("OnEvent", function(self, event, name)
         ns.RecipeHarvest:Initialize()
         ns.DecorOwnership:Initialize()
         ns.Transmog:Initialize()
+        ns.Collectibles:Initialize() -- collection-event epoch for the global uncollected count (nav badge)
         ns.Minimap:Initialize() -- minimap button -> ns.Shell via VWB:ToggleWindow adapter
         ns.Inventory:Initialize() -- BAG/BANK/warband change -> VWB_INVENTORY_UPDATE so Stockroom owned counts stay live
         ns.GuildCrafters:Initialize() -- guild-crafter roster + "who can craft this" tooltips
