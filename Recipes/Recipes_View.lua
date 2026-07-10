@@ -91,9 +91,208 @@ local function queueRowTemplate(frame)
         ns.Store:Dispatch("REMOVE_FROM_QUEUE", { recipeID = frame.data.recipeID, charKey = frame.data.charKey })
     end)
     frame.removeBtn = removeBtn
+
+    -- Craft hammer (TODO #1): shown only for the current character's rows with
+    -- a recipe they know (paint gates it). Click flow lives in OnCraftClick.
+    local craftBtn = CreateFrame("Button", nil, frame)
+    craftBtn:SetSize(14, 14); craftBtn:SetPoint("RIGHT", removeBtn, "LEFT", -3, 0); craftBtn:RegisterForClicks("AnyUp")
+    local hammer = craftBtn:CreateTexture(nil, "ARTWORK")
+    hammer:SetAllPoints(); hammer:SetTexture("Interface\\Icons\\Trade_BlackSmithing")
+    hammer:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    craftBtn:SetScript("OnClick", function() OnCraftClick(frame.data) end)
+    craftBtn:SetScript("OnEnter", function(self)
+        local tip = ns.UI.Tooltip
+        tip:Begin(self)
+        tip:AddTitle("Craft")
+        tip:AddLine("Opens your profession window at this recipe if needed")
+        tip:Show()
+    end)
+    craftBtn:SetScript("OnLeave", function(self) ns.UI.Tooltip:Hide(self) end)
+    frame.craftBtn = craftBtn
+
+    -- Qty steppers: -/+ (shift = 5). Minus to zero removes (UPDATE_QUEUE_QTY reducer).
+    local function makeStep(label, delta, r, g, b)
+        local btn = CreateFrame("Button", nil, frame)
+        btn:SetSize(12, 14); btn:RegisterForClicks("AnyUp")
+        local t = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        t:SetAllPoints(); t:SetText(label); t:SetTextColor(r, g, b)
+        btn:SetScript("OnClick", function()
+            local step = IsShiftKeyDown() and delta * 5 or delta
+            ns.Store:Dispatch("UPDATE_QUEUE_QTY", {
+                recipeID = frame.data.recipeID, charKey = frame.data.charKey,
+                qty = (frame.data.qty or 1) + step,
+            })
+        end)
+        return btn
+    end
+    local plusBtn = makeStep("+", 1, 0.6, 0.8, 0.6)
+    plusBtn:SetPoint("RIGHT", craftBtn, "LEFT", -3, 0)
+    local minusBtn = makeStep("-", -1, 0.8, 0.6, 0.6)
+    minusBtn:SetPoint("RIGHT", plusBtn, "LEFT", -1, 0)
+
     local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetPoint("RIGHT", removeBtn, "LEFT", -4, 0); text:SetJustifyH("LEFT")
+    text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetPoint("RIGHT", minusBtn, "LEFT", -4, 0); text:SetJustifyH("LEFT")
     frame.text = text
+end
+
+-- ============================================================================
+-- CRAFT EXECUTION (donor: HDG HDGR_Controller_Recipes.lua craft dialog +
+-- VPC Recipes.lua ExecuteQueueCraft refinements -- both shipped patterns).
+-- Flow: hammer click -> profession window closed or wrong prof? OpenRecipe()
+-- opens/navigates the journal AT the recipe and the user clicks again ->
+-- confirm popup (qty editbox + steppers / Craft Max) -> CraftRecipe.
+-- ============================================================================
+
+local function chat(msg) print("|cFF2aa198[VWB]|r " .. msg) end
+
+-- Max full crafts from on-hand mats (bags+bank+warband, variant-aware).
+-- No mats data on file -> 1 so the dialog still offers something.
+local function ComputeMaxCraft(recipeID)
+    local maxRuns
+    for _, mat in ipairs(ns.Graph:GetDirectMaterials(recipeID, 1)) do
+        if mat.required > 0 then
+            local runs = math.floor(mat.owned / mat.required)
+            if not maxRuns or runs < maxRuns then maxRuns = runs end
+        end
+    end
+    return maxRuns or 1 -- exception(nullable): recipe with no basic slots on file
+end
+
+-- The one place a craft fires. CraftRecipe silently no-ops (or errors) unless
+-- THIS profession's window is open -- validate and say so (the window can
+-- close between popup-show and accept). Third arg MUST be {} not nil (MCP gotcha).
+local function ExecuteQueueCraft(item, qty)
+    qty = math.max(1, qty or item.qty or 1)
+    -- exception(boundary): C_TradeSkillUI -- the craft target window may have closed
+    if not C_TradeSkillUI.IsTradeSkillReady() or C_TradeSkillUI.IsNPCCrafting() then
+        chat("Profession window closed -- click the hammer again to reopen it.")
+        return
+    end
+    local recipe = ns.Database:GetRecipe(item.recipeID)
+    local base = C_TradeSkillUI.GetBaseProfessionInfo() -- exception(boundary): nil with no window open
+    if not base or base.professionName ~= recipe.profession then
+        chat(recipe.profession .. "'s window needs to be open for this one.")
+        return
+    end
+    C_TradeSkillUI.OpenRecipe(item.recipeID)
+    C_TradeSkillUI.CraftRecipe(item.recipeID, qty, {})
+end
+
+-- Attach -/+ steppers to the craft-confirm popup once; StaticPopup frames are
+-- reused, so build the custom widgets lazily and keep them on the dialog.
+local function EnsureCraftPopupSteppers(dialog, eb)
+    if dialog._vwbSteppers then return dialog._vwbSteppers end
+    local function makeStep(label, delta)
+        local b = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+        b:SetSize(22, 20)
+        b:SetText(label)
+        b:SetScript("OnClick", function()
+            local v = (tonumber(eb:GetText()) or 1) + (IsShiftKeyDown() and delta * 5 or delta)
+            eb:SetText(tostring(math.max(1, v)))
+            eb:HighlightText()
+        end)
+        return b
+    end
+    local minus, plus = makeStep("-", -1), makeStep("+", 1)
+    minus:SetPoint("RIGHT", eb, "LEFT", -4, 0)
+    plus:SetPoint("LEFT", eb, "RIGHT", 4, 0)
+    dialog._vwbSteppers = { minus = minus, plus = plus }
+    return dialog._vwbSteppers
+end
+
+-- Confirm dialog before a craft fires: -/+ qty, type-a-number, or Craft Max.
+-- Button->handler mapping (retail 12.x, per shipped HDGR_CRAFT_RECIPE):
+-- button1=OnAccept, button2=OnAlt, button3=OnCancel. "Craft Max" MUST be
+-- button2 (OnAlt); "Cancel" button3 (ESC = just closes).
+StaticPopupDialogs["VWB_CRAFT_CONFIRM"] = {
+    text = "Craft %s?\nSet a quantity, or craft as many as your mats allow.",
+    button1 = "Craft",
+    button2 = "Craft Max",
+    button3 = "Cancel",
+    hasEditBox = true,
+    editBoxWidth = 60,
+    maxLetters = 4,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    OnShow = function(self)
+        local eb = self.editBox or self.EditBox -- retail 12.0.5 renamed to EditBox
+        eb:SetNumeric(true)
+        eb:SetAutoFocus(false)
+        local q = (self.data.item.qty and self.data.item.qty > 0) and self.data.item.qty or 1
+        eb:SetText(tostring(q))
+        eb:HighlightText()
+        local steppers = EnsureCraftPopupSteppers(self, eb)
+        steppers.minus:Show()
+        steppers.plus:Show()
+    end,
+    OnHide = function(self)
+        -- StaticPopup frames are shared across dialog types -- hide our custom
+        -- steppers so they don't linger over the next popup on this slot.
+        if self._vwbSteppers then
+            self._vwbSteppers.minus:Hide()
+            self._vwbSteppers.plus:Hide()
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local dialog = self:GetParent()
+        ExecuteQueueCraft(dialog.data.item, tonumber(self:GetText()) or 1)
+        dialog:Hide()
+    end,
+    OnAccept = function(self)
+        local eb = self.editBox or self.EditBox
+        ExecuteQueueCraft(self.data.item, tonumber(eb:GetText()) or 1)
+    end,
+    OnAlt = function(self)
+        local maxRuns = ComputeMaxCraft(self.data.item.recipeID)
+        if maxRuns < 1 then
+            chat("Not enough materials to craft even one.")
+            return
+        end
+        ExecuteQueueCraft(self.data.item, maxRuns)
+    end,
+}
+
+-- Copyable Wowhead spell link (recipe IDs are spell IDs). Ctrl-click on a
+-- recipe or queue row.
+StaticPopupDialogs["VWB_WOWHEAD_URL"] = {
+    text = "Wowhead link (Ctrl-C to copy):",
+    button1 = "Close",
+    hasEditBox = true,
+    editBoxWidth = 300,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    OnShow = function(self)
+        local eb = self.editBox or self.EditBox
+        eb:SetText(self.data or "")
+        eb:HighlightText()
+        eb:SetFocus()
+    end,
+}
+
+local function ShowWowheadLink(recipeID)
+    StaticPopup_Show("VWB_WOWHEAD_URL", nil, nil, "https://www.wowhead.com/spell=" .. recipeID)
+end
+
+-- Hammer click: window closed or wrong profession open -> OpenRecipe navigates
+-- the journal AT this recipe (HDG's open-for-you flow), user clicks again.
+-- Ready + matching -> the confirm popup.
+local function OnCraftClick(item)
+    -- exception(boundary): C_TradeSkillUI window state is external
+    if not C_TradeSkillUI.IsTradeSkillReady() or C_TradeSkillUI.IsNPCCrafting() then
+        C_TradeSkillUI.OpenRecipe(item.recipeID)
+        chat("Opening the profession window -- click the hammer again to craft.")
+        return
+    end
+    local recipe = ns.Database:GetRecipe(item.recipeID)
+    local base = C_TradeSkillUI.GetBaseProfessionInfo() -- exception(boundary): nil with no window open
+    if not base or base.professionName ~= recipe.profession then
+        C_TradeSkillUI.OpenRecipe(item.recipeID)
+        chat("Switching to " .. recipe.profession .. " -- click the hammer again to craft.")
+        return
+    end
+    StaticPopup_Show("VWB_CRAFT_CONFIRM", item.name or recipe.name, nil, { item = item })
 end
 
 -- Materials row: icon + name + owned/required count (colored short vs covered).
@@ -489,9 +688,10 @@ function Recipes.buildView(container)
                     priorCraftable[item.recipeID] = craftableNow
                 end,
                 onRowClick = function(item)
-                    -- Item 5c: shift-click navigates to Showroom with that item selected.
-                    -- Normal click queues (existing behavior).
-                    if IsShiftKeyDown() and item.itemID then
+                    -- Ctrl: Wowhead link. Shift: Showroom preview. Plain: queue 1.
+                    if IsControlKeyDown() and item.recipeID then
+                        ShowWowheadLink(item.recipeID)
+                    elseif IsShiftKeyDown() and item.itemID then
                         ns.Nav.Go("showroom", { select = item.itemID })
                     else
                         ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = item.recipeID, qty = 1 })
@@ -530,7 +730,7 @@ function Recipes.buildView(container)
                     end
 
                     tip:AddLine(" ")
-                    tip:AddLine(ns.UI:ColorCode("base01") .. "Click: queue 1  -  Shift-click: open in Showroom|r")
+                    tip:AddLine(ns.UI:ColorCode("base01") .. "Click: queue 1  -  Shift: Showroom  -  Ctrl: Wowhead link|r")
                     tip:Show()
                     ns.GuildCrafters:AppendCraftersToTooltip(tip, item.recipeID)
                 end,
@@ -555,6 +755,13 @@ function Recipes.buildView(container)
                     local label = item.name or ("recipe:" .. tostring(item.recipeID))
                     if item.qty and item.qty > 1 then label = label .. " x" .. item.qty end
                     row.text:SetText(label)
+                    -- Hammer only on rows this character can actually fire:
+                    -- their own queue entry AND a recipe they know.
+                    local me = ns.CharacterData:GetCharacterKey()
+                    row.craftBtn:SetShown(item.charKey == me and ns.KnownRecipes:IsKnownBy(item.recipeID, me))
+                end,
+                onRowClick = function(item)
+                    if IsControlKeyDown() and item.recipeID then ShowWowheadLink(item.recipeID) end
                 end,
             })
             return queueWidget
