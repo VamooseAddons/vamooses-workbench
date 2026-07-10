@@ -251,9 +251,13 @@ end
 
 function Debug:DebugReport()
     UpdateAddOnMemoryUsage()
+    local ts = VWB.Transmog:DebugStats()
     local lines = {
         string.format("== MEMORY ==  %.0f KB Lua heap  |  %.0f KB this addon",
             collectgarbage("count"), GetAddOnMemoryUsage("VamoosesWorkbench")),
+        "",
+        string.format("== TRANSMOG ==  pending %d | dead %d | cached %d || pends+ %d | resolved %d | deadhits %d | srcAdded %d | fires %d",
+            ts.pending, ts.dead, ts.cached, ts.pendsCreated, ts.loadResolved, ts.loadDead, ts.srcAdded, ts.fires),
         "",
         "== RECENT ACTIONS (newest last) ==",
     }

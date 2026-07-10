@@ -6,8 +6,47 @@ VWB.Transmog = {}
 local cache = {} -- [itemID] = { hasAppearance = bool, isCollected = bool }
 local eventFrame = nil
 local pendingItemIDs = {} -- [itemID] = true; awaiting ITEM_DATA_LOAD_RESULT to retry GetStatus
-local loadSettle = nil -- trailing-edge coalescer for the load-burst VWB_TRANSMOG_UPDATED fire
+local loadSettle = nil -- trailing-edge coalescer for ALL VWB_TRANSMOG_UPDATED fires
 local deadItemIDs = {} -- load answered success=false (removed/invalid id): NEVER re-request
+local sourceAddedDirty = false -- SOURCE_ADDED burst pending: wipe uncollected cache ONCE at settle
+local stats = { srcAdded = 0, loadResolved = 0, loadDead = 0, pendsCreated = 0, fires = 0 } -- Debug tab
+
+-- ONE settle for both fire sources. SOURCE_ADDED used to fire immediately AND
+-- wipe every uncollected cache entry per event -- ATT/wardrobe activity bursts
+-- it, each wipe re-pends every cold item on the next walk, and the warmup
+-- cycle self-sustains (live 2026-07-11: 121 fires over 22min, ~10% cpu).
+local function armSettle()
+    if loadSettle then loadSettle:Cancel() end
+    loadSettle = VWB.ReactorWoW.after(0.3, function()
+        loadSettle = nil
+        if sourceAddedDirty then
+            sourceAddedDirty = false
+            -- Invalidate uncollected entries so next GetStatus re-checks the
+            -- wardrobe -- ONCE per settle window, not per event.
+            for itemID, status in pairs(cache) do
+                if status.hasAppearance and not status.isCollected then
+                    cache[itemID] = nil
+                end
+            end
+        end
+        stats.fires = stats.fires + 1
+        VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {})
+    end)
+end
+
+-- Debug-tab counters: sizes + flow counts to name the loop driver when the
+-- update stream misbehaves (pending/dead/cache sizes are computed on demand).
+function VWB.Transmog:DebugStats()
+    local pend, dead, cached = 0, 0, 0
+    for _ in pairs(pendingItemIDs) do pend = pend + 1 end
+    for _ in pairs(deadItemIDs) do dead = dead + 1 end
+    for _ in pairs(cache) do cached = cached + 1 end
+    return {
+        pending = pend, dead = dead, cached = cached,
+        srcAdded = stats.srcAdded, loadResolved = stats.loadResolved,
+        loadDead = stats.loadDead, pendsCreated = stats.pendsCreated, fires = stats.fires,
+    }
+end
 
 -- Equippable slots that carry NO transmog appearance (nothing to collect)
 local NON_VISUAL_SLOTS = {
@@ -67,6 +106,7 @@ function VWB.Transmog:GetStatus(itemID)
         end
         if not pendingItemIDs[itemID] then
             pendingItemIDs[itemID] = true
+            stats.pendsCreated = stats.pendsCreated + 1
             C_Item.RequestLoadItemDataByID(itemID)
         end
         return { hasAppearance = false, isCollected = false }
@@ -109,14 +149,9 @@ function VWB.Transmog:Initialize()
 
     eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2)
         if event == "TRANSMOG_COLLECTION_SOURCE_ADDED" then
-            -- Invalidate uncollected entries so next GetStatus re-checks the wardrobe
-            for itemID, status in pairs(cache) do
-                if status.hasAppearance and not status.isCollected then
-                    cache[itemID] = nil
-                end
-            end
-            VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {})
-
+            stats.srcAdded = stats.srcAdded + 1
+            sourceAddedDirty = true
+            armSettle() -- coalesced: the wipe + fire happen once per settle window
         elseif event == "ITEM_DATA_LOAD_RESULT" then
             -- (itemID, success). keyOf pattern; O(1) vs full scan.
             local itemID, success = arg1, arg2
@@ -126,21 +161,13 @@ function VWB.Transmog:Initialize()
                     -- Dead id: mark it so GetStatus never re-requests. Without
                     -- this, walk -> request -> failure -> settle-fire -> walk
                     -- self-sustained forever (the post-coalescer loop).
+                    stats.loadDead = stats.loadDead + 1
                     deadItemIDs[itemID] = true
                     return
                 end
+                stats.loadResolved = stats.loadResolved + 1
                 cache[itemID] = nil -- clear the stub entry so GetStatus re-reads
-                -- COALESCED fire (perf, observed live 2026-07-11): a cold-start
-                -- warmup streams THOUSANDS of loads (10k events -> 3k per-item
-                -- fires), and every fire runs the full listener fan-out (badge
-                -- corpus walk, Showroom invalidateAll, Workbench re-derive) =
-                -- ~10s of jank on view switch. One trailing-edge fire per
-                -- settle window carries the same information.
-                if loadSettle then loadSettle:Cancel() end
-                loadSettle = VWB.ReactorWoW.after(0.3, function()
-                    loadSettle = nil
-                    VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {})
-                end)
+                armSettle()
             end
         end
     end)
