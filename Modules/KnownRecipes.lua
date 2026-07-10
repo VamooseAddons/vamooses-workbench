@@ -99,7 +99,9 @@ local function HarvestOwnProfession(recipeIDs, profName)
     tick()
 end
 
--- Check if recipe is known
+-- ACCOUNT-UNION semantics: true if ANY scanned character knows the recipe
+-- (the cache seeds from state.knownRecipes, the account union). For a
+-- per-character answer use IsKnownBy(recipeID, charKey).
 function VWB.KnownRecipes:IsKnown(recipeID)
     if not recipeID then return false end
     return knownCache[recipeID] == true
@@ -114,22 +116,30 @@ function VWB.KnownRecipes:ScanCurrentProfession()
     if not recipeIDs then return end
 
     local count = 0
+    local scanned = {} -- THIS scan's learned set only -- see dispatch note below
     for _, recipeID in ipairs(recipeIDs) do
         local info = C_TradeSkillUI.GetRecipeInfo(recipeID)
         -- Learned-only: persisting [id]=false for thousands of unlearned recipes bloats SavedVars
         if info and info.learned then
             knownCache[recipeID] = true
+            scanned[recipeID] = true
             count = count + 1
         end
     end
 
-    -- Update Store (copy to avoid shared reference)
+    -- Dispatch ONLY this scan's learned set, tagged with the profession.
+    -- The old code dispatched the whole accumulated knownCache -- which seeds
+    -- from the ACCOUNT UNION at Initialize -- so any character who opened any
+    -- profession window was credited with every recipe anyone knew (tester
+    -- bug 2026-07-11: "tooltip lists all of my characters as knowing it").
+    -- The profession tag lets the reducer replace-by-profession, healing
+    -- already-polluted per-char maps as windows are opened.
     if VWB.Store then
-        local copy = {}
-        for k, v in pairs(knownCache) do copy[k] = v end
+        local baseInfo = C_TradeSkillUI.GetBaseProfessionInfo()
         VWB.Store:Dispatch("SET_KNOWN_RECIPES", {
-            recipes = copy,
+            recipes = scanned,
             charKey = VWB.CharacterData:GetCharacterKey(),
+            profession = baseInfo and baseInfo.professionName, -- exception(boundary): header may not have loaded; nil = merge-only
         })
     end
 

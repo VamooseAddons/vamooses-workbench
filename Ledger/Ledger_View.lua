@@ -194,7 +194,7 @@ local function paintRowTooltip(data, rowFrame)
     -- this character, name the alts so the user knows who to log on.
     if data.recipeID then
         local crafters = ns.KnownRecipes:KnownByList(data.recipeID)
-        if #crafters > 0 and not ns.KnownRecipes:IsKnown(data.recipeID) then
+        if #crafters > 0 and not ns.KnownRecipes:IsKnownBy(data.recipeID, ns.CharacterData:GetCharacterKey()) then
             tip:AddLine(" ")
             tip:AddLine(VWB.UI:ColorCode("base01") .. "Craftable by: " .. table.concat(crafters, ", ") .. "|r")
         end
@@ -383,7 +383,8 @@ function Ledger.buildView(container)
         for _, d in ipairs(profitRows()) do
             local passesKnown
             if kMode == "me" then
-                passesKnown = ns.KnownRecipes:IsKnown(d.recipeID)
+                -- IsKnown is the ACCOUNT union -- "me" must be per-character
+                passesKnown = ns.KnownRecipes:IsKnownBy(d.recipeID, ns.CharacterData:GetCharacterKey())
             elseif kMode == "account" then
                 passesKnown = #ns.KnownRecipes:KnownByList(d.recipeID) > 0
             else

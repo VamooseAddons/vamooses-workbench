@@ -106,5 +106,39 @@ Store:Dispatch("TEST_QCLEAR_REPLACE")
 check("replace-clear DETACHES the alias (why CLEAR_QUEUE must not do it)",
     Store:GetState().crafting.queuedRecipes ~= qref and qref[1] == 9)
 
+-- 9. SET_KNOWN_RECIPES replace-by-profession (the 2026-07-11 pollution fix):
+-- a profession-tagged scan is authoritative for that profession on that char --
+-- stale entries prune, other professions' entries survive, and an UNTAGGED
+-- dispatch (nil profession, e.g. header not loaded) stays merge-only. ---------
+Store:Dispatch("ADD_RECIPES", { records = {
+    [201] = { itemID = 21, name = "Ink A", profession = "Inscription" },
+    [202] = { itemID = 22, name = "Ink B", profession = "Inscription" },
+    [301] = { itemID = 31, name = "Flask", profession = "Alchemy" },
+} })
+Store:Dispatch("SET_KNOWN_RECIPES", { recipes = { [201] = true, [202] = true, [301] = true }, charKey = "Pox-Realm" }) -- simulate pre-fix pollution (untagged union dump)
+local pox = st.account.characters["Pox-Realm"]
+check("polluted setup: Pox credited with all 3", pox.knownRecipes[201] and pox.knownRecipes[202] and pox.knownRecipes[301])
+Store:Dispatch("SET_KNOWN_RECIPES", { recipes = { [201] = true }, charKey = "Pox-Realm", profession = "Inscription" })
+check("tagged scan prunes stale same-profession entries", pox.knownRecipes[201] and pox.knownRecipes[202] == nil)
+check("tagged scan leaves OTHER professions untouched", pox.knownRecipes[301])
+Store:Dispatch("SET_KNOWN_RECIPES", { recipes = { [202] = true }, charKey = "Pox-Realm" }) -- untagged: merge-only
+check("untagged dispatch merges without pruning", pox.knownRecipes[201] and pox.knownRecipes[202] and pox.knownRecipes[301])
+check("union table unaffected by per-char pruning", st.knownRecipes[201] and st.knownRecipes[202] and st.knownRecipes[301])
+
+-- 10. SAVE_CHARACTER_PROFESSIONS prunes recipes of professions the char lacks --
+Store:Dispatch("SAVE_CHARACTER_PROFESSIONS", { charKey = "Pox-Realm", name = "Pox", professions = { Inscription = {} } })
+pox = st.account.characters["Pox-Realm"]
+check("save prunes recipes of professions the char lacks", pox.knownRecipes[301] == nil)
+check("save keeps recipes of professions the char has", pox.knownRecipes[201] and pox.knownRecipes[202])
+
+-- 11. REMOVE_CHARACTER retires the record + clears a matching scope -----------
+Store:Dispatch("SET_SCOPE", { charKey = "Pox-Realm" })
+Store:Dispatch("REMOVE_CHARACTER", { charKey = "Pox-Realm" })
+check("REMOVE_CHARACTER deletes the record", st.account.characters["Pox-Realm"] == nil)
+check("REMOVE_CHARACTER clears a matching scope", st.ui.scopeCharacter == nil)
+Store:Dispatch("SET_SCOPE", { charKey = "Aly-Realm" })
+Store:Dispatch("REMOVE_CHARACTER", { charKey = "Gone-Realm" })
+check("REMOVE_CHARACTER leaves an unrelated scope alone", st.ui.scopeCharacter == "Aly-Realm")
+
 print(string.format("Store: %d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

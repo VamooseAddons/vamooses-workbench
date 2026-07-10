@@ -142,6 +142,10 @@ ED.PROFESSION_DATA = {
     { name = "Herbalism",      id = 182, code = "HB", icon = "Interface\\Icons\\Trade_Herbalism" },
     { name = "Mining",         id = 186, code = "MN", icon = "Interface\\Icons\\Trade_Mining" },
     { name = "Skinning",       id = 393, code = "SK", icon = "Interface\\Icons\\INV_Misc_Pelt_Wolf_01" },
+    -- Secondary skills (tester request 2026-07-11): GetProfessions() slots 3+4.
+    -- No recipes -> Records/RecipeQuery unaffected; Roster skill rows only.
+    { name = "Fishing",        id = 356, code = "FS", icon = "Interface\\Icons\\Trade_Fishing" },
+    { name = "Archaeology",    id = 794, code = "AR", icon = "Interface\\Icons\\Trade_Archaeology" },
 }
 
 ED.PROFESSION_ORDER = {}

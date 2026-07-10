@@ -25,6 +25,22 @@ ns.Roster = Roster
 
 local ED = VWB.Data.ExpansionData
 
+-- ============================================================================
+-- StaticPopup: remove a character from the roster (tester request).
+-- OnAccept receives charKey as the second arg (StaticPopup_Show data param).
+-- ============================================================================
+StaticPopupDialogs["VWB_REMOVE_CHARACTER"] = {
+    text = "Remove %s from the roster?\nA profession scan on that character will re-add them.",
+    button1 = "Remove",
+    button2 = "Cancel",
+    OnAccept = function(self, data)
+        ns.Store:Dispatch("REMOVE_CHARACTER", { charKey = data })
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
 -- Card strip sizing -- CARD_W/CARD_H must match VWB.UI:CreateCharStatCard's
 -- own internal SetSize(220, 58) (kept separate per this addon's factory
 -- convention; the card sizes itself, this is just for the wrapper + bar).
@@ -59,18 +75,42 @@ local function summaryRowTemplate(frame)
     end
 end
 
+-- scopedHasProfession: true when the scoped character holds any expansion slot
+-- for this profession row (drives name gold + per-cell gold highlight).
+local function scopedHasProfession(item)
+    if not item.scopedChar then return false end
+    for _, expInfo in ipairs(ED.EXPANSION_ORDER) do
+        local best = item.best[expInfo.display]
+        if best and best.charKey == item.scopedChar then return true end
+    end
+    return false
+end
+
 local function paintSummaryRow(row, item)
     row.data = item
     row.icon:SetTexture(item.icon)
     row.name:SetText(item.profName)
     local s = VWB.UI:GetScheme()
+    local scopedOwns = scopedHasProfession(item)
+    -- Gold name when the scoped character has this profession at any expansion.
+    if scopedOwns then
+        row.name:SetTextColor(1, 0.82, 0)
+    else
+        row.name:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
+    end
     for i, expInfo in ipairs(ED.EXPANSION_ORDER) do
         local best = item.best[expInfo.display]
         local cell = row.cells[i]
         if best then
-            local color = (best.current >= best.max) and s.success or s.accent
-            cell:SetTextColor(1, 1, 1) -- reset: the "/max" tail after |r falls back to this, not a stale dim-gray from a prior "-" paint of this pooled cell
-            cell:SetText(string.format("|cFF%s%d|r/%d", VWB.UI:ToHex(color), best.current, best.max))
+            -- Gold cell when the scoped character holds this expansion's best.
+            if item.scopedChar and best.charKey == item.scopedChar then
+                cell:SetTextColor(1, 1, 1) -- reset tail color
+                cell:SetText(string.format("|cFFFFD100%d|r/%d", best.current, best.max))
+            else
+                local color = (best.current >= best.max) and s.success or s.accent
+                cell:SetTextColor(1, 1, 1) -- reset: the "/max" tail after |r falls back to this, not a stale dim-gray from a prior "-" paint of this pooled cell
+                cell:SetText(string.format("|cFF%s%d|r/%d", VWB.UI:ToHex(color), best.current, best.max))
+            end
         else
             cell:SetText("-")
             cell:SetTextColor(s.text.r, s.text.g, s.text.b)
@@ -186,15 +226,38 @@ local function createCharCard(p)
     wrapper:SetSize(CARD_W, STRIP_HEIGHT)
 
     local card = VWB.UI:CreateCharStatCard(wrapper, {
-        -- Dispatch scope change then navigate to the Workbench so the user lands
-        -- in the recipe list already scoped to the alt they clicked (edge #3).
+        -- Card click scopes this character and stays in Roster so the Account
+        -- Summary below can highlight that character's holdings (item 1).
+        -- "Plan in Workbench" button in the header bar handles the Nav jump.
         onClick = function(charKey)
             ns.Store:Dispatch("SET_SCOPE", { charKey = charKey })
-            ns.Nav.Go("workbench")
         end,
     })
     card:SetPoint("TOP", 0, 0)
     wrapper.card = card
+
+    -- Gold selection ring: four 2px edge textures anchored to the card frame,
+    -- shown in OVERLAY so they sit above the card's own backdrop art but inside
+    -- the wrapper. Hidden by default; wrapper:SetSelected(true/false) drives them.
+    local function makeRingEdge(anchor1, anchor2, isHoriz)
+        local t = card:CreateTexture(nil, "OVERLAY")
+        t:SetColorTexture(1, 0.82, 0, 0.9)
+        t:SetPoint(anchor1, card, anchor1, 0, 0)
+        t:SetPoint(anchor2, card, anchor2, 0, 0)
+        if isHoriz then t:SetHeight(2) else t:SetWidth(2) end
+        t:Hide()
+        return t
+    end
+    wrapper._ring = {
+        makeRingEdge("TOPLEFT",    "TOPRIGHT",    true),  -- top edge
+        makeRingEdge("BOTTOMLEFT", "BOTTOMRIGHT", true),  -- bottom edge
+        makeRingEdge("TOPLEFT",    "BOTTOMLEFT",  false), -- left edge
+        makeRingEdge("TOPRIGHT",   "BOTTOMRIGHT", false), -- right edge
+    }
+
+    function wrapper:SetSelected(sel)
+        for _, t in ipairs(self._ring) do t:SetShown(sel) end
+    end
 
     local bar = VWB.UI:CreateProgressBar(wrapper, { width = CARD_W - 16, height = BAR_H })
     bar:SetPoint("TOP", card, "BOTTOM", 0, -BAR_GAP)
@@ -209,6 +272,16 @@ local function createCharCard(p)
         GameTooltip:Show()
     end)
     card:HookScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Right-click: confirm remove. The card is a Button registered for AnyUp;
+    -- button3 = right mouse. StaticPopup_Show("VWB_REMOVE_CHARACTER", nil, data)
+    -- third arg is data passed to OnAccept as its second parameter.
+    card:HookScript("OnClick", function(self, btn)
+        if btn == "RightButton" then
+            local displayName = self._entry and self._entry.name or self._charKey
+            StaticPopup_Show("VWB_REMOVE_CHARACTER", displayName, self._charKey)
+        end
+    end)
 
     return wrapper
 end
@@ -269,21 +342,44 @@ function Roster.buildView(container)
         return best
     end)
 
-    -- One row per KNOWN profession (all 12, always -- unscanned ones show "-"),
-    -- crafting professions first then gathering (ED.PROFESSION_ORDER's own order).
+    -- Profession names that are secondary skills with no expansion-variant recipes.
+    -- Their summary rows are gated: only shown when at least one character has
+    -- the profession scanned (avoids two mostly-empty rows on typical accounts).
+    local GATED_PROFS = { Fishing = true, Archaeology = true }
+
+    -- One row per KNOWN profession. Crafting professions always shown; Fishing +
+    -- Archaeology gated (shown only when any character has the profession scanned).
+    -- Reads nav version so scope changes repaint gold highlights without a full
+    -- accountBest recompute.
     local summaryRows = R.named("roster:summaryRows", function()
+        ns.Store:Version("nav") -- scope changes drive gold repaint
         local best = accountBest()
+        local scopedChar = ns.Store:GetState().ui.scopeCharacter -- exception(nullable): nil when no scope set
         local out = {}
         for _, profInfo in ipairs(ED.PROFESSION_ORDER) do
-            -- exception(nullable): profession nobody on the account has scanned yet
-            out[#out + 1] = { profName = profInfo.name, icon = profInfo.icon, best = best[profInfo.name] or {} }
+            local profBest = best[profInfo.name] or {}
+            local include = true
+            -- Gate secondary profs: skip if nobody on account has it scanned.
+            if GATED_PROFS[profInfo.name] then
+                local hasAny = false
+                for _ in pairs(profBest) do hasAny = true; break end
+                include = hasAny
+            end
+            if include then
+                out[#out + 1] = { profName = profInfo.name, icon = profInfo.icon, best = profBest, scopedChar = scopedChar }
+            end
         end
         return out
     end)
 
-    local root, stripScroll, stripContent, summaryList
+    local root, stripScroll, stripContent, summaryList, planBtn
 
     local function makeFrame(node, parent)
+        if node.id == "rosPlanBtn" then
+            planBtn = VWB.UI:CreateButton(parent, "Plan in Workbench", 130, 20)
+            planBtn:SetScript("OnClick", function() ns.Nav.Go("workbench") end)
+            return planBtn
+        end
         if node.id == "rosGrid" then
             root = CreateFrame("Frame", nil, parent)
 
@@ -357,6 +453,13 @@ function Roster.buildView(container)
     handle.byId.rosScopeHint:EnableMouse(true)
     handle.byId.rosScopeHint:SetScript("OnMouseUp", function() ns.Store:Dispatch("CLEAR_SCOPE") end)
 
+    -- "Plan in Workbench" button: only visible when a scope is set.
+    -- Clicking it navigates to the Workbench with the scoped character already set.
+    R.bindShown(planBtn, function()
+        ns.Store:Version("nav")
+        return ns.Store:GetState().ui.scopeCharacter ~= nil
+    end)
+
     local function hasChars() return #chars() > 0 end
     R.bindShown(root.empty, function() return not hasChars() end)
     R.bindShown(root.stripHeader, hasChars)
@@ -367,6 +470,10 @@ function Roster.buildView(container)
 
     R.effect(function()
         local list = chars()
+        -- Nav version read here so scope changes repaint card selection rings
+        -- without a full chars() recompute (chars() only tracks "characters" slice).
+        ns.Store:Version("nav")
+        local scopedChar = ns.Store:GetState().ui.scopeCharacter -- exception(nullable): nil when no scope
         VWB.UI:ResetRows(stripContent)
         local now = time()
         for i, c in ipairs(list) do
@@ -374,6 +481,7 @@ function Roster.buildView(container)
             wrapper:SetPoint("TOPLEFT", stripContent, "TOPLEFT", (i - 1) * (CARD_W + CARD_GAP), 0)
             wrapper.card:SetData(c.charKey, c.entry, c.charKey == currentCharKey, now)
             wrapper.bar:SetProgress(computeMastery(c.entry.professions))
+            wrapper:SetSelected(c.charKey == scopedChar)
         end
         VWB.UI:HideUnusedRows(stripContent)
         stripContent:SetWidth(math.max(1, #list * (CARD_W + CARD_GAP)))

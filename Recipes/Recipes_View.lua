@@ -112,17 +112,63 @@ end
 -- FILTER / CHIP / NAV HELPERS (pure -- safe to call from a Reactor computed)
 -- ============================================================================
 
--- The Transmog pill is a SCOPE (everything with an appearance, collected or
--- not); the decor segment's "Missing" is the collection-STATE filter inside
--- whichever scope is active: mog scope -> unknown appearances, otherwise
--- decor scope -> uncollected decor.
-local function ScopeFilters(transmogScope, decorMode)
+-- ScopeFilters derives the RecipeQuery filter flags from the type toggle and
+-- the independent Missing pill. The SegmentedToggle is type-only ("off"|"decor").
+-- missingActive drives uncollectedDecorOnly (when decorMode=="decor") and
+-- unknownTransmogOnly (when transmogScope). Non-decor/non-mog collectibles
+-- (mounts, pets) are handled by the _isMissingCollectible post-filter in
+-- recipeList since RecipeQuery has no Collectibles module access.
+local function ScopeFilters(transmogScope, decorMode, missingActive)
     return {
         transmogOnly = transmogScope,
-        unknownTransmogOnly = transmogScope and decorMode == "missing",
-        decorOnly = decorMode == "decor" or (decorMode == "missing" and not transmogScope),
-        uncollectedDecorOnly = decorMode == "missing" and not transmogScope,
+        unknownTransmogOnly = transmogScope and missingActive,
+        decorOnly = decorMode == "decor",
+        uncollectedDecorOnly = decorMode == "decor" and missingActive,
     }
+end
+
+-- Module-local kind cache: IsMount/IsPet/IsTransmoggable/IsDecor per itemID.
+-- These are STATIC properties (item identity doesn't change), so the cache is
+-- never invalidated. Collection state is NOT cached here -- it's always queried
+-- live via ns.Collectibles / ns.Transmog / ns.DecorOwnership.
+local _kindCache = {}
+local function _classifyKind(itemID)
+    if not itemID then return "none" end
+    local cached = _kindCache[itemID]
+    if cached then return cached end
+    local k
+    if ns.Transmog:IsTransmoggable(itemID) then k = "transmog"
+    elseif ns.Collectibles:IsMount(itemID) then k = "mount"
+    elseif ns.Collectibles:IsPet(itemID) then k = "pet"
+    elseif ns.DecorOwnership:IsDecor(itemID) then k = "decor"
+    else k = "none"
+    end
+    _kindCache[itemID] = k
+    return k
+end
+
+-- Returns true when itemID is an uncollected collectible (for the Missing pill).
+-- Returns false for non-collectibles and collected items.
+-- Decor cold-catalog: IsUncollected returns nil (not false/true) when the
+-- catalog is unloaded -- treat nil as "unknown" -> fail the pill (false). The
+-- empty-state logic in the list effect surfaces the honest catalog message.
+-- exception(boundary): IsUncollected, IsMountCollected, IsPetCollected, IsUnknown
+-- each call into Blizzard APIs that may return nil for cold/uncached items.
+local function _isMissingCollectible(itemID)
+    local k = _classifyKind(itemID)
+    if k == "transmog" then return ns.Transmog:IsUnknown(itemID) end
+    if k == "mount" then
+        local c = ns.Collectibles:IsMountCollected(itemID) -- exception(boundary): nil if not a mount (already filtered by _classifyKind)
+        return c == false
+    end
+    if k == "pet" then
+        local c = ns.Collectibles:IsPetCollected(itemID) -- exception(boundary): nil if not a pet (already filtered by _classifyKind)
+        return c == false
+    end
+    if k == "decor" then
+        return ns.DecorOwnership:IsUncollected(itemID) == true -- exception(boundary): nil on cold catalog -> fails pill; empty-state shows catalog message
+    end
+    return false -- k == "none": non-collectible, can never be "missing"
 end
 
 -- Chip specs by priority (capped CHIP_MAX): Ready > short N > uncollected >
@@ -196,7 +242,7 @@ end
 -- derivation only -- a stale nav selection (filtered down to zero) is left
 -- for the user to clear by clicking elsewhere; no write happens from a read
 -- path (Reactor computeds must stay side-effect free).
-local function BuildNavSections(prof, searchFilter, sf, canCraftOnly, skillUpOnly)
+local function BuildNavSections(prof, searchFilter, sf, canCraftOnly, skillUpOnly, missingActive)
     local results = ns.RecipeQuery:GetFiltered({
         profession = prof,
         search = searchFilter ~= "" and searchFilter or nil,
@@ -212,7 +258,11 @@ local function BuildNavSections(prof, searchFilter, sf, canCraftOnly, skillUpOnl
     local expCatCounts = {}
     for _, entry in ipairs(results) do
         local r = entry.recipe
-        if r.expansion then
+        -- Mirror the recipeList post-filter so nav counts match the list.
+        if missingActive and not sf.unknownTransmogOnly and not sf.uncollectedDecorOnly
+            and not _isMissingCollectible(r.itemID) then
+            -- skip: missing pill excludes this non-collectible/collected item
+        elseif r.expansion then
             local cats = expCatCounts[r.expansion]
             if not cats then cats = {}; expCatCounts[r.expansion] = cats end
             local cat = r.categoryName or "Uncategorized"
@@ -290,7 +340,12 @@ function Recipes.buildView(container)
     local transmogScope = R.signal(false)
     local canCraftOnly = R.signal(false)
     local skillUpOnly = R.signal(false)
-    local decorMode = R.signal("off")
+    local decorMode = R.signal("off")  -- "off" | "decor" (type toggle only; "missing" removed)
+    local missingPill = R.signal(false) -- independent Missing filter pill
+    -- collectionEpoch: incremented by mount/pet collection events so recipeList
+    -- re-derives when the Missing pill is on (collection state lives outside the
+    -- Store; the epoch is the standard Reactor pattern for "live external state").
+    local collectionEpoch = R.signal(0)
 
     local listWidget, queueWidget, materialsWidget, navTreeWidget
     local profTabBarContainer, profBtnRow
@@ -318,7 +373,11 @@ function Recipes.buildView(container)
             filterCategoryName = cat
         end
 
-        local sf = ScopeFilters(transmogScope(), decorMode())
+        local missing = missingPill()
+        -- Subscribe to collection epoch when the pill is on so mount/pet collects
+        -- re-derive this computed (collection state lives outside the Store).
+        if missing then collectionEpoch() end
+        local sf = ScopeFilters(transmogScope(), decorMode(), missing)
         local q = search()
         local out = {}
         for _, e in ipairs(ns.RecipeQuery:GetFiltered({
@@ -333,7 +392,18 @@ function Recipes.buildView(container)
             unknownTransmogOnly = sf.unknownTransmogOnly,
             decorOnly = sf.decorOnly,
             uncollectedDecorOnly = sf.uncollectedDecorOnly,
-        })) do out[#out + 1] = e.recipe end
+        })) do
+            -- Missing pill post-filter: exclude collected collectibles.
+            -- Decor (when decorMode=="decor") is already filtered by
+            -- uncollectedDecorOnly above; this post-filter covers the remaining
+            -- kinds (mount/pet/transmog) when the pill is on without transmog
+            -- scope, and decor in "all" type mode.
+            -- When transmog scope is on, unknownTransmogOnly already handled it.
+            if not missing or sf.unknownTransmogOnly or sf.uncollectedDecorOnly
+                or _isMissingCollectible(e.recipe.itemID) then
+                out[#out + 1] = e.recipe
+            end
+        end
         return out
     end)
 
@@ -347,7 +417,9 @@ function Recipes.buildView(container)
 
         local prof = profession()
         if not prof then return {} end
-        return BuildNavSections(prof, search(), ScopeFilters(transmogScope(), decorMode()), canCraftOnly(), skillUpOnly())
+        local missing = missingPill()
+        if missing then collectionEpoch() end
+        return BuildNavSections(prof, search(), ScopeFilters(transmogScope(), decorMode(), missing), canCraftOnly(), skillUpOnly(), missing)
     end)
 
     -- Crafting queue + materials come from state.crafting, which the queue
@@ -367,15 +439,16 @@ function Recipes.buildView(container)
             return ns.UI:CreateFilterPill(parent, "Skill-Up", function(checked) skillUpOnly(checked) end)
         elseif node.id == "decorToggle" then
             return ns.UI:CreateSegmentedToggle(parent, {
-                width = 150, height = 18, pill = true,
+                width = 100, height = 18, pill = true,
                 segments = {
-                    { key = "off", label = "All" },
+                    { key = "off",   label = "All" },
                     { key = "decor", label = "Decor" },
-                    { key = "missing", label = "Missing" },
                 },
                 default = "off",
                 onSelect = function(key) decorMode(key) end,
             })
+        elseif node.id == "missingPill" then
+            return ns.UI:CreateFilterPill(parent, "Missing", function(checked) missingPill(checked and true or false) end)
         elseif node.id == "rcpNavLabel" then
             local f = ns.ViewKit.roleLabel(node, parent)
             -- Expand-all / collapse-all: one button that flips whichever state
@@ -744,6 +817,17 @@ function Recipes.buildView(container)
     -- an unrelated re-render.
     VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", function() listWidget:Refresh() end)
     VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", function() listWidget:Refresh() end)
+    -- Mount/pet collection: bump collectionEpoch so recipeList re-derives and
+    -- removes the newly collected item when the Missing pill is on.
+    -- Collectibles.lua has no EventBus wrapper, so listen to raw Blizzard events.
+    -- The frame is always registered; the epoch is only subscribed by recipeList
+    -- when missingPill() is true, so the bump is a no-op when the pill is off.
+    local mountPetFrame = CreateFrame("Frame")
+    mountPetFrame:RegisterEvent("NEW_MOUNT_ADDED")
+    mountPetFrame:RegisterEvent("NEW_PET_ADDED")
+    mountPetFrame:SetScript("OnEvent", function()
+        collectionEpoch(collectionEpoch() + 1)
+    end)
 
     R.effect(function()
         local list = recipeList()
@@ -754,9 +838,18 @@ function Recipes.buildView(container)
             emptyCard.button:Show()
             emptyCard:Show()
         elseif #list == 0 then
-            if decorMode() ~= "off" and ns.DecorOwnership:IsCatalogCold() then
+            -- Cold-catalog: when the Missing pill is on (or Decor type is active)
+            -- and the housing catalog hasn't been loaded, decor rows are excluded
+            -- not because they're collected but because ownership is unknown.
+            -- Surface the honest message rather than letting the list go silently empty.
+            -- exception(boundary): IsCatalogCold checks Blizzard housing catalog state.
+            local decorInScope = decorMode() ~= "off" or missingPill()
+            if decorInScope and ns.DecorOwnership:IsCatalogCold() then
                 emptyCard.title:SetText("Housing catalog not loaded")
                 emptyCard.body:SetText("Open the housing catalog once this session, then come back.")
+            elseif missingPill() then
+                emptyCard.title:SetText("Nothing left to collect here")
+                emptyCard.body:SetText("You have everything -- or no craftable collectibles match the current filters.")
             else
                 emptyCard.title:SetText("Nothing matches")
                 emptyCard.body:SetText("Try loosening a filter or clearing your search.")

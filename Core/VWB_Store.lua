@@ -69,6 +69,7 @@ local ACTION_SLICES = {
     UPDATE_COVERAGE = { "coverage" }, -- scan status/timestamp only; NOT corpus (no reclassify on craft)
     SET_KNOWN_RECIPES = { "recipes", "characters" }, -- known-status only; NOT corpus
     SAVE_CHARACTER_PROFESSIONS = { "characters" },
+    REMOVE_CHARACTER = { "characters", "nav" }, -- nav: may clear scopeCharacter
     ADD_CRAFTING_HISTORY = { "history" }, CLEAR_HISTORY = { "history" },
     ADD_TO_QUEUE = { "crafting" }, REMOVE_FROM_QUEUE = { "crafting" },
     UPDATE_QUEUE_QTY = { "crafting" }, CLEAR_QUEUE = { "crafting" },
@@ -168,6 +169,18 @@ reducers.SET_KNOWN_RECIPES = function(st, p)
             st.account.characters[charKey] = rec
         end
         rec.knownRecipes = rec.knownRecipes or {}
+        -- REPLACE-BY-PROFESSION: a tagged scan is authoritative for that
+        -- profession on that character -- prune its stale entries first. This
+        -- progressively heals per-char maps polluted by the pre-2026-07-11
+        -- whole-cache dispatch (every char credited with the account union).
+        if p.profession then
+            for recipeID in pairs(rec.knownRecipes) do
+                local r = st.recipeStore[recipeID] -- exception(nullable): entry may predate the current recipe store
+                if r and r.profession == p.profession and not p.recipes[recipeID] then
+                    rec.knownRecipes[recipeID] = nil
+                end
+            end
+        end
         for recipeID in pairs(p.recipes or {}) do rec.knownRecipes[recipeID] = true end
     end
 end
@@ -186,11 +199,31 @@ end
 
 reducers.SAVE_CHARACTER_PROFESSIONS = function(st, p)
     local existing = st.account.characters[p.charKey]
+    local known = (existing and existing.knownRecipes) or {}
+    -- Prune: a recipe belonging to a profession this character does NOT have
+    -- cannot be known by them. Heals the pre-2026-07-11 union pollution for
+    -- professions the character never opens (replace-by-profession can't reach those).
+    if p.professions then
+        for recipeID in pairs(known) do
+            local r = st.recipeStore[recipeID] -- exception(nullable): entry may predate the current recipe store
+            if r and r.profession and p.professions[r.profession] == nil then
+                known[recipeID] = nil
+            end
+        end
+    end
     st.account.characters[p.charKey] = {
         name = p.name, realm = p.realm, class = p.class, faction = p.faction,
         lastSeen = time(), professions = p.professions or {},
-        knownRecipes = (existing and existing.knownRecipes) or {},
+        knownRecipes = known,
     }
+end
+
+-- Tester request 2026-07-11: retire a character from the Roster (and from
+-- every known-by tooltip/filter, which read account.characters). A future
+-- scan on that character simply re-creates the record.
+reducers.REMOVE_CHARACTER = function(st, p)
+    st.account.characters[p.charKey] = nil
+    if st.ui.scopeCharacter == p.charKey then st.ui.scopeCharacter = nil end
 end
 
 -- UI state (nav selection/collapse, character scope, recent strips). ----------

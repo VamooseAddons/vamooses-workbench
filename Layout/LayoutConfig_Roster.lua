@@ -17,6 +17,7 @@ ns.LayoutConfig.roster = {
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {
             { type = "item", id = "rosTitle", role = "title", grow = true, size = { h = 24 } },
             { type = "item", id = "rosScopeHint", role = "label", size = { w = 220, h = 20 } },
+            { type = "item", id = "rosPlanBtn", size = { w = 130, h = 20 } },
         } },
         { type = "item", id = "rosGrid", grow = true }, -- grid of per-character profession cards
     },

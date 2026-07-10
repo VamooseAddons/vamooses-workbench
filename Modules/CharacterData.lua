@@ -27,6 +27,8 @@ local PROFESSION_SKILL_LINES = {
     [182] = "Herbalism",
     [186] = "Mining",
     [393] = "Skinning",
+    [356] = "Fishing",
+    [794] = "Archaeology",
 }
 
 -- Normalize API expansion names to display names
@@ -71,9 +73,11 @@ function VWB.CharacterData:ScanCurrentProfessions()
     local charKey = self:GetCharacterKey()
     local professions = {}
 
-    -- Get profession slots
-    local prof1, prof2, _, _, cooking = GetProfessions()
-    local profSlots = { prof1, prof2, cooking }
+    -- Get profession slots -- ALL five: slots 3+4 (archaeology, fishing) were
+    -- discarded pre-2026-07-11; a nil slot (skill not learned / removed from
+    -- the game) simply skips in the loop below, so capturing them is safe.
+    local prof1, prof2, archaeology, fishing, cooking = GetProfessions()
+    local profSlots = { prof1, prof2, archaeology, fishing, cooking }
 
     -- Get expansion-level skill data from open profession window (if any)
     local openProfSkillLevels = {}
