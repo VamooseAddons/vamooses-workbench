@@ -64,6 +64,7 @@ local stagePanel = {
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {
             { type = "item", id = "undress", size = { w = 90, h = 20 } },
             { type = "item", id = "recentStrip", grow = true, size = { h = 20 } },
+            { type = "item", id = "startProject", size = { w = 110, h = 20 } }, -- Item 4
             { type = "item", id = "addToQueue", size = { w = 110, h = 20 } },
         } },
         { type = "free", id = "modelArea", grow = true, children = {

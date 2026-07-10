@@ -127,6 +127,8 @@ end
 -- plus a compact "behind:" line naming only the expansions still short of max.
 -- The full per-expansion grid lives in the Account Summary below -- the old
 -- tooltip duplicated it and ran off the bottom of the screen.
+-- Appends a "Scanned <ago>" staleness line so a 3-week-old snapshot is
+-- distinguishable from this morning's (playtester request, item 1).
 local function characterTooltipBody(entry)
     GameTooltip:AddLine(entry.name, 1, 1, 1)
     GameTooltip:AddLine(" ")
@@ -159,6 +161,12 @@ local function characterTooltipBody(entry)
     if not any then
         GameTooltip:AddLine("No professions scanned yet.", 0.6, 0.6, 0.6)
     end
+    -- Staleness line: entry.lastSeen nil for records created via SET_KNOWN_RECIPES
+    -- only (no profession-window open), shown as "not scanned yet".
+    -- exception(nullable): SavedVariables record predates lastSeen field
+    GameTooltip:AddLine(" ")
+    local agoText = entry.lastSeen and VWB.UI:FormatScannedAgo(entry.lastSeen, time()) or "not scanned yet"
+    GameTooltip:AddLine(agoText, 0.55, 0.55, 0.6)
 end
 
 -- Sum current/max across every scanned skill entry, for the mastery bar.
@@ -178,7 +186,12 @@ local function createCharCard(p)
     wrapper:SetSize(CARD_W, STRIP_HEIGHT)
 
     local card = VWB.UI:CreateCharStatCard(wrapper, {
-        onClick = function(charKey) ns.Store:Dispatch("SET_SCOPE", { charKey = charKey }) end,
+        -- Dispatch scope change then navigate to the Workbench so the user lands
+        -- in the recipe list already scoped to the alt they clicked (edge #3).
+        onClick = function(charKey)
+            ns.Store:Dispatch("SET_SCOPE", { charKey = charKey })
+            ns.Nav.Go("workbench")
+        end,
     })
     card:SetPoint("TOP", 0, 0)
     wrapper.card = card

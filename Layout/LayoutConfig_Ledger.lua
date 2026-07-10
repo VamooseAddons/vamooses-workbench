@@ -13,11 +13,14 @@ ns.LayoutConfig = ns.LayoutConfig or {}
 ns.LayoutConfig.ledger = {
     type = "stack", dir = "col", gap = "sm", padding = 6, align = "stretch", chrome = "Panel",
     children = {
+        -- KPI hierarchy (item 5): Session Profit is the primary metric (taller h=56,
+        -- bigger font via LayoutConfig), Rate + Margin are secondaries at h=44.
+        -- All three bind the same "label" slot that ldgKpiProfit/Rate/Margin already wire.
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {
-            { type = "item", id = "ldgKpiProfit", size = { w = 170, h = 44 } },
+            { type = "item", id = "ldgKpiProfit", role = "section", size = { w = 200, h = 56 } },
             { type = "item", id = "ldgKpiRate",   size = { w = 170, h = 44 } },
             { type = "item", id = "ldgKpiMargin", size = { w = 170, h = 44 } },
-            { type = "item", id = "ldgPriceSource", grow = true, size = { h = 44 } },
+            { type = "item", id = "ldgPriceSource", grow = true, size = { h = 56 } },
         } },
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {
             { type = "item", id = "ldgSearch", grow = true, size = { h = 20 } },

@@ -24,6 +24,12 @@ ns.Showroom = Showroom
 
 local QUESTION_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local TICK_TEXTURE = "Interface\\RaidFrame\\ReadyCheck-Ready"
+
+-- Item 8: UncollectedCount() -- cheap count of uncollected items in the
+-- current filtered universe, reusing the model's breadcrumb computed. Exported
+-- so Shell (nav badge) can bind it. Set from buildView; nil until first mount.
+-- Only wired if breadcrumb can be read cheaply (it can: it's already computed).
+Showroom.UncollectedCount = nil -- set to a function by buildView
 local TYPE_SEGMENTS = {
     { key = "all", label = "All" }, { key = "decor", label = "Decor" },
     { key = "transmog", label = "Transmog" }, { key = "mount", label = "Mount" },
@@ -96,12 +102,27 @@ local function ensureResources()
     -- TRANSMOG_COLLECTION_SOURCE_ADDED). invalidateAll() re-reads every
     -- already-requested key so a collected item's tick/Missing state flips
     -- immediately -- this is what "stale until reload" was missing.
+    --
+    -- Item 3: scoped filter predicates so each event only re-reads relevant keys,
+    -- not the full ~5k universe in one event frame. Decor events re-read keys
+    -- whose last latched kind is "decor", PENDING, or nil (might be decor).
+    -- Transmog events re-read "transmog"/PENDING. Scalar values are strings/bools
+    -- so the table-equals assert in invalidateAll will not fire.
+    local function isDecorOrPending(_, entry)
+        local v = entry.value
+        return v == R.PENDING or v == nil or v == "decor" or v == "none"
+    end
+    local function isTransmogOrPending(_, entry)
+        local v = entry.value
+        return v == R.PENDING or v == nil or v == "transmog"
+    end
+
     VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", function()
-        kindRes.invalidateAll()
-        collectedRes.invalidateAll() -- invalidateAll now bumps the resource epoch itself
+        kindRes.invalidateAll(isDecorOrPending) -- re-read only decor/PENDING kind keys
+        collectedRes.invalidateAll() -- collected: decor IsUncollected; re-read all is cheap (bool)
     end)
     VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", function()
-        kindRes.invalidateAll()
+        kindRes.invalidateAll(isTransmogOrPending) -- re-read only transmog/PENDING kind keys
         collectedRes.invalidateAll()
     end)
 
@@ -163,6 +184,9 @@ local function listRowTemplate(frame)
     local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetPoint("RIGHT", tick, "LEFT", -4, 0); text:SetJustifyH("LEFT")
     frame.text = text
+    -- Item 6a: shimmer attached once at factory time (AnimationGroups must not be
+    -- created at paint time). Handle set/cleared in the updateRow path.
+    frame._shimmerHandle = VWB.UI:AttachShimmer(frame)
 end
 
 function Showroom.buildView(container)
@@ -175,7 +199,7 @@ function Showroom.buildView(container)
     local model = ns.Showroom.buildModel({ recipes = recipes, kind = kindRes, collected = collectedRes, filters = filters })
     local selected = R.signal(nil) -- captured for the model-preview slice
     local undressMode = R.signal(false)
-    local listWidget, navTree, recentStripFrame, addToQueueBtn
+    local listWidget, navTree, recentStripFrame, addToQueueBtn, startProjectBtn
     local modelDressFrame, modelCreatureFrame, modelSceneFrame
     local itemNameFS, itemDetailsFS, undressWidget
 
@@ -291,6 +315,13 @@ function Showroom.buildView(container)
                     row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or QUESTION_ICON)
                     row.text:SetText(item.name or ("item:" .. tostring(item.itemID)))
                     row.tick:SetShown(model.collectedOf.peek(item.itemID) == true) -- peek: untracked, so updateRow doesn't link per-row deps into showroom:list (collectionTick drives repaint)
+                    -- Item 6a: shimmer while kind is PENDING (row is in the list but
+                    -- still classifying). filteredItems excludes PENDING items by default,
+                    -- so this path only fires for rows that JUST resolved and are being
+                    -- repainted with their first real kind value (or cold-cache rows that
+                    -- passed into the list while pending). Peek is untracked here.
+                    local k = kindRes.peek(item.itemID)
+                    row._shimmerHandle:SetShimmering(k == R.PENDING)
                 end,
                 onRowClick = function(item) selectItem(item) end,
                 onRowEnter = function(item, rowFrame)
@@ -361,9 +392,31 @@ function Showroom.buildView(container)
             addToQueueBtn:SetScript("OnClick", function()
                 local item = selected()
                 ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = item.recipeID, qty = 1 })
+                -- Item 5b: navigate to Workbench after queueing so the user sees the entry.
+                ns.Nav.Go("workbench")
             end)
             addToQueueBtn:Hide()
             return addToQueueBtn
+        elseif node.id == "startProject" then
+            -- Item 4: Start Project button. Dispatches ADD_PROJECT for the selected item,
+            -- then navigates to the Projects view with the new project selected.
+            startProjectBtn = VWB.UI:CreateButton(parent, "Start Project", 100, 22)
+            startProjectBtn:SetScript("OnClick", function()
+                local item = selected()
+                local icon = C_Item.GetItemIconByID(item.itemID)
+                ns.Store:Dispatch("ADD_PROJECT", {
+                    name = item.name or ("item:" .. tostring(item.itemID)),
+                    icon = icon,
+                    itemID = item.itemID,
+                    recipeID = item.recipeID,
+                    kind = "collect",
+                })
+                -- nextId was bumped by the reducer; the new project's id = nextId - 1.
+                local newId = ns.Store:GetState().projects.nextId - 1
+                ns.Nav.Go("projects", { select = newId })
+            end)
+            startProjectBtn:Hide()
+            return startProjectBtn
         end
         -- themed placeholder for any node this view hasn't wired real content into
         -- unhandled node -> Layout's default factory renders it (role label / container)
@@ -384,10 +437,18 @@ function Showroom.buildView(container)
             listWidget.emptyText:Hide()
         else
             local msg
-            if filters.missingMode() then
+            local typeMode = filters.typeMode()
+            -- F2 FIX: when the decor catalog is cold, a decor-scoped empty list is NOT
+            -- "no results" -- it's "catalog not loaded yet". Show the honest message that
+            -- Workbench already uses (ported from Recipes_View.lua's equivalent guard).
+            -- Guard fires when: typeMode=="decor" OR (typeMode=="all" and decor catalog cold).
+            -- exception(boundary): IsCatalogCold is a Blizzard housing API state check.
+            if (typeMode == "decor" or typeMode == "all") and ns.DecorOwnership:IsCatalogCold() then
+                msg = "Open the housing catalog once this session, then come back."
+            elseif filters.missingMode() then
                 msg = "Nothing left to collect here - you've got it all."
-            elseif filters.typeMode() ~= "all" then
-                msg = "No " .. filters.typeMode() .. " collectibles match your filters."
+            elseif typeMode ~= "all" then
+                msg = "No " .. typeMode .. " collectibles match your filters."
             else
                 msg = "Nothing matches - try a different category, profession, or search."
             end
@@ -480,11 +541,13 @@ function Showroom.buildView(container)
             itemNameFS:SetText("")
             itemDetailsFS:SetText("")
             addToQueueBtn:Hide()
+            startProjectBtn:Hide()
             return
         end
 
         itemNameFS:SetText(item.name or ("item:" .. tostring(item.itemID)))
         addToQueueBtn:Show()
+        startProjectBtn:Show()
         local kind = model.kindOf(item.itemID)
         local collected = model.collectedOf(item.itemID)
         local details = {}
@@ -554,6 +617,33 @@ function Showroom.buildView(container)
 
         itemDetailsFS:SetText(table.concat(details, "  |  "))
     end, "showroom:model")
+
+    -- Item 5c: pendingSelect consumer. When Nav.Go("showroom", { select=itemID })
+    -- fires (e.g. from Workbench recipe row shift-click), select + preview that
+    -- item. A TRACKED effect (not a run-once mount read): the view mounts lazily
+    -- ONCE, so a one-shot read would consume only the first-ever jump and every
+    -- later shift-click would land on a stale selection. pendingSelect is
+    -- view-scoped {view, value}; only consume payloads addressed to us.
+    R.effect(function()
+        local p = ns.Nav.pendingSelect()
+        if p == nil or p.view ~= "showroom" then return end
+        ns.Nav.pendingSelect(nil)
+        -- Find the item in the universe (classification may still be pending, but
+        -- selecting by itemID works: the model preview effect re-runs when kindOf resolves).
+        for _, item in ipairs(R.untrack(universe)) do
+            if item.itemID == p.value then
+                selectItem(item)
+                break
+            end
+        end
+    end, "showroom:pendingSelect")
+
+    -- Item 8: UncollectedCount -- exported as a module function so Shell or any
+    -- future nav badge can bind it without a new full-universe walk. Reads the
+    -- model's breadcrumb (already computed, memoized). Returns the uncollected
+    -- count within the CURRENT filter universe (not the full account set).
+    -- Assigned once at buildView; nil until the view is first mounted.
+    Showroom.UncollectedCount = function() return model.breadcrumb().uncollected end
 
     return handle
 end

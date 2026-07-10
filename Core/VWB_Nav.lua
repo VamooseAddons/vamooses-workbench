@@ -27,7 +27,7 @@ Nav.pendingSearch = ns.Reactor.signal(nil)  -- string: filter to apply on arriva
 ---@type fun(v?: any): any
 Nav.pendingScope  = ns.Reactor.signal(nil)  -- charKey: character scope to apply
 ---@type fun(v?: any): any
-Nav.pendingSelect = ns.Reactor.signal(nil)  -- itemID/recipeID: item to select/scroll
+Nav.pendingSelect = ns.Reactor.signal(nil)  -- { view, value }: selection for ONE view (see below)
 
 -- Late-bound hook: Shell assigns this during openWindow() so Nav can switch
 -- the active view without a circular dependency (Nav loads before Shell).
@@ -38,16 +38,19 @@ Nav._setView = function(_viewId) error("VWB.Nav._setView not wired: Shell.openWi
 -- VWB.Nav.Go(viewId, payload)
 --   viewId  : string matching a VIEWS registry id in VWB_Shell.lua
 --   payload : optional table with any of:
---               filter  = string  -> sets pendingSearch
+--               filter  = string  -> sets pendingSearch (single consumer: Stockroom)
 --               scope   = charKey -> sets pendingScope
---               select  = id      -> sets pendingSelect
+--               select  = value   -> sets pendingSelect as { view = viewId, value = value }
 -- Sets the relevant pending signals THEN switches the active view.
--- The target view reads + clears the signals in its show effect.
+-- pendingSelect is VIEW-SCOPED: multiple views run tracked consumer effects on
+-- it (Projects / Showroom / Workbench), so a bare value would be consumed by
+-- whichever effect flushes first. Consumers MUST check p.view == "<their id>"
+-- before clearing; non-target consumers leave the payload untouched.
 function Nav.Go(viewId, payload)
     if payload then
         if payload.filter  ~= nil then Nav.pendingSearch(payload.filter) end
         if payload.scope   ~= nil then Nav.pendingScope(payload.scope) end
-        if payload.select  ~= nil then Nav.pendingSelect(payload.select) end
+        if payload.select  ~= nil then Nav.pendingSelect({ view = viewId, value = payload.select }) end
     end
     Nav._setView(viewId) -- fails loud if Shell hasn't wired the hook yet (load-order bug)
 end

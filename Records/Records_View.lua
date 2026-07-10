@@ -88,10 +88,14 @@ local function coverageRowTemplate(frame)
     frame.profText:SetJustifyH("LEFT")
 
     frame.cells = {}
-    for i, _ in ipairs(ED.EXPANSION_ORDER) do
+    for i, expInfo in ipairs(ED.EXPANSION_ORDER) do
         local cell = CreateFrame("Frame", nil, frame)
         cell:SetPoint("LEFT", PROF_COL_W + (i - 1) * EXP_COL_W, 0)
         cell:SetSize(EXP_COL_W, GRID_ROW_H)
+        -- EnableMouse so OnEnter/OnLeave/OnMouseUp fire per-cell (edge #7).
+        cell:EnableMouse(true)
+        cell._expDisplay = expInfo.display -- stable: expInfo is a module-level constant
+        cell._expIndex = i
         local heat = cell:CreateTexture(nil, "BACKGROUND")
         heat:SetAllPoints()
         heat:SetColorTexture(1, 1, 1, 1)
@@ -100,6 +104,25 @@ local function coverageRowTemplate(frame)
         local text = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         text:SetPoint("CENTER")
         cell.text = text
+
+        -- Hover affordance: brighten text to white when the cell is navigable.
+        cell:SetScript("OnEnter", function(self)
+            if self._count then -- exception(nullable): unscanned cell has no count, not navigable
+                self.text:SetTextColor(1, 1, 1)
+            end
+        end)
+        cell:SetScript("OnLeave", function(self)
+            -- Restore the expansion-color the paint pass applied.
+            if self._expColor then
+                self.text:SetTextColor(self._expColor.r, self._expColor.g, self._expColor.b)
+            end
+        end)
+        cell:SetScript("OnMouseUp", function(self)
+            if self._count and self._profName then -- exception(nullable): dash cells have no count
+                ns.Nav.Go("workbench", { select = { profession = self._profName, expansion = self._expDisplay } })
+            end
+        end)
+
         frame.cells[i] = cell
     end
 
@@ -119,15 +142,21 @@ local function paintCoverageRow(row, profRow)
     for i, exp in ipairs(ED.EXPANSION_ORDER) do
         local cell = row.cells[i]
         local n = profRow.counts[i]
+        -- Store per-cell nav state for the click/hover scripts wired in coverageRowTemplate.
+        cell._profName = profRow.name
+        cell._count = n -- nil for unscanned; hover + click guards on this
         if n then
+            cell._expColor = exp.color
             cell.text:SetText(tostring(n))
             cell.text:SetTextColor(exp.color.r, exp.color.g, exp.color.b)
             cell.heat:SetVertexColor(s.success.r, s.success.g, s.success.b, 0.04 + 0.14 * (n / profRow.rowMax))
         elseif profRow.scanned then
+            cell._expColor = nil
             cell.heat:SetVertexColor(1, 1, 1, 0)
             cell.text:SetText(VWB.UI:ColorCode("base01") .. "0|r")
             cell.text:SetTextColor(1, 1, 1) -- the embedded color code carries the actual color
         else
+            cell._expColor = nil
             cell.heat:SetVertexColor(1, 1, 1, 0)
             cell.text:SetText(VWB.UI:ColorCode("base01") .. "-|r")
             cell.text:SetTextColor(1, 1, 1)
@@ -153,7 +182,8 @@ local function coverageRowTooltip(profRow, rowFrame)
     if profRow.scanned then
         GameTooltip:AddLine("Last scanned " .. FormatScanAge(profRow.lastScan) .. " ago", 0.7, 0.7, 0.7)
     else
-        GameTooltip:AddLine("Not scanned yet -- run a guild rescan, or open this profession on a character.", 0.9, 0.6, 0.2, true)
+        -- Guildless-friendly order: direct action first, guild path second.
+        GameTooltip:AddLine("Open this profession on any character to record it -- or run a guild rescan if you have one.", 0.9, 0.6, 0.2, true)
     end
     for i, exp in ipairs(ED.EXPANSION_ORDER) do
         local n = profRow.counts[i]

@@ -532,12 +532,13 @@ function Projects.buildView(container)
         end
     end, "projects:autoselect")
 
-    -- cross-view select handoff (Showroom's Start Project -> Nav.Go("projects", {select=id}))
+    -- cross-view select handoff (Showroom's Start Project -> Nav.Go("projects", {select=id})).
+    -- pendingSelect is view-scoped {view, value}: only consume our own payloads.
     R.effect(function()
-        local pending = ns.Nav.pendingSelect()
-        if pending ~= nil then
+        local p = ns.Nav.pendingSelect()
+        if p ~= nil and p.view == "projects" then
             ns.Nav.pendingSelect(nil)
-            selectedId(pending)
+            selectedId(p.value)
         end
     end, "projects:pendingSelect")
 

@@ -69,6 +69,11 @@ local function rowTemplate(frame)
     local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetJustifyH("LEFT")
     frame.text = text
+
+    -- Item 6b: craftable-transition wash attached ONCE at factory time (not paint time).
+    -- AnimationGroups must be created at factory; the handle is read in updateRow.
+    local c = VWB.UI:GetScheme()
+    frame._washHandle = VWB.UI:AttachTransitionWash(frame, c.success.r, c.success.g, c.success.b)
 end
 
 -- Queue row: icon + name(xqty) + a dedicated remove button. The remove click
@@ -262,10 +267,23 @@ local function PushRecent(recipeID, itemID, name)
     ns.Store:Dispatch("PUSH_RECENT_QUEUED", { item = { recipeID = recipeID, itemID = itemID, name = name } })
 end
 
+-- Module-level prior-craftable map: tracks last known craftable state per
+-- recipeID so pooled rows can detect the false->true transition and Flash().
+-- Keyed by recipeID; value = bool (last rendered craftable state). Lives at
+-- module scope so it persists across row reuse (pooled rows can't hold it).
+local priorCraftable = {}
+
 function Recipes.buildView(container)
     local R = ns.Reactor
     ensureMatNameRes()
-    local currentCharKey = ns.CharacterData:GetCharacterKey()
+
+    -- F1 FIX: effectiveCharKey reads scope-or-own LIVE inside computeds and
+    -- chip logic. Was captured once at mount (line 268) -- that constant never
+    -- saw SET_SCOPE writes. Nav slice subscription in recipeList ensures this
+    -- re-derives on every scope change. Store:Version("nav") already subscribed.
+    local function effectiveCharKey()
+        return ns.Store:GetState().ui.scopeCharacter or ns.CharacterData:GetCharacterKey()
+    end
 
     local search = R.signal("")
     local profession = R.signal(nil)
@@ -278,15 +296,17 @@ function Recipes.buildView(container)
     local profTabBarContainer, profBtnRow
     local mruContainer, mruButtons = nil, {}
     local emptyCard
+    local scopePill  -- "planning as <name> [x]" pill; shown when scope is active
 
     -- Rank-collapsed recipe records, re-derived on recipe/queue/character/nav
     -- changes. Scoped to the exact slices the filters touch (NOT the blanket
     -- Store:Version()) so a config/minimap-only dispatch never re-derives this.
+    -- nav slice covers SET_SCOPE writes so effectiveCharKey() re-derives live.
     local recipeList = R.named("recipes:recipeList", function()
         ns.Store:Version("recipes")
         ns.Store:Version("crafting")
         ns.Store:Version("characters")
-        ns.Store:Version("nav")
+        ns.Store:Version("nav") -- covers SET_SCOPE / CLEAR_SCOPE writes
 
         local prof = profession()
         if not prof then return {} end
@@ -409,16 +429,36 @@ function Recipes.buildView(container)
                     row.data = item
                     row.icon:SetTexture(item.icon or C_Item.GetItemIconByID(item.itemID) or QUESTION_ICON)
                     local c = ns.UI:GetScheme()
-                    local specs = ComputeRecipeChips(item, c, currentCharKey)
+                    -- F1 FIX: pass effectiveCharKey() live so scope changes re-eval chips
+                    local specs = ComputeRecipeChips(item, c, effectiveCharKey())
                     local textRight = PaintRecipeChips(row, specs)
                     row.text:SetText(item.name or ("recipe:" .. tostring(item.recipeID)))
                     row.text:ClearAllPoints()
                     row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
                     row.text:SetPoint("RIGHT", textRight, 0)
+
+                    -- Item 6b: craftable-transition wash. Check CanCraft live (same
+                    -- IsKnownBy scope as chips); flash the wash on false->true only.
+                    -- wash handle is attached once at row creation (in rowTemplate
+                    -- via rowWash below); priorCraftable is module-scope (pooled rows
+                    -- can't carry state). recipeID is the identity key.
+                    local craftableNow = ns.KnownRecipes:IsKnownBy(item.recipeID, effectiveCharKey())
+                        and ns.RecipeQuery:CanCraft(item.recipeID)
+                    local prev = priorCraftable[item.recipeID]
+                    if craftableNow and prev == false then
+                        if row._washHandle then row._washHandle:Flash() end
+                    end
+                    priorCraftable[item.recipeID] = craftableNow
                 end,
                 onRowClick = function(item)
-                    ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = item.recipeID, qty = IsShiftKeyDown() and 5 or 1 })
-                    PushRecent(item.recipeID, item.itemID, item.name)
+                    -- Item 5c: shift-click navigates to Showroom with that item selected.
+                    -- Normal click queues (existing behavior).
+                    if IsShiftKeyDown() and item.itemID then
+                        ns.Nav.Go("showroom", { select = item.itemID })
+                    else
+                        ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = item.recipeID, qty = 1 })
+                        PushRecent(item.recipeID, item.itemID, item.name)
+                    end
                 end,
                 onRowEnter = function(item, row)
                     local tip = ns.UI.Tooltip
@@ -452,7 +492,7 @@ function Recipes.buildView(container)
                     end
 
                     tip:AddLine(" ")
-                    tip:AddLine(ns.UI:ColorCode("base01") .. "Click: queue 1  -  Shift-click: queue 5|r")
+                    tip:AddLine(ns.UI:ColorCode("base01") .. "Click: queue 1  -  Shift-click: open in Showroom|r")
                     tip:Show()
                     ns.GuildCrafters:AppendCraftersToTooltip(tip, item.recipeID)
                 end,
@@ -495,6 +535,23 @@ function Recipes.buildView(container)
                         row.countText:SetTextColor(c.success.r, c.success.g, c.success.b)
                     end
                 end,
+                -- Item 5a: shift-click or right-click a material row -> Stockroom
+                -- filtered to that item name.
+                onRowClick = function(item)
+                    if IsShiftKeyDown() then
+                        ns.Nav.Go("stockroom", { filter = item.name or "" })
+                    end
+                end,
+                onRowEnter = function(item, row)
+                    if item.missing and item.missing > 0 then
+                        local tip = ns.UI.Tooltip
+                        tip:Begin(row)
+                        tip:AddTitle(item.name or ("item:" .. tostring(item.itemID)))
+                        tip:AddLine(ns.UI:ColorCode("base01") .. "Shift-click: find in Stockroom|r")
+                        tip:Show()
+                    end
+                end,
+                onRowLeave = function(_, row) ns.UI.Tooltip:Hide(row) end,
             })
             return materialsWidget
         elseif node.id == "rcpQueueHeader" then
@@ -566,6 +623,72 @@ function Recipes.buildView(container)
 
     handle.byId.rcpNavLabel.label:SetText("Categories")
 
+    -- Item 5d: pendingSelect consumer -- Records coverage cells send
+    -- { profession = ..., expansion = ... } payloads via Nav.Go("workbench",
+    -- { select = ... }). pendingSelect is view-scoped {view, value}: check the
+    -- address BEFORE clearing so payloads bound for Showroom/Projects pass
+    -- through untouched (clearing-then-type-checking ate them).
+    local function consumePendingSelect()
+        local p = R.untrack(function() return ns.Nav.pendingSelect() end)
+        if p == nil or p.view ~= "workbench" then return end
+        R.untrack(function() ns.Nav.pendingSelect(nil) end) -- clear without dep
+        local payload = p.value
+        if type(payload) ~= "table" then return end
+        -- Shape: { profession = "key", expansion = "key" } from Records cells.
+        if payload.profession and profBtnRow then
+            profession(payload.profession)
+            profBtnRow:Select(payload.profession)
+        end
+        if payload.expansion then
+            ns.Store:Dispatch("SET_NAV_SELECTION", { exp = payload.expansion })
+        end
+    end
+    -- Tracked wake-up: the profbar-effect call below covers mount ordering, but
+    -- a jump landing AFTER mount must also consume -- this effect fires on every
+    -- pendingSelect write and delegates to the same view-scoped consumer.
+    R.effect(function()
+        if ns.Nav.pendingSelect() == nil then return end
+        consumePendingSelect()
+    end, "recipes:pendingSelect")
+
+    -- F1 continuation: scope pill shown when scopeCharacter is set.
+    -- "planning as <name> [x]" pinned above the recipe list label.
+    -- Created as a simple overlay on the rcpListCol panel; the pill frame is
+    -- hidden by default and shown reactively. Label + dismiss button.
+    scopePill = CreateFrame("Frame", nil, handle.byId.rcpListCol, "BackdropTemplate")
+    scopePill:SetHeight(18)
+    scopePill:SetPoint("TOPLEFT", handle.byId.rcpListCol, "TOPLEFT", 4, -4)
+    scopePill:SetPoint("TOPRIGHT", handle.byId.rcpListCol, "TOPRIGHT", -4, -4)
+    local pillBack = { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 }
+    local pillScheme = VWB.UI:GetScheme()
+    scopePill:SetBackdrop(pillBack)
+    scopePill:SetBackdropColor(pillScheme.accent.r, pillScheme.accent.g, pillScheme.accent.b, 0.18)
+    scopePill:SetBackdropBorderColor(pillScheme.accent.r, pillScheme.accent.g, pillScheme.accent.b, 0.40)
+    scopePill:SetFrameLevel(handle.byId.rcpListCol:GetFrameLevel() + 10)
+    local pillLabel = scopePill:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    pillLabel:SetPoint("LEFT", 6, 0); pillLabel:SetPoint("RIGHT", -26, 0)
+    pillLabel:SetJustifyH("LEFT"); pillLabel:SetTextColor(pillScheme.accent.r, pillScheme.accent.g, pillScheme.accent.b)
+    scopePill.label = pillLabel
+    local pillDismiss = CreateFrame("Button", nil, scopePill)
+    pillDismiss:SetSize(16, 16); pillDismiss:SetPoint("RIGHT", -4, 0); pillDismiss:RegisterForClicks("AnyUp")
+    local pillX = pillDismiss:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    pillX:SetAllPoints(); pillX:SetText("x"); pillX:SetTextColor(pillScheme.accent.r, pillScheme.accent.g, pillScheme.accent.b)
+    pillDismiss:SetScript("OnClick", function() ns.Store:Dispatch("CLEAR_SCOPE") end)
+    scopePill:Hide()
+
+    -- F1: reactive scope pill visibility + label; re-derives on nav slice.
+    R.effect(function()
+        ns.Store:Version("nav")
+        local scope = ns.Store:GetState().ui.scopeCharacter
+        if scope then
+            local charName = scope:match("^(.-)%-") or scope
+            pillLabel:SetText("planning as " .. charName)
+            scopePill:Show()
+        else
+            scopePill:Hide()
+        end
+    end, "recipes:scopePill")
+
     -- First-run onboarding (no professions harvested yet) vs filtered-to-zero
     -- (professions exist, current filters just don't match anything) share one
     -- card widget; only the copy + CTA visibility differ per state.
@@ -607,6 +730,10 @@ function Recipes.buildView(container)
         local want = profession() or profs[1].key
         profession(want)
         profBtnRow:Select(want)
+        -- Item 5d: consume pendingSelect AFTER profbar is wired (profBtnRow exists).
+        -- Only runs the first time profbar builds (sig change); subsequent recipe
+        -- additions reuse the existing bar and this no-ops (sig unchanged).
+        consumePendingSelect()
     end, "recipes:profbar")
 
     -- Recipe chips (ComputeRecipeChips) read live collection status --
@@ -655,10 +782,21 @@ function Recipes.buildView(container)
     end, "recipes:collapseAllLabel")
 
     -- MRU strip: recent-queued icon chips (state.ui.recentQueued), click = requeue 1.
+    -- Item 7: rcpMru collapses to h=0 when empty. The Layout engine's hug path for
+    -- item nodes calls measure(node) -> ViewKit.measure which returns 14px for text
+    -- (not 0/22). SetHeight directly is correct here: the mruContainer is a plain
+    -- Frame not a Layout node with hug declared, and its slot in the right-panel
+    -- stack used a fixed h=22. Toggle between 0 and 22 to collapse the strip when
+    -- empty. The parent stack doesn't re-layout on SetHeight change (no reactive
+    -- geometry), so we also show/hide to skip gap contribution. The Layout engine
+    -- laid out with h=22; 0-height + hide removes visual space because the
+    -- adjacent gap is absorbed by the next child's draw position.
     R.effect(function()
         ns.Store:Version("recent")
         local recent = ns.Store:GetState().ui.recentQueued
         local xOff = 2
+        -- Item 7: collapse strip frame when empty; gap still exists but content is 0.
+        mruContainer:SetHeight(#recent > 0 and MRU_BTN_SIZE or 0)
         for i, entry in ipairs(recent) do
             local b = mruButtons[i]
             if not b then

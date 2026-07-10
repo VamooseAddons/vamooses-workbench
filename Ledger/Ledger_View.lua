@@ -40,7 +40,6 @@ local Ledger = ns.Ledger or {}
 ns.Ledger = Ledger
 
 local QUESTION_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
-local HEADER_BACKDROP = { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 }
 
 local CHUNK_SIZE = 250   -- recipes Calculate()'d per rendered frame while building
 local SESSION_START = time()
@@ -98,12 +97,11 @@ local function layoutColumns(f, icon, hasLiquidity)
 end
 
 local function buildTableHeader(parent, hasLiquidity)
-    local s = VWB.UI:GetScheme()
     local header = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     header:SetHeight(20)
-    header:SetBackdrop(HEADER_BACKDROP)
-    header:SetBackdropColor(s.panel.r, s.panel.g, s.panel.b, 0.8)
-    header:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, s.border.a)
+    -- Theme:Register routes all backdrop + text color through the Skinner;
+    -- no inline SetBackdropColor / SetBackdropBorderColor here (item 4 fix).
+    VWB.Theme:Register(header, "Panel")
 
     local cols = layoutColumns(header, nil, hasLiquidity)
     cols.name:SetText("Recipe")
@@ -112,9 +110,6 @@ local function buildTableHeader(parent, hasLiquidity)
     cols.profit:SetText("Profit")
     cols.margin:SetText("Margin")
     if hasLiquidity then cols.sold:SetText("Sold/Day") end
-    for _, fs in pairs(cols) do fs:SetTextColor(s.text.r, s.text.g, s.text.b) end
-
-    VWB.Theme:Register(header, "Panel")
     for _, fs in pairs(cols) do VWB.Theme:Register(fs, "DimLabel") end
     return header
 end
@@ -195,6 +190,15 @@ local function paintRowTooltip(data, rowFrame)
         tip:AddDoubleLine("Sold/Day", perDay and formatSoldPerDay(perDay)
             or (VWB.UI:ColorCode("base01") .. "--|r"))
     end
+    -- Alt-crafter hint (item 3): when the recipe is known by alts but not by
+    -- this character, name the alts so the user knows who to log on.
+    if data.recipeID then
+        local crafters = ns.KnownRecipes:KnownByList(data.recipeID)
+        if #crafters > 0 and not ns.KnownRecipes:IsKnown(data.recipeID) then
+            tip:AddLine(" ")
+            tip:AddLine(VWB.UI:ColorCode("base01") .. "Craftable by: " .. table.concat(crafters, ", ") .. "|r")
+        end
+    end
     tip:Show()
 end
 
@@ -229,7 +233,9 @@ local function paintSummary(frame, result)
     local rows = result.rows
     if #rows == 0 then
         frame.summaryText:SetTextColor(s.text.r, s.text.g, s.text.b)
-        if result.unpricedCount > 0 then
+        if result.decorColdBlock then
+            frame.summaryText:SetText("Open the housing catalog once this session, then come back -- the Decor: Missing filter needs it warm.")
+        elseif result.unpricedCount > 0 then
             frame.summaryText:SetText(string.format(
                 "%d recipes match but have no price data. Scan the AH (or install TSM/Auctionator) to light this tab up.",
                 result.unpricedCount))
@@ -266,16 +272,22 @@ function Ledger.buildView(container)
     local search = R.signal("")
     local sortMode = R.signal("profit")
     local filterProfession = R.signal(nil)
-    local showKnownOnly = R.signal(false)
+    -- 3-state: "all" / "me" / "account" (item 3)
+    local knownMode = R.signal("all")
     local showCraftableOnly = R.signal(false)
+    local showDecorMissing = R.signal(false) -- "Decor: Missing" collector filter (item 2)
     local hideUnprofitable = R.signal(true) -- CRITICAL default: open filtered like VPC, don't dump ~8600 rows
     local profitRows = R.signal({}) -- built rows; see rebuildProfitRows below
     local hasLiquidity = ns.PriceIntegration:HasTSM()
     local listWidget, summaryFrame, scanBtn
 
+    -- Build profession list from HARVESTED professions only (item 1):
+    -- RecipeQuery:GetProfessions() returns only professions with harvested recipes,
+    -- same as the Workbench tab bar -- prevents all 12 static professions
+    -- showing for a 2-profession player.
     local professionItems = { { key = nil, label = "All Professions" } }
-    for _, prof in ipairs(ns.Data.ExpansionData.PROFESSION_DATA) do
-        professionItems[#professionItems + 1] = { key = prof.name, label = prof.name }
+    for _, prof in ipairs(VWB.RecipeQuery:GetProfessions()) do
+        professionItems[#professionItems + 1] = { key = prof.key, label = prof.label }
     end
 
     -- Chunked, cache-until-invalidated build over the whole known-recipe
@@ -355,20 +367,35 @@ function Ledger.buildView(container)
     -- cheap, and the only thing that reruns per keystroke / filter click.
     -- unpricedCount (rows that pass every OTHER filter but have no market
     -- price) feeds the summary bar's empty-state message.
+    -- decorMissingCold: true when showDecorMissing is on but the catalog has
+    -- not yet been warmed -- the empty-state shows the honest message (item 2).
     local filtered = R.named("ledger:filtered", function()
         local q = search()
         local mode = sortMode()
         local prof = filterProfession()
-        local knownOnly = showKnownOnly()
+        local kMode = knownMode()
         local matsOnly = showCraftableOnly()
         local hideUnp = hideUnprofitable()
+        local decorMissing = showDecorMissing()
 
         local out, unpriced = {}, 0
+        local decorColdBlock = decorMissing and ns.DecorOwnership:IsCatalogCold()
         for _, d in ipairs(profitRows()) do
+            local passesKnown
+            if kMode == "me" then
+                passesKnown = ns.KnownRecipes:IsKnown(d.recipeID)
+            elseif kMode == "account" then
+                passesKnown = #ns.KnownRecipes:KnownByList(d.recipeID) > 0
+            else
+                passesKnown = true -- "all"
+            end
+            -- Decor: Missing filter -- skip when catalog cold to avoid false negatives (item 2)
+            local passesDecor = (not decorMissing) or (not decorColdBlock and ns.DecorOwnership:IsUncollected(d.itemID) == true)
             local passes = (q == "" or (d.name and d.name:lower():find(q, 1, true)))
                 and (not prof or d.profession == prof)
-                and (not knownOnly or ns.KnownRecipes:IsKnown(d.recipeID))
+                and passesKnown
                 and (not matsOnly or ns.RecipeQuery:CanCraft(d.recipeID))
+                and passesDecor
             if passes then
                 if d.profit == nil then unpriced = unpriced + 1 end
                 if not hideUnp or (d.profit and d.profit >= 0) then
@@ -386,7 +413,7 @@ function Ledger.buildView(container)
                 return (a.profit or -math.huge) > (b.profit or -math.huge)
             end
         end)
-        return { rows = out, unpricedCount = unpriced }
+        return { rows = out, unpricedCount = unpriced, decorColdBlock = decorColdBlock }
     end)
 
     local function makeFrame(node, parent)
@@ -416,20 +443,35 @@ function Ledger.buildView(container)
             profDropdown:SetPoint("LEFT", 0, 0)
             profDropdown:SetSelected(nil, "All Professions")
 
-            local knownCb = VWB.UI:CreateCheckbox(filterStrip, "Known Only", function(checked)
-                showKnownOnly(checked)
-            end)
-            knownCb:SetPoint("LEFT", profDropdown, "RIGHT", 12, 0)
+            -- 3-state Known control (item 3): All / Me / Account.
+            -- "Account" rows show crafter name in tooltip via KnownByList.
+            local knownToggle = VWB.UI:CreateSegmentedToggle(filterStrip, {
+                width = 165, height = 20,
+                segments = {
+                    { key = "all",     label = "All" },
+                    { key = "me",      label = "Known by Me" },
+                    { key = "account", label = "Account" },
+                },
+                default = "all",
+                onSelect = function(key) knownMode(key) end,
+            })
+            knownToggle:SetPoint("LEFT", profDropdown, "RIGHT", 12, 0)
 
             local matsCb = VWB.UI:CreateCheckbox(filterStrip, "Have Mats", function(checked)
                 showCraftableOnly(checked)
             end)
-            matsCb:SetPoint("LEFT", knownCb, "RIGHT", 12, 0)
+            matsCb:SetPoint("LEFT", knownToggle, "RIGHT", 12, 0)
+
+            -- Decor: Missing -- collector-profit hero query (item 2)
+            local decorCb = VWB.UI:CreateCheckbox(filterStrip, "Decor: Missing", function(checked)
+                showDecorMissing(checked)
+            end)
+            decorCb:SetPoint("LEFT", matsCb, "RIGHT", 12, 0)
 
             local hideUnpCb = VWB.UI:CreateCheckbox(filterStrip, "Hide Unprofitable", function(checked)
                 hideUnprofitable(checked)
             end)
-            hideUnpCb:SetPoint("LEFT", matsCb, "RIGHT", 12, 0)
+            hideUnpCb:SetPoint("LEFT", decorCb, "RIGHT", 12, 0)
             hideUnpCb:SetChecked(true)
 
             local header = buildTableHeader(wrap, hasLiquidity)
@@ -442,13 +484,7 @@ function Ledger.buildView(container)
             summaryFrame:SetHeight(24)
             summaryFrame:SetPoint("BOTTOMLEFT", 0, 0)
             summaryFrame:SetPoint("BOTTOMRIGHT", 0, 0)
-            summaryFrame:SetBackdrop(HEADER_BACKDROP)
-            do
-                local s = VWB.UI:GetScheme()
-                summaryFrame:SetBackdropColor(s.panel.r, s.panel.g, s.panel.b, 0.8)
-                summaryFrame:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, s.border.a)
-            end
-            VWB.Theme:Register(summaryFrame, "Panel")
+            VWB.Theme:Register(summaryFrame, "Panel") -- routes backdrop + colors through Skinner (item 4)
             summaryFrame.summaryText = summaryFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             summaryFrame.summaryText:SetPoint("CENTER")
             summaryFrame.progressBar = VWB.UI:CreateProgressBar(summaryFrame, { width = 300, height = 16 })

@@ -175,8 +175,13 @@ function Stockroom.buildView(container)
     local filterMode = R.signal("all")
     local selectedItemID = R.signal(nil) -- which reagent the detail panel is inspecting
     local selectedRecipeID = R.signal(nil) -- which recipe row is picked in the detail panel
+    -- Item 6: upvalue slots pre-read once per paint pass (selectionTick / recipePick
+    -- effects below), so updateRow never allocates a closure on each row repaint.
+    local _stkCurSelectedID = nil
+    local _stkCurSelectedRecipeID = nil
     local selectedExpansions = R.signal({}) -- set of expansion display names; empty = "All" (no filter)
     local listWidget, detailListWidget, detailHeader, detailSub, detailUsedHdr, detailAddBtn, expansionDD, sourceDD
+    local filterWidget, searchWidget -- forward refs for Nav signal consumption (item 7)
 
     -- Menu items in EXPANSION_DATA order (Classic -> Midnight), each tinted by its
     -- brand color, plus an "Other" bucket for recipes with no harvested expansion.
@@ -317,12 +322,14 @@ function Stockroom.buildView(container)
 
     local function makeFrame(node, parent)
         if node.id == "stkSearch" then
-            return VWB.UI:CreateSearchBox(parent, { placeholder = "Search name or itemID...",
+            searchWidget = VWB.UI:CreateSearchBox(parent, { placeholder = "Search name or itemID...",
                 onChange = function(text) search((text or ""):lower()) end })
+            return searchWidget
         elseif node.id == "stkFilter" then
-            return VWB.UI:CreateSegmentedToggle(parent, {
+            filterWidget = VWB.UI:CreateSegmentedToggle(parent, {
                 width = node.size.w, height = node.size.h, -- strict: LayoutConfig guarantees size (no defensive default)
                 segments = FILTER_SEGMENTS, default = "all", onSelect = function(key) filterMode(key) end })
+            return filterWidget
         elseif node.id == "stkExpansion" then
             expansionDD = VWB.UI:CreateMultiSelectDropdown(parent, {
                 width = node.size.w, height = node.size.h,
@@ -348,7 +355,7 @@ function Stockroom.buildView(container)
                 onRowClick = function(item) selectedItemID(item.itemID); selectedRecipeID(nil) end,
                 updateRow = function(row, item)
                     row.data = item
-                    row._selHL:SetShown(R.untrack(function() return selectedItemID() end) == item.itemID)
+                    row._selHL:SetShown(_stkCurSelectedID == item.itemID)
                     local s = VWB.UI:GetScheme()
 
                     row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or QUESTION_ICON)
@@ -463,7 +470,7 @@ function Stockroom.buildView(container)
                 onRowClick = function(r) selectedRecipeID(r.recipeID) end,
                 updateRow = function(row, r)
                     local s = VWB.UI:GetScheme()
-                    row._selHL:SetShown(R.untrack(function() return selectedRecipeID() end) == r.recipeID)
+                    row._selHL:SetShown(_stkCurSelectedRecipeID == r.recipeID) -- item 6: upvalue, not per-row closure
                     row.icon:SetTexture(r.icon or QUESTION_ICON)
                     row.rname:SetText(r.name)
                     row.rname:SetTextColor(s.text.r, s.text.g, s.text.b)
@@ -477,10 +484,7 @@ function Stockroom.buildView(container)
             return detailListWidget
         elseif node.id == "stkDetailAddBtn" then
             detailAddBtn = VWB.UI:CreateButton(parent, "Select a recipe to queue", 200, 22)
-            detailAddBtn:SetScript("OnClick", function()
-                local rid = R.untrack(function() return selectedRecipeID() end)
-                if rid then ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = rid, qty = 1 }) end
-            end)
+            -- OnClick is wired below (item 8) after handle build, so Nav.Go is available
             return detailAddBtn
         end
         -- unhandled node -> Layout's default factory renders it (role label / container)
@@ -488,6 +492,36 @@ function Stockroom.buildView(container)
 
     local handle = ns.Layout.build(container, ns.LayoutConfig.stockroom, { makeFrame = makeFrame, measure = Kit.measure })
     handle.byId.stkTitle.label:SetText(VWB.UI:ColorCode("yellow") .. "Stockroom|r")
+
+    -- Item 7: consume VWB.Nav.pendingSearch on show/mount (read + clear contract).
+    -- "queue" -> activate the Queue segment; any other non-nil string -> prefill
+    -- the search box and clear the segment to "all". Signal always cleared after
+    -- consumption regardless of the value.
+    R.effect(function()
+        local payload = ns.Nav.pendingSearch()
+        if payload == nil then return end
+        ns.Nav.pendingSearch(nil) -- clear first (read+clear contract)
+        if payload == "queue" then
+            filterMode("queue")
+            filterWidget:SetSelected("queue")
+        else
+            search(payload:lower())
+            searchWidget:SetText(payload)
+            filterMode("all")
+            filterWidget:SetSelected("all")
+        end
+    end, "stockroom:pendingNav")
+
+    -- Item 8: "Add to Queue" navigates to Workbench so the queue entry is
+    -- immediately visible for confirmation. Dispatch happens first; Nav.Go second
+    -- so the Workbench's recipes effect sees the updated state on mount.
+    detailAddBtn:SetScript("OnClick", function()
+        local rid = _stkCurSelectedRecipeID -- upvalue: already untracked (item 6)
+        if rid then
+            ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = rid, qty = 1 })
+            ns.Nav.Go("workbench")
+        end
+    end)
 
     -- List data + empty states in one effect: bare vs no-search-results get
     -- distinct copy, same distinction VPC's PaintList drew.
@@ -575,14 +609,22 @@ function Stockroom.buildView(container)
         detailListWidget:SetData(rows)
     end, "stockroom:detail")
 
-    -- Selection tint: repaint visible rows when the pick changes (updateRow reads
-    -- selectedItemID untracked, so this drives the highlight with no per-row deps).
-    R.effect(function() selectedItemID(); listWidget:Refresh() end, "stockroom:selectionTick")
+    -- Selection tint: repaint visible rows when the pick changes. Upvalue is
+    -- pre-read ONCE here (item 6) so updateRow reads _stkCurSelectedID directly
+    -- with zero per-row allocation (no R.untrack(function()...end) inside the loop).
+    -- selectedItemID() is read tracked (establishes the dep); the value is also
+    -- stored into the upvalue so the paint loop sees it immediately on this same call.
+    R.effect(function()
+        _stkCurSelectedID = selectedItemID() -- tracked + captured into upvalue
+        listWidget:Refresh()
+    end, "stockroom:selectionTick")
 
     -- Add-to-queue button reflects the picked recipe; a pick repaints the detail
-    -- rows (highlight), read untracked the same way the reagent list does.
+    -- rows (highlight). Upvalue pre-read (item 6): _stkCurSelectedRecipeID set before
+    -- Refresh so updateRow reads it directly without per-row closure allocation.
     R.effect(function()
-        local rid = selectedRecipeID()
+        local rid = selectedRecipeID() -- tracked dep; value also stored in upvalue
+        _stkCurSelectedRecipeID = rid
         detailListWidget:Refresh()
         if rid then
             local rec = ns.Database:GetRecipe(rid)
