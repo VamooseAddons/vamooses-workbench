@@ -57,11 +57,32 @@ local function IsCyclicRecipe(recipeID)
     return result
 end
 
+-- Reagent-conversion recipes churn one material into another (Midnight's
+-- per-profession "Sanguinated ..." recipes, enchanting shatters). Chaining a
+-- plan through them is the transmute problem in one-way form -- the cycle
+-- detector can't catch them -- and the honest step is buy/farm the reagent.
+-- Category names probed from the live corpus 2026-07-11; the categories are
+-- exact so name-cousins stay expandable ("Sanguinated Feast" is Feasts,
+-- "The Shatterer" is Weapons, "Shattered Jade" cuts are Green Gems).
+local CONVERSION_CATEGORY = {
+    ["Conversions"] = true, -- Sanguinated Dilution/Expulsion/... (all 9 professions)
+    ["Disenchant"]  = true, -- Chaos/Ley Shatter
+    ["Disenchants"] = true, -- Umbra/Veiled Shatter (later tier, plural category)
+}
+local function IsConversionRecipe(recipe)
+    if CONVERSION_CATEGORY[recipe.categoryName] then return true end
+    -- Enchanting's "Reagents" category is the legacy shatter family
+    -- (Maelstrom/Void/Ethereal/Sha/Abyssal Shatter) -- profession-qualified
+    -- so other professions' Reagents categories stay expandable.
+    return recipe.categoryName == "Reagents" and recipe.profession == "Enchanting"
+end
+
 -- Resolve the crafted sub-recipe for a reagent, unless expanding it would
--- route through an RNG-bulk recipe or a reversible/cyclic conversion
+-- route through an RNG-bulk recipe, a reagent conversion, or a reversible/
+-- cyclic transmute
 local function GetExpandableSubRecipe(itemID)
     local subRecipeID, subRecipe = VWB.Database:GetRecipeByItemID(itemID, true)
-    if not subRecipeID or RNG_BULK_CATEGORY[subRecipe.categoryName] then
+    if not subRecipeID or RNG_BULK_CATEGORY[subRecipe.categoryName] or IsConversionRecipe(subRecipe) then
         return nil
     end
     if IsCyclicRecipe(subRecipeID) then return nil end -- reversible transmute etc. -> buy the reagent
