@@ -7,6 +7,7 @@ local cache = {} -- [itemID] = { hasAppearance = bool, isCollected = bool }
 local eventFrame = nil
 local pendingItemIDs = {} -- [itemID] = true; awaiting ITEM_DATA_LOAD_RESULT to retry GetStatus
 local loadSettle = nil -- trailing-edge coalescer for the load-burst VWB_TRANSMOG_UPDATED fire
+local deadItemIDs = {} -- load answered success=false (removed/invalid id): NEVER re-request
 
 -- Equippable slots that carry NO transmog appearance (nothing to collect)
 local NON_VISUAL_SLOTS = {
@@ -56,6 +57,14 @@ function VWB.Transmog:GetStatus(itemID)
     -- Get item link
     local itemLink = select(2, C_Item.GetItemInfo(itemID))
     if not itemLink then -- exception(boundary): cold item cache; request once and retry on ITEM_DATA_LOAD_RESULT
+        if deadItemIDs[itemID] then
+            -- The server refused this id (load result success=false): the honest
+            -- answer is final. Latch it so walks stop re-requesting -- retrying
+            -- looped forever (live 2026-07-11: 35k load results and climbing,
+            -- one full fan-out per settle, sustained ~30ms/s of jank).
+            cache[itemID] = { hasAppearance = false, isCollected = false }
+            return cache[itemID]
+        end
         if not pendingItemIDs[itemID] then
             pendingItemIDs[itemID] = true
             C_Item.RequestLoadItemDataByID(itemID)
@@ -98,7 +107,7 @@ function VWB.Transmog:Initialize()
     eventFrame:RegisterEvent("TRANSMOG_COLLECTION_SOURCE_ADDED")
     eventFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT") -- resolves pendingItemIDs from GetStatus cold-cache misses
 
-    eventFrame:SetScript("OnEvent", function(_, event, arg1)
+    eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2)
         if event == "TRANSMOG_COLLECTION_SOURCE_ADDED" then
             -- Invalidate uncollected entries so next GetStatus re-checks the wardrobe
             for itemID, status in pairs(cache) do
@@ -109,10 +118,17 @@ function VWB.Transmog:Initialize()
             VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {})
 
         elseif event == "ITEM_DATA_LOAD_RESULT" then
-            -- arg1 = itemID that just loaded (keyOf pattern; O(1) vs full scan)
-            local itemID = arg1
+            -- (itemID, success). keyOf pattern; O(1) vs full scan.
+            local itemID, success = arg1, arg2
             if pendingItemIDs[itemID] then
                 pendingItemIDs[itemID] = nil
+                if not success then
+                    -- Dead id: mark it so GetStatus never re-requests. Without
+                    -- this, walk -> request -> failure -> settle-fire -> walk
+                    -- self-sustained forever (the post-coalescer loop).
+                    deadItemIDs[itemID] = true
+                    return
+                end
                 cache[itemID] = nil -- clear the stub entry so GetStatus re-reads
                 -- COALESCED fire (perf, observed live 2026-07-11): a cold-start
                 -- warmup streams THOUSANDS of loads (10k events -> 3k per-item

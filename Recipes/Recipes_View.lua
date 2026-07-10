@@ -903,12 +903,11 @@ function Recipes.buildView(container)
     end, "recipes:pendingSelect")
 
     -- F1 continuation: scope pill shown when scopeCharacter is set.
-    -- "planning as <name> [x]" pinned above the recipe list label.
-    -- Created as a simple overlay on the rcpListCol panel; the pill frame is
-    -- hidden by default and shown reactively. Label + dismiss button.
+    -- "planning as <name> [x]", docked COMPACT at the header row's right end --
+    -- the first cut spanned the full column width and sat on top of the
+    -- "Recipes (N)" title as an unreadable blue band (live report 2026-07-11).
     scopePill = CreateFrame("Frame", nil, handle.byId.rcpListCol, "BackdropTemplate")
-    scopePill:SetHeight(18)
-    scopePill:SetPoint("TOPLEFT", handle.byId.rcpListCol, "TOPLEFT", 4, -4)
+    scopePill:SetSize(180, 18)
     scopePill:SetPoint("TOPRIGHT", handle.byId.rcpListCol, "TOPRIGHT", -4, -4)
     local pillBack = { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 }
     local pillScheme = VWB.UI:GetScheme()

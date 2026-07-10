@@ -12,6 +12,18 @@ local RNG_BULK_CATEGORY = {
     ["Mass Prospecting"] = true,
 }
 
+-- Name-load latch: request each cold itemID ONCE per session. Dead ids (the
+-- server answers success=false) would otherwise be re-requested on EVERY walk,
+-- and downstream load-settle listeners re-derive per answer -- a self-
+-- sustaining request loop (observed live 2026-07-11).
+local nameLoadRequested = {}
+local function requestNameOnce(itemID)
+    if not nameLoadRequested[itemID] then
+        nameLoadRequested[itemID] = true
+        C_Item.RequestLoadItemDataByID(itemID)
+    end
+end
+
 -- A recipe is CYCLIC if expanding its reagents can loop back to itself --
 -- e.g. reversible transmutes (Earth->Life produces the primal that Life->Earth
 -- consumes, and vice versa). Chaining these as "craft first" steps is garbage
@@ -74,7 +86,7 @@ function VWB.Graph:GetDirectMaterials(recipeID, qty)
 
             local name = slot.name or C_Item.GetItemInfo(slot.itemID)
             if not name then
-                C_Item.RequestLoadItemDataByID(slot.itemID)
+                requestNameOnce(slot.itemID)
                 name = "Loading..."
             end
 
@@ -137,7 +149,7 @@ function VWB.Graph:CalculateTotalMats(input)
 
         local name = C_Item.GetItemInfo(itemID)
         if not name then
-            C_Item.RequestLoadItemDataByID(itemID)
+            requestNameOnce(itemID)
             name = "Loading..."
         end
 
