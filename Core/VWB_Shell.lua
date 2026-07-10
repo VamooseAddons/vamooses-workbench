@@ -36,15 +36,16 @@ end
 local VIEWS = {
     { id = "projects",  text = "Projects",  subtitle = "Pin items and plan your collection",
       build = function(c) return ns.Projects.buildView(c) end,
+      -- ACTIVE project count. The first cut counted below-par stock only
+      -- ("needs attention" per the spec) -- live verdict 2026-07-11: the owner
+      -- read "1" against 4 visible projects as a bug. A badge the owner
+      -- misreads is the wrong badge; the needs-attention signal still lives in
+      -- the board sort + par gauges.
       badge = function()
           ns.Store:Version("projects")
-          local items = ns.Store:GetState().projects.items
           local n = 0
-          for _, p in ipairs(items) do
-              if p.kind == "stock" and not p.completedAt then
-                  local owned = VWB.Inventory and VWB.Inventory:GetItemCount(p.itemID) or 0
-                  if owned < (p.par or 1) then n = n + 1 end
-              end
+          for _, p in ipairs(ns.Store:GetState().projects.items) do
+              if not p.completedAt then n = n + 1 end
           end
           return n
       end },
