@@ -87,9 +87,7 @@ function VWB.Theme:UpdateAll()
     end
 end
 
-function VWB.Theme:GetScheme()
-    return self.currentScheme or VWB.Colors.Schemes.SolarizedDark
-end
+-- VWB.Theme:GetScheme() removed -- use VWB.UI:GetScheme() (Framework.lua) at all call sites.
 
 -- ============================================================================
 -- HELPERS

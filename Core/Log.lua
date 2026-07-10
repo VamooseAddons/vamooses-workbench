@@ -28,6 +28,13 @@ local function DebugEnabled()
     return VWB_DB and VWB_DB.config and VWB_DB.config.debug
 end
 
+-- Unconditional user-facing chat line (NOT debug-gated like Info/Debug): the
+-- canonical home for the "[VWB] ..." prints that were duplicated as local
+-- chat() helpers and inline strings across views (unification pass 2026-07-11).
+function VWB.Log:Print(msg)
+    print(PREFIX_INFO .. tostring(msg))
+end
+
 function VWB.Log:Error(msg)
     print(PREFIX_ERROR .. tostring(msg))
 end

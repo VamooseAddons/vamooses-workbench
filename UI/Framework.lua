@@ -38,6 +38,23 @@ local function RegisterWidget(widget, widgetType)
 end
 
 function VWB.UI:GetScheme() return GetScheme() end
+
+-- Shared item-name resource: ONE addon-wide cache for async name resolution
+-- (Recipes and Projects each carried an identical private copy -- a cold name
+-- resolved in one view stayed cold in the other). Lazy: Framework loads before
+-- Reactor in the TOC, so the resource is created on first use (post-init).
+local itemNameRes
+function VWB.UI:ItemNameResource()
+    if not itemNameRes then
+        itemNameRes = VWB.Reactor.resource({
+            read = function(itemID) return C_Item.GetItemInfo(itemID) end, -- exception(boundary): nil on cold cache -> pending + request
+            request = function(itemID) C_Item.RequestLoadItemDataByID(itemID) end,
+            event = "ITEM_DATA_LOAD_RESULT", -- fires (itemID, success); keyOf routes O(1)
+            keyOf = function(itemID) return itemID end,
+        })
+    end
+    return itemNameRes
+end
 function VWB.UI:RegisterWidget(widget, widgetType) RegisterWidget(widget, widgetType) end
 
 -- ============================================================================
@@ -705,18 +722,25 @@ function VWB.UI:CreateScrollBox(parent, options)
 end
 
 -- ============================================================================
--- QUEUE ROW (Removable item row for crafting queue)
+-- QUEUE ROW (removable ticket row for the crafting queue)
+-- ONE canonical implementation (Recipes_View carried a drifted parallel copy;
+-- unification 2026-07-11). Two entry points:
+--   BuildQueueRow(row, opts)   fill an EXISTING frame -- pass as the
+--                              rowTemplate body for pooled VirtualizedList rows
+--                              (no row-level scripts: the list owns hover/click)
+--   CreateQueueRow(parent, o)  standalone Button wrapper (VPC AcquireRow style)
+--                              adding backdrop + hover tooltip + right-click
+-- opts callbacks (all read row._item, wired ONCE at build):
+--   onRemove(item)             the "x" button
+--   onQtyDelta(item, delta)    -/+ steppers; delta pre-multiplied by shift x5
+--   onCraft(item)              hammer click; button hidden when omitted, and
+--                              per-row gated in SetData (own char + knows it)
+--   craftTooltipLine           hammer hover body copy (default below)
 -- ============================================================================
 
-function VWB.UI:CreateQueueRow(parent, options)
+function VWB.UI:BuildQueueRow(row, options)
     options = options or {}
     local scheme = GetScheme()
-
-    local row = CreateFrame("Button", nil, parent, "BackdropTemplate")
-    row:SetBackdrop(BACKDROP_FLAT)
-    row:SetBackdropColor(scheme.panel.r, scheme.panel.g, scheme.panel.b, 0.3)
-    row:SetBackdropBorderColor(scheme.border.r, scheme.border.g, scheme.border.b, scheme.border.a)
-    row:RegisterForClicks("AnyUp")
 
     -- Work-order ticket accent: 3px expansion-colored stripe on the left edge
     -- (vertex-colored per repaint in SetData; ExpansionData.GetRGB already
@@ -734,8 +758,7 @@ function VWB.UI:CreateQueueRow(parent, options)
     row.icon = icon
 
     -- Ready dot: badge on the icon's corner when this recipe can be crafted
-    -- right now (net of queue commitments) -- same green success signal as
-    -- the Workbench craft-heat glow (Recipes.lua row.craftGlow)
+    -- right now (net of queue commitments)
     local readyDot = row:CreateTexture(nil, "OVERLAY")
     readyDot:SetSize(7, 7)
     readyDot:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
@@ -759,12 +782,12 @@ function VWB.UI:CreateQueueRow(parent, options)
     xText:SetText("x")
     xText:SetTextColor(scheme.error.r, scheme.error.g, scheme.error.b)
     removeBtn:SetScript("OnClick", function()
-        if options.onClick then options.onClick(row._item) end
+        if options.onRemove then options.onRemove(row._item) end
     end)
+    row.removeBtn = removeBtn
 
-    -- Quantity steppers: -/+ adjust the planned amount in place (the one
-    -- operation a shopping list can't live without). Minus at qty 1 removes
-    -- the entry, same as the reducer's qty<=0 contract.
+    -- Quantity steppers: -/+ adjust the planned amount in place. Minus at
+    -- qty 1 removes the entry, same as the reducer's qty<=0 contract.
     local function MakeStepper(label, xOff, delta)
         local btn = CreateFrame("Button", nil, row)
         btn:SetSize(14, 16)
@@ -774,15 +797,6 @@ function VWB.UI:CreateQueueRow(parent, options)
         t:SetAllPoints()
         t:SetText(label)
         t:SetTextColor(scheme.text.r, scheme.text.g, scheme.text.b)
-        btn._label = t
-        btn:SetScript("OnEnter", function(self)
-            local c = GetScheme()
-            self._label:SetTextColor(c.text.r, c.text.g, c.text.b)
-        end)
-        btn:SetScript("OnLeave", function(self)
-            local c = GetScheme()
-            self._label:SetTextColor(c.text.r, c.text.g, c.text.b)
-        end)
         btn:SetScript("OnClick", function()
             if options.onQtyDelta then
                 options.onQtyDelta(row._item, IsShiftKeyDown() and delta * 5 or delta)
@@ -793,7 +807,7 @@ function VWB.UI:CreateQueueRow(parent, options)
     row.plusBtn = MakeStepper("+", -39, 1)
     row.minusBtn = MakeStepper("-", -55, -1)
 
-    -- Craft button (shown for the current character's rows; validated at click)
+    -- Craft hammer (shown per-row via SetData gating; validated at click)
     local craftBtn = CreateFrame("Button", nil, row)
     craftBtn:SetSize(16, 16)
     craftBtn:SetPoint("RIGHT", -21, 0)
@@ -806,55 +820,30 @@ function VWB.UI:CreateQueueRow(parent, options)
         if options.onCraft then options.onCraft(row._item) end
     end)
     craftBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Craft", 1, 1, 1)
-        GameTooltip:AddLine("Requires this profession's window to be open.", 0.7, 0.7, 0.7, true)
-        GameTooltip:Show()
+        local tip = VWB.UI.Tooltip
+        tip:Begin(self)
+        tip:AddTitle("Craft")
+        tip:AddLine(options.craftTooltipLine or "Opens your profession window at this recipe if needed")
+        tip:Show()
     end)
-    craftBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    craftBtn:SetScript("OnLeave", function(self) VWB.UI.Tooltip:Hide(self) end)
     row.craftBtn = craftBtn
 
-    row:SetScript("OnEnter", function(self)
-        local c = GetScheme()
-        self:SetBackdropColor(c.button_hover.r, c.button_hover.g, c.button_hover.b, c.button_hover.a * 0.5)
-        if self._item and self._item.itemID then
-            local tip = VWB.UI.Tooltip
-            tip:Begin(self)
-            tip:SetItemHeader(self._item.itemID, self._item.name)
-            if self._item.qty and self._item.qty > 1 then
-                tip:AddLine(VWB.UI:ColorCode("base01") .. "Queued: x" .. self._item.qty .. "|r")
-            end
-            tip:Show()
-            VWB.GuildCrafters:AppendCraftersToTooltip(tip, self._item.recipeID)
-        end
-    end)
-    row:SetScript("OnLeave", function(self)
-        local c = GetScheme()
-        self:SetBackdropColor(c.panel.r, c.panel.g, c.panel.b, 0.3)
-        VWB.GuildCrafters:CancelTooltip()
-        VWB.UI.Tooltip:Hide(self)
-    end)
-
-    -- Right-click the row body removes the whole entry (the x button is the
-    -- discoverable path; right-click is the fast one). Left-click is inert:
-    -- the steppers/craft/remove sub-buttons own the row's click affordances.
-    row:SetScript("OnClick", function(self, button)
-        if button == "RightButton" and options.onRightClick then
-            options.onRightClick(self._item)
-        end
-    end)
-
-    -- Data is applied via SetData so pooled rows can be repainted without recreation
+    -- Data is applied via SetData so pooled rows repaint without recreation
     function row:SetData(item)
         self._item = item
+        self.data = item -- VirtualizedList idiom alias: handlers read row.data
         local itemIcon = item.itemID and C_Item.GetItemIconByID(item.itemID)
         self.icon:SetTexture(itemIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
         local label = item.name or "Unknown"
         if item.qty and item.qty > 1 then label = label .. " x" .. item.qty end
         self.text:SetText(label)
-        -- Craft affordance only where it can act: this character's plan (or untagged legacy rows)
-        self.craftBtn:SetShown(options.onCraft ~= nil
-            and (item.charKey == nil or item.charKey == VWB.CharacterData:GetCharacterKey()))
+        -- Craft affordance only where it can act: this character's row (or an
+        -- untagged legacy row) AND a recipe this character actually knows.
+        local me = VWB.CharacterData:GetCharacterKey()
+        self.craftBtn:SetShown(options.onCraft ~= nil and item.recipeID ~= nil
+            and (item.charKey == nil or item.charKey == me)
+            and VWB.KnownRecipes:IsKnownBy(item.recipeID, me))
         if item.expansion then
             VWB.Data.ExpansionData.SetTextColor(self.text, item.expansion)
         else
@@ -873,6 +862,56 @@ function VWB.UI:CreateQueueRow(parent, options)
             self.readyDot:Hide()
         end
     end
+
+    return row
+end
+
+-- Queue-row hover body, shared by the standalone wrapper's OnEnter and any
+-- VirtualizedList onRowEnter that hosts queue rows.
+function VWB.UI:QueueRowTooltip(item, anchor)
+    if not (item and item.itemID) then return end -- exception(nullable): enchant/writ rows carry no output item
+    local tip = VWB.UI.Tooltip
+    tip:Begin(anchor)
+    tip:SetItemHeader(item.itemID, item.name)
+    if item.qty and item.qty > 1 then
+        tip:AddLine(VWB.UI:ColorCode("base01") .. "Queued: x" .. item.qty .. "|r")
+    end
+    tip:Show()
+    VWB.GuildCrafters:AppendCraftersToTooltip(tip, item.recipeID)
+end
+
+function VWB.UI:CreateQueueRow(parent, options)
+    options = options or {}
+    local scheme = GetScheme()
+
+    local row = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    row:SetBackdrop(BACKDROP_FLAT)
+    row:SetBackdropColor(scheme.panel.r, scheme.panel.g, scheme.panel.b, 0.3)
+    row:SetBackdropBorderColor(scheme.border.r, scheme.border.g, scheme.border.b, scheme.border.a)
+    row:RegisterForClicks("AnyUp")
+
+    VWB.UI:BuildQueueRow(row, options)
+
+    row:SetScript("OnEnter", function(self)
+        local c = GetScheme()
+        self:SetBackdropColor(c.button_hover.r, c.button_hover.g, c.button_hover.b, c.button_hover.a * 0.5)
+        VWB.UI:QueueRowTooltip(self._item, self)
+    end)
+    row:SetScript("OnLeave", function(self)
+        local c = GetScheme()
+        self:SetBackdropColor(c.panel.r, c.panel.g, c.panel.b, 0.3)
+        VWB.GuildCrafters:CancelTooltip()
+        VWB.UI.Tooltip:Hide(self)
+    end)
+
+    -- Right-click the row body removes the whole entry (the x button is the
+    -- discoverable path; right-click is the fast one). Left-click is inert:
+    -- the steppers/craft/remove sub-buttons own the row's click affordances.
+    row:SetScript("OnClick", function(self, button)
+        if button == "RightButton" and options.onRightClick then
+            options.onRightClick(self._item)
+        end
+    end)
 
     if options.item then row:SetData(options.item) end
 
@@ -2124,12 +2163,14 @@ function VWB.UI:CreateProfessionTabBar(parent, items, onSelect)
             btn:SetPoint("BOTTOMLEFT", buttonOrder[i - 1], "BOTTOMRIGHT", 2, 0)
         end
 
-        -- Gold top accent line (shown when active)
+        -- Selection accent line (shown when active); theme-derived gold --
+        -- the raw literal looked broken on light themes (unification #4)
+        local selBar = VWB.Constants:GetDerivedColors(GetScheme()).selected_bar
         local topAccent = btn:CreateTexture(nil, "OVERLAY")
         topAccent:SetPoint("TOPLEFT", 1, 0)
         topAccent:SetPoint("TOPRIGHT", -1, 0)
         topAccent:SetHeight(2)
-        topAccent:SetColorTexture(1, 0.82, 0.2, 1)
+        topAccent:SetColorTexture(selBar.r, selBar.g, selBar.b, 1)
         topAccent:Hide()
         btn.topAccent = topAccent
 
@@ -2352,11 +2393,13 @@ function VWB.UI:CreatePageRail(parent, pages, onSelect)
         btn.icon = icon
 
         -- Gold glow for active state (vertex-colored for skinner recoloring)
+        -- Theme-derived selection gold (unification #4: literals broke on light themes)
+        local selBar = VWB.Constants:GetDerivedColors(GetScheme()).selected_bar
         local glow = btn:CreateTexture(nil, "BACKGROUND")
         glow:SetSize(BTN_SIZE + 4, BTN_SIZE + 4)
         glow:SetPoint("CENTER")
         glow:SetTexture("Interface\\Buttons\\WHITE8x8")
-        glow:SetVertexColor(1, 0.82, 0.2, 0.25)
+        glow:SetVertexColor(selBar.r, selBar.g, selBar.b, 0.25)
         glow:Hide()
         btn.glow = glow
 
@@ -2364,7 +2407,7 @@ function VWB.UI:CreatePageRail(parent, pages, onSelect)
         local selected = btn:CreateTexture(nil, "OVERLAY")
         selected:SetAllPoints()
         selected:SetTexture("Interface\\Buttons\\WHITE8x8")
-        selected:SetVertexColor(1, 0.82, 0.2, 0.15)
+        selected:SetVertexColor(selBar.r, selBar.g, selBar.b, 0.15)
         selected:Hide()
         btn.selectedTex = selected
 

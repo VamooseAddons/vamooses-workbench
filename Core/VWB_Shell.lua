@@ -14,7 +14,9 @@ local R = ns.Reactor
 local Shell = {}
 ns.Shell = Shell
 
-local FLAT = { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 }
+-- VWB.UI.BACKDROP_FLAT (Framework) is the canonical flat backdrop; local was a subset duplicate.
+---@type backdropInfo
+local FLAT = VWB.UI.BACKDROP_FLAT -- exception(false-positive): indirection loses type; value is backdropInfo
 
 -- Shared natural-width measure for hug sizing.
 local measureFS
@@ -102,8 +104,9 @@ end
 local function navMakeFrame(node, parent)
     if node.type ~= "item" then return CreateFrame("Frame", nil, parent) end
     local btn = CreateFrame("Button", nil, parent)
+    local _d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
     local hl = btn:CreateTexture(nil, "BACKGROUND")
-    hl:SetAllPoints(btn); hl:SetColorTexture(1, 0.82, 0, 0.18); hl:Hide()
+    hl:SetAllPoints(btn); hl:SetColorTexture(_d.selected_bar.r, _d.selected_bar.g, _d.selected_bar.b, 0.18); hl:Hide()
     btn.hl = hl
     btn:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
     btn:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
@@ -114,11 +117,12 @@ local function navMakeFrame(node, parent)
     -- badge pill: subtle count on the right edge; hidden when count is zero
     local pill = btn:CreateTexture(nil, "BACKGROUND")
     pill:SetSize(30, 14); pill:SetPoint("RIGHT", -4, 0)
-    pill:SetColorTexture(1, 0.82, 0, 0.22); pill:Hide()
+    pill:SetColorTexture(_d.selected_bar.r, _d.selected_bar.g, _d.selected_bar.b, 0.22); pill:Hide()
     btn.badgePill = pill
     local bc = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     bc:SetPoint("CENTER", pill, "CENTER", 0, 0)
-    bc:SetTextColor(1, 0.90, 0.30) -- warm gold readable on the 0.22-alpha pill
+    local _sb = _d.selected_bar
+    bc:SetTextColor(_sb.r, _sb.g, _sb.b) -- scheme selection color readable on the pill
     btn.badgeCount = bc
     return btn
 end
@@ -182,7 +186,13 @@ function Shell.openWindow()
         btn:SetScript("OnClick", function() activeView(v.id) end)
         R.bindShown(btn.hl, function() return activeView() == v.id end)
         R.bindColor(btn.label, function()
-            if activeView() == v.id then return 1, 0.82, 0 else return 0.72, 0.72, 0.76 end
+            VWB.Theme.epoch() -- theme epoch: selected_bar derives from scheme.warning which changes per theme
+            if activeView() == v.id then
+                local d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
+                return d.selected_bar.r, d.selected_bar.g, d.selected_bar.b
+            else
+                return 0.72, 0.72, 0.76
+            end
         end)
         -- badge: bind count + pill visibility if the registry entry carries a badge fn
         if v.badge then

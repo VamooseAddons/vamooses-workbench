@@ -460,7 +460,7 @@ function Records.buildView(container)
     local function ExportHistoryToCSV()
         local history = ns.Store:GetState().craftingHistory
         if #history == 0 then
-            print("|cFF2aa198[VWB]|r Nothing to export yet -- craft something first.")
+            VWB.Log:Print("Nothing to export yet -- craft something first.")
             return
         end
 
@@ -479,7 +479,7 @@ function Records.buildView(container)
 
         local text = table.concat(lines, "\n")
         VWB.UI:CreateExportDialog():ShowText(text, "Crafting History (CSV)")
-        print(string.format("|cFF2aa198[VWB]|r Crafting History (CSV) ready to copy (%d characters).", #text))
+        VWB.Log:Print(string.format("Crafting History (CSV) ready to copy (%d characters).", #text))
     end
 
     -- ns.RecipeHarvest:CanStart() is the single source of truth for
@@ -541,7 +541,7 @@ function Records.buildView(container)
             clearBtn:SetPoint("TOPRIGHT", 0, 0)
             clearBtn:SetScript("OnClick", function()
                 ns.Store:Dispatch("CLEAR_HISTORY")
-                print("|cFF2aa198[VWB]|r Crafting history cleared.")
+                VWB.Log:Print("Crafting history cleared.")
             end)
 
             local header = VWB.UI:CreateSectionHeader(wrap, { text = "Crafting History", height = 18 })
@@ -642,6 +642,7 @@ function Records.buildView(container)
     end, "records:coverage")
 
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled history rows on switch
         local rows = historyRows()
         histList:SetData(rows)
         local empty = #rows == 0

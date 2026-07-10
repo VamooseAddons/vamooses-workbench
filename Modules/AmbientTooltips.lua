@@ -16,7 +16,7 @@ VWB.AmbientTooltips = {}
 -- ============================================================================
 
 local MAX_NAMED_CRAFTERS = 3
-local PREFIX = "|cff2aa198Power Crafter:|r "
+local PREFIX = "|cFF2aa198[VWB]|r "
 
 -- Shopping-list entries repeat per queued recipe that needs the item; merge
 -- to one need/have pair. The list is small -- a per-hover scan is cheap.

@@ -15,7 +15,9 @@ local _, ns = ...
 local Projects = ns.Projects or {}
 ns.Projects = Projects
 
-local FLAT = { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 }
+-- VWB.UI.BACKDROP_FLAT (Framework) is the canonical flat backdrop; local was a subset duplicate.
+---@type backdropInfo
+local FLAT = VWB.UI.BACKDROP_FLAT -- exception(false-positive): indirection loses type; value is backdropInfo
 local ICON_FALLBACK = 134400 -- INV_Misc_QuestionMark; exception(boundary): GetItemIconByID nil on cold item data
 
 local CARD_W, CARD_H, CARD_GAP = 210, 64, 6
@@ -28,8 +30,6 @@ StaticPopupDialogs["VWB_REMOVE_PROJECT"] = {
     OnAccept = function(self, id) VWB.Store:Dispatch("REMOVE_PROJECT", { id = id }) end,
     timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
 }
-
-local function chat(msg) print("|cFF2aa198[VWB]|r " .. msg) end
 
 -- ============================================================================
 -- Project card (pooled via VWB.UI:AcquireRow on the horizontal strip)
@@ -113,9 +113,10 @@ local function paintProjectCard(card, entry, isSelected)
 
     card.icon:SetTexture(C_Item.GetItemIconByID(p.itemID) or ICON_FALLBACK)
     card.name:SetText(p.name)
+    local d = VWB.Constants:GetDerivedColors(s)
     card:SetBackdropColor(s.panel.r, s.panel.g, s.panel.b, s.panel.a)
     if isSelected then
-        card:SetBackdropBorderColor(1, 0.82, 0, 1) -- gold = selection identity
+        card:SetBackdropBorderColor(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 1) -- selection identity from scheme
     else
         card:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, s.border.a)
     end
@@ -170,10 +171,10 @@ local function stepRowTemplate(frame)
         local st = self:GetParent().data
         if st.kind == "CRAFT" then
             VWB.Store:Dispatch("ADD_TO_QUEUE", { recipeID = st.recipeID, qty = st.need, charKey = st.charKey })
-            chat(string.format("Queued %dx %s", st.need, st.name))
+            VWB.Log:Print(string.format("Queued %dx %s", st.need, st.name))
         elseif st.kind == "BLOCKED" then
             local sent, info = VWB.GuildCrafters:WhisperCrafter(st.recipeID)
-            chat(sent and ("Asked " .. info) or info)
+            VWB.Log:Print(sent and ("Asked " .. info) or info)
         end
     end)
 
@@ -295,21 +296,15 @@ function Projects.buildView(container)
     local newStockOpen = R.signal(false)
     local stockSearch = R.signal("")
     local invEpoch = R.signal(0) -- VWB_INVENTORY_UPDATE has no Store slice; local epoch stands in
-    VWB.EventBus:Register("VWB_INVENTORY_UPDATE", function() invEpoch(invEpoch() + 1) end)
+    VWB.EventBus:Register("VWB_INVENTORY_UPDATE", function()
+        R.untrack(function() invEpoch(invEpoch() + 1) end) -- untrack: EventBus callback is not a reactive context
+    end)
 
-    -- Name resolver: the SAME keyed-resource shape the Workbench materials list
-    -- uses. Graph bakes "Loading..." for cold names at derive time; painting
-    -- through the resource resolves each row reactively on ITEM_DATA_LOAD_RESULT.
-    -- (Replaces a hand-rolled event-frame + settle-timer + epoch bump -- the
-    -- imperative path broke the moment Graph's request-once latch removed its
-    -- accidental retry. Owner called it: "are we breaking reactor engine rules
-    -- here" -- we were; async row fields belong in a resource.)
-    local nameRes = R.resource({
-        read = function(itemID) return C_Item.GetItemInfo(itemID) end, -- exception(boundary): nil on cold cache -> pending + request
-        request = function(itemID) C_Item.RequestLoadItemDataByID(itemID) end,
-        event = "ITEM_DATA_LOAD_RESULT", -- fires (itemID, success); keyOf routes O(1)
-        keyOf = function(itemID) return itemID end,
-    })
+    -- Name resolver: shared addon-wide resource (VWB.UI:ItemNameResource, Framework.lua).
+    -- Resolves async item names reactively on ITEM_DATA_LOAD_RESULT; a name that lands
+    -- in Recipes_View is already warm here -- one cache, not two. See Framework.lua for
+    -- the resource shape. Async row fields belong in a resource, not imperative epochs.
+    local nameRes = VWB.UI:ItemNameResource()
     local function liveName(itemID, baked)
         if baked and baked ~= "Loading..." then return baked end
         if not itemID then return baked or "?" end -- exception(nullable): synthetic steps carry no itemID
@@ -416,7 +411,7 @@ function Projects.buildView(container)
                     n = n + 1
                 end
             end
-            chat(n > 0 and ("Queued " .. n .. " ready step(s)") or "No steps are ready for this character")
+            VWB.Log:Print(n > 0 and ("Queued " .. n .. " ready step(s)") or "No steps are ready for this character")
         end)
         btnBuys:SetScript("OnClick", function()
             local e = R.untrack(selectedEntry)
@@ -497,7 +492,7 @@ function Projects.buildView(container)
                 })
                 newStockOpen(false)
                 selectedId(ns.Store:GetState().projects.nextId - 1) -- the id ADD_PROJECT just assigned
-                chat("Tracking stock: " .. r.name .. " (par 20)")
+                VWB.Log:Print("Tracking stock: " .. r.name .. " (par 20)")
             end,
         })
         R.effect(function() list:SetData(stockMatches()) end, "projects:stockMatches")

@@ -91,10 +91,11 @@ local function paintSummaryRow(row, item)
     row.icon:SetTexture(item.icon)
     row.name:SetText(item.profName)
     local s = VWB.UI:GetScheme()
+    local d = VWB.Constants:GetDerivedColors(s)
     local scopedOwns = scopedHasProfession(item)
     -- Gold name when the scoped character has this profession at any expansion.
     if scopedOwns then
-        row.name:SetTextColor(1, 0.82, 0)
+        row.name:SetTextColor(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b)
     else
         row.name:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
     end
@@ -106,7 +107,7 @@ local function paintSummaryRow(row, item)
             -- Gold cell when the scoped character holds this expansion's best.
             if item.scopedChar and best.charKey == item.scopedChar then
                 cell:SetTextColor(1, 1, 1) -- reset tail color
-                cell:SetText(string.format("|cFFFFD100%d|r/%d", best.current, best.max))
+                cell:SetText(string.format("|cFF%s%d|r/%d", VWB.UI:ToHex(d.selected_bar), best.current, best.max))
             else
                 local color = (best.current >= best.max) and s.success or s.accent
                 cell:SetTextColor(1, 1, 1) -- reset: the "/max" tail after |r falls back to this, not a stale dim-gray from a prior "-" paint of this pooled cell
@@ -123,8 +124,9 @@ end
 -- account-wide best value there ("auto hover" via CreateVirtualizedList's own
 -- OnLeave -> GameTooltip:Hide when the mouse leaves the row).
 local function onSummaryRowEnter(item, rowFrame)
+    local _d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
     GameTooltip:SetOwner(rowFrame, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(item.profName, 1, 0.82, 0.3)
+    GameTooltip:AddLine(item.profName, _d.selected_bar.r, _d.selected_bar.g, _d.selected_bar.b)
     local any = false
     for _, expInfo in ipairs(ED.EXPANSION_ORDER) do
         local best = item.best[expInfo.display]
@@ -178,6 +180,7 @@ end
 -- Appends a "Scanned <ago>" staleness line so a 3-week-old snapshot is
 -- distinguishable from this morning's (playtester request, item 1).
 local function characterTooltipBody(entry)
+    local _d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
     GameTooltip:AddLine(entry.name, 1, 1, 1)
     GameTooltip:AddLine(" ")
     local any = false
@@ -198,7 +201,7 @@ local function characterTooltipBody(entry)
             local pct = max > 0 and math.floor(cur / max * 100 + 0.5) or 0
             local vr, vg, vb = 0.9, 0.82, 0.3
             if pct >= 100 then vr, vg, vb = 0.3, 0.9, 0.3 end
-            GameTooltip:AddDoubleLine(profInfo.name, pct .. "%", 1, 0.82, 0.3, vr, vg, vb)
+            GameTooltip:AddDoubleLine(profInfo.name, pct .. "%", _d.selected_bar.r, _d.selected_bar.g, _d.selected_bar.b, vr, vg, vb)
             if #behind > 0 then
                 local shown = {}
                 for i = 1, math.min(#behind, 6) do shown[i] = behind[i] end
@@ -251,7 +254,7 @@ local function createCharCard(p)
     -- the wrapper. Hidden by default; wrapper:SetSelected(true/false) drives them.
     local function makeRingEdge(anchor1, anchor2, isHoriz)
         local t = card:CreateTexture(nil, "OVERLAY")
-        t:SetColorTexture(1, 0.82, 0, 0.9)
+        t:SetColorTexture(1, 1, 1, 0.9) -- tinted per-select from the live scheme in SetSelected
         t:SetPoint(anchor1, card, anchor1, 0, 0)
         t:SetPoint(anchor2, card, anchor2, 0, 0)
         if isHoriz then t:SetHeight(2) else t:SetWidth(2) end
@@ -266,7 +269,11 @@ local function createCharCard(p)
     }
 
     function wrapper:SetSelected(sel)
-        for _, t in ipairs(self._ring) do t:SetShown(sel) end
+        local d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
+        for _, t in ipairs(self._ring) do
+            t:SetVertexColor(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 0.9)
+            t:SetShown(sel)
+        end
     end
 
     local bar = VWB.UI:CreateProgressBar(wrapper, { width = CARD_W - 16, height = BAR_H })

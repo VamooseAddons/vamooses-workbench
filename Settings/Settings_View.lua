@@ -77,7 +77,7 @@ StaticPopupDialogs["VWB_CONFIRM_CLEAR_QUEUE"] = {
     button2 = "Cancel",
     OnAccept = function()
         ns.Store:Dispatch("CLEAR_QUEUE")
-        print("|cFF2aa198[VWB]|r Crafting queue cleared.")
+        VWB.Log:Print("Crafting queue cleared.")
     end,
     timeout = 0,
     whileDead = true,
@@ -121,7 +121,7 @@ function Settings.buildView(container)
                     ns.Store:Dispatch("SET_CONFIG", { key = "theme", value = key })
                     local themeName = VWB.Constants.ThemeNames[key] or "SolarizedDark"
                     VWB.EventBus:Trigger("VWB_THEME_UPDATE", { themeName = themeName })
-                    print("|cFF2aa198[VWB]|r Theme: " .. (data.label or key))
+                    VWB.Log:Print("Theme: " .. (data.label or key))
                 end,
             })
             local items = {}
@@ -139,7 +139,7 @@ function Settings.buildView(container)
                     local value = (key ~= "__auto") and key or nil
                     ns.Store:Dispatch("SET_CONFIG", { key = "priceSource", value = value })
                     VWB.PriceIntegration:InvalidateCache() -- old source's cached prices are stale under the new pin
-                    print("|cFF2aa198[VWB]|r Price source: " .. (data.label or "Auto"))
+                    VWB.Log:Print("Price source: " .. (data.label or "Auto"))
                 end,
             })
             local items = { { key = "__auto", label = "Auto" } }
@@ -253,7 +253,7 @@ function Settings.buildView(container)
             local btn = VWB.UI:CreateButton(parent, "Clear Queue", (node.size and node.size.w) or 150, (node.size and node.size.h) or 22)
             btn:SetScript("OnClick", function()
                 if #ns.Store:GetState().crafting.queuedRecipes == 0 then
-                    print("|cFF2aa198[VWB]|r The queue is already empty.")
+                    VWB.Log:Print("The queue is already empty.")
                     return
                 end
                 StaticPopup_Show("VWB_CONFIRM_CLEAR_QUEUE")
@@ -269,7 +269,7 @@ function Settings.buildView(container)
                 -- "wired for whenever a consumer lands" contract as Ambient
                 -- Item Tooltips above.
                 VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {})
-                print("|cFF2aa198[VWB]|r Transmog cache cleared.")
+                VWB.Log:Print("Transmog cache cleared.")
             end)
             return btn
         elseif node.id == "setDangerDivider" then

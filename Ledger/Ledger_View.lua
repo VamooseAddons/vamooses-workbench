@@ -602,15 +602,20 @@ function Ledger.buildView(container)
         VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
         listWidget:SetData(filtered().rows)
     end, "ledger:list")
-    R.effect(function() paintSummary(summaryFrame, filtered()) end, "ledger:summary")
+    R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint on switch (summary reads scheme colors)
+        paintSummary(summaryFrame, filtered())
+    end, "ledger:summary")
 
     R.bindText(handle.byId.ldgKpiProfit.label, function()
+        VWB.Theme.epoch() -- theme epoch: repaint on switch
         local total = sessionProfit() -- tracks the "history" slice via the computed
         local value = total and VWB.UI:FormatMoney(total) or (VWB.UI:ColorCode("base01") .. "--|r")
         return "Session Profit|n" .. value
     end)
 
     R.bindText(handle.byId.ldgKpiRate.label, function()
+        VWB.Theme.epoch() -- theme epoch: repaint on switch
         local total = sessionProfit()
         local elapsed = time() - SESSION_START
         local value
@@ -623,6 +628,7 @@ function Ledger.buildView(container)
     end)
 
     R.bindText(handle.byId.ldgKpiMargin.label, function()
+        VWB.Theme.epoch() -- theme epoch: repaint on switch
         local sum, n = 0, 0
         for _, d in ipairs(profitRows()) do
             if d.margin then

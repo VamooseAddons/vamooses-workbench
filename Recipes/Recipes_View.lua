@@ -18,25 +18,12 @@ ns.Recipes = Recipes
 
 local ED = ns.Data.ExpansionData
 
-local QUESTION_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
-
--- Reagent-name resolver. shoppingList entries are named at Graph-build time, so
--- an item uncached then is baked "Loading..." and never refreshes on its own
--- (Graph re-runs only on a queue change). This resource re-reads on
--- ITEM_DATA_LOAD_RESULT (what RequestLoadItemDataByID fires), so the materials
--- effect re-derives the name live.
-local matNameRes
-local function ensureMatNameRes()
-    if matNameRes then return end
-    matNameRes = ns.Reactor.resource({
-        read = function(itemID)
-            return C_Item.GetItemInfo(itemID) -- exception(boundary): nil on cold cache -> resource stays pending + requests a load
-        end,
-        request = function(itemID) C_Item.RequestLoadItemDataByID(itemID) end,
-        event = "ITEM_DATA_LOAD_RESULT", -- RequestLoadItemDataByID fires THIS, not GET_ITEM_INFO_RECEIVED
-        keyOf = function(itemID) return itemID end, -- O(1): the event names exactly this itemID
-    })
-end
+-- Reagent-name resolver: shared addon-wide resource (VWB.UI:ItemNameResource).
+-- shoppingList entries are named at Graph-build time, so an item uncached then
+-- is baked "Loading..." and never refreshes on its own (Graph re-runs only on a
+-- queue change). The shared resource re-reads on ITEM_DATA_LOAD_RESULT so the
+-- materials effect re-derives the name live. One resource shared across views
+-- (Recipes + Projects) so a name resolved in one is warm in the other.
 
 -- Status chip layout (recipe row, right-aligned, pooled 1:1 with CHIP_MAX). --
 local CHIP_MAX = 2
@@ -72,74 +59,13 @@ local function rowTemplate(frame)
 
     -- Item 6b: craftable-transition wash attached ONCE at factory time (not paint time).
     -- AnimationGroups must be created at factory; the handle is read in updateRow.
-    local c = VWB.UI:GetScheme()
-    frame._washHandle = VWB.UI:AttachTransitionWash(frame, c.success.r, c.success.g, c.success.b)
+    local c = ns.UI:GetScheme()
+    frame._washHandle = ns.UI:AttachTransitionWash(frame, c.success.r, c.success.g, c.success.b)
 end
 
--- Forward declaration: OnCraftClick is DEFINED in the craft-execution block
--- below, but queueRowTemplate's hammer closure references it -- without this
--- local in scope the closure would compile the name as a (nil) global lookup
--- and the first hammer click would crash.
-local OnCraftClick
-
--- Queue row: icon + name(xqty) + a dedicated remove button. The remove click
--- reads frame.data at click time (set fresh by updateRow every repaint) so the
--- handler is wired ONCE at row creation, same idiom as CreateVirtualizedList's
--- own onRowClick (row.data lookup).
-local function queueRowTemplate(frame)
-    local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 3, 0)
-    frame.icon = icon
-    local removeBtn = CreateFrame("Button", nil, frame)
-    removeBtn:SetSize(14, 14); removeBtn:SetPoint("RIGHT", -3, 0); removeBtn:RegisterForClicks("AnyUp")
-    local removeText = removeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    removeText:SetAllPoints(); removeText:SetText("x"); removeText:SetTextColor(1, 0.4, 0.4)
-    removeBtn:SetScript("OnClick", function()
-        ns.Store:Dispatch("REMOVE_FROM_QUEUE", { recipeID = frame.data.recipeID, charKey = frame.data.charKey })
-    end)
-    frame.removeBtn = removeBtn
-
-    -- Craft hammer (TODO #1): shown only for the current character's rows with
-    -- a recipe they know (paint gates it). Click flow lives in OnCraftClick.
-    local craftBtn = CreateFrame("Button", nil, frame)
-    craftBtn:SetSize(14, 14); craftBtn:SetPoint("RIGHT", removeBtn, "LEFT", -3, 0); craftBtn:RegisterForClicks("AnyUp")
-    local hammer = craftBtn:CreateTexture(nil, "ARTWORK")
-    hammer:SetAllPoints(); hammer:SetTexture("Interface\\Icons\\Trade_BlackSmithing")
-    hammer:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    craftBtn:SetScript("OnClick", function() OnCraftClick(frame.data) end)
-    craftBtn:SetScript("OnEnter", function(self)
-        local tip = ns.UI.Tooltip
-        tip:Begin(self)
-        tip:AddTitle("Craft")
-        tip:AddLine("Opens your profession window at this recipe if needed")
-        tip:Show()
-    end)
-    craftBtn:SetScript("OnLeave", function(self) ns.UI.Tooltip:Hide(self) end)
-    frame.craftBtn = craftBtn
-
-    -- Qty steppers: -/+ (shift = 5). Minus to zero removes (UPDATE_QUEUE_QTY reducer).
-    local function makeStep(label, delta, r, g, b)
-        local btn = CreateFrame("Button", nil, frame)
-        btn:SetSize(12, 14); btn:RegisterForClicks("AnyUp")
-        local t = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        t:SetAllPoints(); t:SetText(label); t:SetTextColor(r, g, b)
-        btn:SetScript("OnClick", function()
-            local step = IsShiftKeyDown() and delta * 5 or delta
-            ns.Store:Dispatch("UPDATE_QUEUE_QTY", {
-                recipeID = frame.data.recipeID, charKey = frame.data.charKey,
-                qty = (frame.data.qty or 1) + step,
-            })
-        end)
-        return btn
-    end
-    local plusBtn = makeStep("+", 1, 0.6, 0.8, 0.6)
-    plusBtn:SetPoint("RIGHT", craftBtn, "LEFT", -3, 0)
-    local minusBtn = makeStep("-", -1, 0.8, 0.6, 0.6)
-    minusBtn:SetPoint("RIGHT", plusBtn, "LEFT", -1, 0)
-
-    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetPoint("RIGHT", minusBtn, "LEFT", -4, 0); text:SetJustifyH("LEFT")
-    frame.text = text
-end
+-- Queue rows use the canonical VWB.UI:BuildQueueRow (unification 2026-07-11);
+-- the drifted local template that lived here is gone. Wiring is in the
+-- rcpQueue makeFrame branch below.
 
 -- ============================================================================
 -- CRAFT EXECUTION (donor: HDG HDGR_Controller_Recipes.lua craft dialog +
@@ -148,8 +74,6 @@ end
 -- opens/navigates the journal AT the recipe and the user clicks again ->
 -- confirm popup (qty editbox + steppers / Craft Max) -> CraftRecipe.
 -- ============================================================================
-
-local function chat(msg) print("|cFF2aa198[VWB]|r " .. msg) end
 
 -- Max full crafts from on-hand mats (bags+bank+warband, variant-aware).
 -- No mats data on file -> 1 so the dialog still offers something.
@@ -171,13 +95,13 @@ local function ExecuteQueueCraft(item, qty)
     qty = math.max(1, qty or item.qty or 1)
     -- exception(boundary): C_TradeSkillUI -- the craft target window may have closed
     if not C_TradeSkillUI.IsTradeSkillReady() or C_TradeSkillUI.IsNPCCrafting() then
-        chat("Profession window closed -- click the hammer again to reopen it.")
+        VWB.Log:Print("Profession window closed -- click the hammer again to reopen it.")
         return
     end
     local recipe = ns.Database:GetRecipe(item.recipeID)
     local base = C_TradeSkillUI.GetBaseProfessionInfo() -- exception(boundary): nil with no window open
     if not base or base.professionName ~= recipe.profession then
-        chat(recipe.profession .. "'s window needs to be open for this one.")
+        VWB.Log:Print(recipe.profession .. "'s window needs to be open for this one.")
         return
     end
     C_TradeSkillUI.OpenRecipe(item.recipeID)
@@ -252,7 +176,7 @@ StaticPopupDialogs["VWB_CRAFT_CONFIRM"] = {
     OnAlt = function(self)
         local maxRuns = ComputeMaxCraft(self.data.item.recipeID)
         if maxRuns < 1 then
-            chat("Not enough materials to craft even one.")
+            VWB.Log:Print("Not enough materials to craft even one.")
             return
         end
         ExecuteQueueCraft(self.data.item, maxRuns)
@@ -284,18 +208,18 @@ end
 -- Hammer click: window closed or wrong profession open -> OpenRecipe navigates
 -- the journal AT this recipe (HDG's open-for-you flow), user clicks again.
 -- Ready + matching -> the confirm popup.
-function OnCraftClick(item) -- assigns the forward local declared above queueRowTemplate
+local function OnCraftClick(item)
     -- exception(boundary): C_TradeSkillUI window state is external
     if not C_TradeSkillUI.IsTradeSkillReady() or C_TradeSkillUI.IsNPCCrafting() then
         C_TradeSkillUI.OpenRecipe(item.recipeID)
-        chat("Opening the profession window -- click the hammer again to craft.")
+        VWB.Log:Print("Opening the profession window -- click the hammer again to craft.")
         return
     end
     local recipe = ns.Database:GetRecipe(item.recipeID)
     local base = C_TradeSkillUI.GetBaseProfessionInfo() -- exception(boundary): nil with no window open
     if not base or base.professionName ~= recipe.profession then
         C_TradeSkillUI.OpenRecipe(item.recipeID)
-        chat("Switching to " .. recipe.profession .. " -- click the hammer again to craft.")
+        VWB.Log:Print("Switching to " .. recipe.profession .. " -- click the hammer again to craft.")
         return
     end
     StaticPopup_Show("VWB_CRAFT_CONFIRM", item.name or recipe.name, nil, { item = item })
@@ -495,7 +419,7 @@ local priorCraftable = {}
 
 function Recipes.buildView(container)
     local R = ns.Reactor
-    ensureMatNameRes()
+    local matNameRes = ns.UI:ItemNameResource() -- shared addon-wide resource (see module header comment)
 
     -- F1 FIX: effectiveCharKey reads scope-or-own LIVE inside computeds and
     -- chip logic. Was captured once at mount (line 268) -- that constant never
@@ -512,10 +436,8 @@ function Recipes.buildView(container)
     local skillUpOnly = R.signal(false)
     local decorMode = R.signal("off")  -- "off" | "decor" (type toggle only; "missing" removed)
     local missingPill = R.signal(false) -- independent Missing filter pill
-    -- collectionEpoch: incremented by mount/pet collection events so recipeList
-    -- re-derives when the Missing pill is on (collection state lives outside the
-    -- Store; the epoch is the standard Reactor pattern for "live external state").
-    local collectionEpoch = R.signal(0)
+    -- Collection events bump VWB.Collectibles.CollectionEpoch() (one owner, Collectibles.lua).
+    -- Views read CollectionEpoch() as a reactive signal; no view-local epoch needed.
 
     local listWidget, queueWidget, materialsWidget, navTreeWidget
     local profTabBarContainer, profBtnRow
@@ -546,7 +468,7 @@ function Recipes.buildView(container)
         local missing = missingPill()
         -- Subscribe to collection epoch when the pill is on so mount/pet collects
         -- re-derive this computed (collection state lives outside the Store).
-        if missing then collectionEpoch() end
+        if missing then VWB.Collectibles.CollectionEpoch() end
         local sf = ScopeFilters(transmogScope(), decorMode(), missing)
         local q = search()
         local out = {}
@@ -588,7 +510,7 @@ function Recipes.buildView(container)
         local prof = profession()
         if not prof then return {} end
         local missing = missingPill()
-        if missing then collectionEpoch() end
+        if missing then VWB.Collectibles.CollectionEpoch() end
         return BuildNavSections(prof, search(), ScopeFilters(transmogScope(), decorMode(), missing), canCraftOnly(), skillUpOnly(), missing)
     end)
 
@@ -670,7 +592,7 @@ function Recipes.buildView(container)
                 rowHeight = 22, rowTemplate = rowTemplate,
                 updateRow = function(row, item)
                     row.data = item
-                    row.icon:SetTexture(item.icon or C_Item.GetItemIconByID(item.itemID) or QUESTION_ICON)
+                    row.icon:SetTexture(item.icon or C_Item.GetItemIconByID(item.itemID) or VWB.Constants.ClassificationIcons.Misc)
                     local c = ns.UI:GetScheme()
                     -- F1 FIX: pass effectiveCharKey() live so scope changes re-eval chips
                     local specs = ComputeRecipeChips(item, c, effectiveCharKey())
@@ -761,23 +683,37 @@ function Recipes.buildView(container)
             return mruContainer
         elseif node.id == "rcpQueue" then
             queueWidget = ns.UI:CreateVirtualizedList(parent, {
-                rowHeight = 20, rowTemplate = queueRowTemplate,
+                rowHeight = 20,
+                rowTemplate = function(frame)
+                    ns.UI:BuildQueueRow(frame, {
+                        onRemove = function(item)
+                            ns.Store:Dispatch("REMOVE_FROM_QUEUE", { recipeID = item.recipeID, charKey = item.charKey })
+                        end,
+                        onQtyDelta = function(item, delta)
+                            ns.Store:Dispatch("UPDATE_QUEUE_QTY", {
+                                recipeID = item.recipeID, charKey = item.charKey,
+                                qty = (item.qty or 1) + delta,
+                            })
+                        end,
+                        onCraft = OnCraftClick,
+                    })
+                end,
                 updateRow = function(row, item)
-                    row.data = item
+                    row:SetData(item)
                     -- Enchants/Writs have no output item -> use the recipe's own icon
                     -- (what the recipe list already does), not the "?" fallback.
-                    local rec = item.recipeID and ns.Database:GetRecipe(item.recipeID)
-                    row.icon:SetTexture((rec and rec.icon) or (item.itemID and C_Item.GetItemIconByID(item.itemID)) or QUESTION_ICON)
-                    local label = item.name or ("recipe:" .. tostring(item.recipeID))
-                    if item.qty and item.qty > 1 then label = label .. " x" .. item.qty end
-                    row.text:SetText(label)
-                    -- Hammer only on rows this character can actually fire:
-                    -- their own queue entry AND a recipe they know.
-                    local me = ns.CharacterData:GetCharacterKey()
-                    row.craftBtn:SetShown(item.charKey == me and ns.KnownRecipes:IsKnownBy(item.recipeID, me))
+                    if not item.itemID then
+                        local rec = item.recipeID and ns.Database:GetRecipe(item.recipeID) -- exception(nullable): queue can hold recipes gone from the DB
+                        if rec and rec.icon then row.icon:SetTexture(rec.icon) end
+                    end
                 end,
                 onRowClick = function(item)
                     if IsControlKeyDown() and item.recipeID then ShowWowheadLink(item.recipeID) end
+                end,
+                onRowEnter = function(item, row) ns.UI:QueueRowTooltip(item, row) end,
+                onRowLeave = function(_, row)
+                    ns.GuildCrafters:CancelTooltip()
+                    ns.UI.Tooltip:Hide(row)
                 end,
             })
             return queueWidget
@@ -786,7 +722,7 @@ function Recipes.buildView(container)
                 rowHeight = 18, rowTemplate = matRowTemplate,
                 updateRow = function(row, item)
                     row.data = item
-                    row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or QUESTION_ICON)
+                    row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or VWB.Constants.ClassificationIcons.Misc)
                     row.text:SetText(item.name or ("item:" .. tostring(item.itemID)))
                     row.countText:SetText((item.owned or 0) .. "/" .. (item.required or 0))
                     local c = ns.UI:GetScheme()
@@ -919,9 +855,8 @@ function Recipes.buildView(container)
     scopePill = CreateFrame("Frame", nil, handle.byId.rcpListCol, "BackdropTemplate")
     scopePill:SetSize(180, 18)
     scopePill:SetPoint("TOPRIGHT", handle.byId.rcpListCol, "TOPRIGHT", -4, -4)
-    local pillBack = { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 }
-    local pillScheme = VWB.UI:GetScheme()
-    scopePill:SetBackdrop(pillBack)
+    local pillScheme = ns.UI:GetScheme()
+    scopePill:SetBackdrop(VWB.UI.BACKDROP_FLAT --[[@as backdropInfo]])
     scopePill:SetBackdropColor(pillScheme.accent.r, pillScheme.accent.g, pillScheme.accent.b, 0.18)
     scopePill:SetBackdropBorderColor(pillScheme.accent.r, pillScheme.accent.g, pillScheme.accent.b, 0.40)
     scopePill:SetFrameLevel(handle.byId.rcpListCol:GetFrameLevel() + 10)
@@ -940,7 +875,7 @@ function Recipes.buildView(container)
     -- on every theme switch so the accent color tracks the live scheme.
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint scope-pill chrome on switch
-        local c = VWB.UI:GetScheme()
+        local c = ns.UI:GetScheme()
         scopePill:SetBackdropColor(c.accent.r, c.accent.g, c.accent.b, 0.18)
         scopePill:SetBackdropBorderColor(c.accent.r, c.accent.g, c.accent.b, 0.40)
         pillLabel:SetTextColor(c.accent.r, c.accent.g, c.accent.b)
@@ -982,6 +917,7 @@ function Recipes.buildView(container)
     -- the bar and lose the current tab highlight).
     local lastProfSignature = nil
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint on switch
         ns.Store:Version("recipes")
         local profs = ns.RecipeQuery:GetProfessions()
         local sig = ProfessionSignature(profs)
@@ -1015,17 +951,11 @@ function Recipes.buildView(container)
     -- an unrelated re-render.
     VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", function() listWidget:Refresh() end)
     VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", function() listWidget:Refresh() end)
-    -- Mount/pet collection: bump collectionEpoch so recipeList re-derives and
-    -- removes the newly collected item when the Missing pill is on.
-    -- Collectibles.lua has no EventBus wrapper, so listen to raw Blizzard events.
-    -- The frame is always registered; the epoch is only subscribed by recipeList
-    -- when missingPill() is true, so the bump is a no-op when the pill is off.
-    local mountPetFrame = CreateFrame("Frame")
-    mountPetFrame:RegisterEvent("NEW_MOUNT_ADDED")
-    mountPetFrame:RegisterEvent("NEW_PET_ADDED")
-    mountPetFrame:SetScript("OnEvent", function()
-        collectionEpoch(collectionEpoch() + 1)
-    end)
+    -- Mount/pet collection: Collectibles.lua now owns the raw events + epoch bump.
+    -- Register a listener to repaint visible chips when a mount/pet is collected
+    -- (the "new mog"/"uncollected" chip check runs on collection state that lives
+    -- outside the Store and won't auto-repaint without this nudge).
+    VWB.Collectibles:RegisterCollectionListener(function() listWidget:Refresh() end)
 
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
@@ -1062,6 +992,7 @@ function Recipes.buildView(container)
     R.bindText(handle.byId.rcpListLabel.label, function() return "Recipes (" .. #recipeList() .. ")" end)
 
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint on switch
         navTreeWidget.selected = ns.Store:GetState().ui.navSelectedItem
         navTreeWidget:SetData(navSections())
     end, "recipes:nav")
@@ -1114,7 +1045,7 @@ function Recipes.buildView(container)
             end
             b._recipeID, b._itemID, b._name = entry.recipeID, entry.itemID, entry.name
             local rec = entry.recipeID and ns.Database:GetRecipe(entry.recipeID)
-            b.icon:SetTexture((rec and rec.icon) or (entry.itemID and C_Item.GetItemIconByID(entry.itemID)) or QUESTION_ICON)
+            b.icon:SetTexture((rec and rec.icon) or (entry.itemID and C_Item.GetItemIconByID(entry.itemID)) or VWB.Constants.ClassificationIcons.Misc)
             b:ClearAllPoints()
             b:SetPoint("LEFT", mruContainer, "LEFT", xOff, 0)
             b:Show()
@@ -1123,7 +1054,11 @@ function Recipes.buildView(container)
         for i = #recent + 1, #mruButtons do mruButtons[i]:Hide() end
     end, "recipes:mru")
 
-    R.effect(function() ns.Store:Version("crafting"); queueWidget:SetData(ns.Store:GetState().crafting.queuedRecipes) end, "recipes:queue")
+    R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint on switch
+        ns.Store:Version("crafting")
+        queueWidget:SetData(ns.Store:GetState().crafting.queuedRecipes)
+    end, "recipes:queue")
     R.bindText(handle.byId.rcpQueueHeader.label, function()
         ns.Store:Version("crafting"); return "Crafting Queue (" .. #ns.Store:GetState().crafting.queuedRecipes .. ")"
     end)

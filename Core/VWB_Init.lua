@@ -33,7 +33,7 @@ boot:SetScript("OnEvent", function(self, event, name)
         ns.Layout.setDefaultFactory(VWB.ViewKit.makeDefault)
         -- Reactor -> WoW frame loop (scheduler + events + error sink).
         ns.ReactorWoW.install({
-            logger = function(_, msg) print("|cffff6666[VWB]|r " .. tostring(msg)) end,
+            logger = function(_, msg) VWB.Log:Print(tostring(msg)) end,
         })
         -- Re-arm profiling if debug was left on across sessions (Store loaded the
         -- persisted config just above). Cheap no-op when off.
@@ -68,14 +68,14 @@ SlashCmdList["VWB"] = function(msg)
     local cmd = (msg or ""):match("^%s*(%S*)"):lower()
     if cmd == "debug" then
         local on = ns.Debug:Toggle()
-        print("|cff2aa198[VWB]|r debug " .. (on and "ON (perf profiling active) -- Debug tab is now in the sidebar" or "OFF"))
+        VWB.Log:Print("debug " .. (on and "ON (perf profiling active) -- Debug tab is now in the sidebar" or "OFF"))
     elseif cmd == "reset" then
         ns.Debug:Reset()
-        print("|cff2aa198[VWB]|r profiler counters reset")
+        VWB.Log:Print("profiler counters reset")
     elseif cmd == "classify" then
         -- Showroom kind-classification diagnostic: /vwb classify <itemID>
         local itemID = tonumber((msg or ""):match("classify%s+(%d+)"))
-        if not itemID then print("|cff2aa198[VWB]|r usage: /vwb classify <itemID>"); return end
+        if not itemID then VWB.Log:Print("usage: /vwb classify <itemID>"); return end
         local name = C_Item.GetItemNameByID(itemID)
         local _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
         print(string.format("|cff2aa198[VWB]|r classify %d (%s): classID=%s subClass=%s equipLoc=%s",

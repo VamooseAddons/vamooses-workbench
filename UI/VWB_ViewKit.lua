@@ -11,7 +11,9 @@ VWB = VWB or {}
 local Kit = {}
 VWB.ViewKit = Kit
 
-local BACKDROP = { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 }
+-- VWB.UI.BACKDROP_FLAT (Framework) is the canonical flat backdrop; local was a subset duplicate.
+---@type backdropInfo
+local BACKDROP = VWB.UI.BACKDROP_FLAT -- exception(false-positive): indirection loses type; value is backdropInfo
 
 local measureFS
 function Kit.measure(node)

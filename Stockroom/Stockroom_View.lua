@@ -121,7 +121,8 @@ end
 -- A themed reagent row: icon | name | itemID | class badge | evidence | owned | BoP | queue need.
 local function rowTemplate(frame)
     -- persistent selection tint (behind the hover highlight the list factory adds)
-    local selHL = frame:CreateTexture(nil, "BACKGROUND"); selHL:SetAllPoints(); selHL:SetColorTexture(1, 0.82, 0, 0.12); selHL:Hide()
+    local d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
+    local selHL = frame:CreateTexture(nil, "BACKGROUND"); selHL:SetAllPoints(); selHL:SetColorTexture(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 0.12); selHL:Hide()
     frame._selHL = selHL
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(18, 18); icon:SetPoint("LEFT", 4, 0)
     frame.icon = icon
@@ -152,7 +153,8 @@ end
 
 -- A recipe row for the detail panel: icon | recipe name | qty | "uses"/"makes".
 local function recipeRowTemplate(frame)
-    local selHL = frame:CreateTexture(nil, "BACKGROUND"); selHL:SetAllPoints(); selHL:SetColorTexture(1, 0.82, 0, 0.12); selHL:Hide()
+    local d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
+    local selHL = frame:CreateTexture(nil, "BACKGROUND"); selHL:SetAllPoints(); selHL:SetColorTexture(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 0.12); selHL:Hide()
     frame._selHL = selHL
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 2, 0)
     frame.icon = icon
@@ -617,6 +619,7 @@ function Stockroom.buildView(container)
     -- selectedItemID() is read tracked (establishes the dep); the value is also
     -- stored into the upvalue so the paint loop sees it immediately on this same call.
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: row template color baked at pool time, re-pool on switch
         _stkCurSelectedID = selectedItemID() -- tracked + captured into upvalue
         listWidget:Refresh()
     end, "stockroom:selectionTick")
@@ -625,6 +628,7 @@ function Stockroom.buildView(container)
     -- rows (highlight). Upvalue pre-read (item 6): _stkCurSelectedRecipeID set before
     -- Refresh so updateRow reads it directly without per-row closure allocation.
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: recipe row template color baked at pool time
         local rid = selectedRecipeID() -- tracked dep; value also stored in upvalue
         _stkCurSelectedRecipeID = rid
         detailListWidget:Refresh()

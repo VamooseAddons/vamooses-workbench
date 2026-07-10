@@ -22,7 +22,6 @@ local _, ns = ...
 local Showroom = ns.Showroom or {}
 ns.Showroom = Showroom
 
-local QUESTION_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local TICK_TEXTURE = "Interface\\RaidFrame\\ReadyCheck-Ready"
 
 -- (UncollectedCount export removed 2026-07-11: the nav badge now reads the
@@ -125,16 +124,22 @@ local function ensureResources()
         collectedRes.invalidateAll()
     end)
 
-    -- Mounts/pets have no EventBus signal of their own (Collectibles.lua is a
-    -- pure query module, no event frame) -- listen to the raw Blizzard events
-    -- directly. TRANSMOG_COLLECTION_SOURCE_ADDED is caught here too
-    -- (redundant with VWB_TRANSMOG_UPDATED above, but cheap, and it keeps this
-    -- one frame a complete "something got collected" listener on its own).
-    local collectionFrame = CreateFrame("Frame")
-    collectionFrame:RegisterEvent("NEW_MOUNT_ADDED")
-    collectionFrame:RegisterEvent("NEW_PET_ADDED")
-    collectionFrame:RegisterEvent("TRANSMOG_COLLECTION_SOURCE_ADDED")
-    collectionFrame:SetScript("OnEvent", function() collectedRes.invalidateAll() end)
+    -- Mounts/pets/transmog/decor collection events are now unified under
+    -- VWB.Collectibles:RegisterCollectionListener (one owner; Collectibles.lua
+    -- registers NEW_MOUNT_ADDED, NEW_PET_ADDED, and listens on the VWB_TRANSMOG_UPDATED
+    -- + VWB_DECOR_OWNERSHIP_UPDATE EventBus events internally). The old view-local
+    -- collectionFrame duplicated those registrations.
+    --
+    -- Equivalence: old frame caught NEW_MOUNT_ADDED + NEW_PET_ADDED + TRANSMOG_COLLECTION_SOURCE_ADDED
+    -- and called collectedRes.invalidateAll(). Collectibles.Initialize() already owns
+    -- NEW_MOUNT_ADDED + NEW_PET_ADDED. TRANSMOG_COLLECTION_SOURCE_ADDED feeds into
+    -- VWB_TRANSMOG_UPDATED (coalesced by Transmog.lua) -- the EventBus path above at
+    -- line ~123 already handles that for kindRes; collectedRes.invalidateAll() there
+    -- covers the collected side too. Net: no event is dropped; coalescing is strictly
+    -- better than raw for TRANSMOG_COLLECTION_SOURCE_ADDED (multiple sources per craft).
+    VWB.Collectibles:RegisterCollectionListener(function()
+        collectedRes.invalidateAll()
+    end)
 end
 
 -- The full craftable universe (rank-collapsed), reshaped to the light record
@@ -185,7 +190,7 @@ local function listRowTemplate(frame)
     frame.text = text
     -- Item 6a: shimmer attached once at factory time (AnimationGroups must not be
     -- created at paint time). Handle set/cleared in the updateRow path.
-    frame._shimmerHandle = VWB.UI:AttachShimmer(frame)
+    frame._shimmerHandle = ns.UI:AttachShimmer(frame)
 end
 
 function Showroom.buildView(container)
@@ -271,26 +276,26 @@ function Showroom.buildView(container)
 
     local function makeFrame(node, parent)
         if node.id == "search" then
-            return VWB.UI:CreateSearchBox(parent, { placeholder = "Search items...",
+            return ns.UI:CreateSearchBox(parent, { placeholder = "Search items...",
                 onChange = function(text) filters.search((text or ""):lower()) end })
         elseif node.id == "typeToggle" then
-            return VWB.UI:CreateSegmentedToggle(parent, {
+            return ns.UI:CreateSegmentedToggle(parent, {
                 width = (node.size and node.size.w) or 300, height = (node.size and node.size.h) or 18,
                 segments = TYPE_SEGMENTS, default = "all", onSelect = function(key) filters.typeMode(key) end })
         elseif node.id == "missingPill" then
-            return VWB.UI:CreateFilterPill(parent, "Missing", function(checked) filters.missingMode(checked and true or false) end)
+            return ns.UI:CreateFilterPill(parent, "Missing", function(checked) filters.missingMode(checked and true or false) end)
         elseif node.id == "profbar" then
             local profs = { { key = "all", label = "All Professions", abbrev = "All", icon = "Interface\\Icons\\INV_Misc_Book_09" } }
             for _, p in ipairs(ns.RecipeQuery:GetProfessions()) do profs[#profs + 1] = p end
-            local bar = VWB.UI:CreateProfessionTabBar(parent, profs, function(key) filters.profession(key) end)
+            local bar = ns.UI:CreateProfessionTabBar(parent, profs, function(key) filters.profession(key) end)
             bar:Select("all")
             return bar
         elseif node.id == "navLabel" then
             local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            fs:SetText(VWB.UI:ColorCode("cyan") .. "Categories|r")
+            fs:SetText(ns.UI:ColorCode("cyan") .. "Categories|r")
             return fs
         elseif node.id == "navTree" then
-            navTree = VWB.UI:CreateNavTree(parent, {
+            navTree = ns.UI:CreateNavTree(parent, {
                 onHeaderClick = function(key)
                     ns.Store:Dispatch("TOGGLE_NAV_COLLAPSE", { key = key })
                 end,
@@ -306,12 +311,12 @@ function Showroom.buildView(container)
             navTree:Select(ns.Store:GetState().ui.navSelectedItem)
             return navTree
         elseif node.id == "list" then
-            listWidget = VWB.UI:CreateVirtualizedList(parent, {
+            listWidget = ns.UI:CreateVirtualizedList(parent, {
                 rowHeight = 22,
                 rowTemplate = listRowTemplate,
                 updateRow = function(row, item)
                     row.data = item
-                    row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or QUESTION_ICON)
+                    row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or VWB.Constants.ClassificationIcons.Misc)
                     row.text:SetText(item.name or ("item:" .. tostring(item.itemID)))
                     row.tick:SetShown(model.collectedOf.peek(item.itemID) == true) -- peek: untracked, so updateRow doesn't link per-row deps into showroom:list (collectionTick drives repaint)
                     -- Item 6a: shimmer while kind is PENDING (row is in the list but
@@ -324,15 +329,15 @@ function Showroom.buildView(container)
                 end,
                 onRowClick = function(item) selectItem(item) end,
                 onRowEnter = function(item, rowFrame)
-                    local tip = VWB.UI.Tooltip
+                    local tip = ns.UI.Tooltip
                     tip:Begin(rowFrame)
                     tip:SetItemHeader(item.itemID, item.name)
-                    if item.profession then tip:AddLine(VWB.UI:ColorCode("base01") .. item.profession .. "|r") end
+                    if item.profession then tip:AddLine(ns.UI:ColorCode("base01") .. item.profession .. "|r") end
                     tip:Show()
                 end,
-                onRowLeave = function(_, rowFrame) VWB.UI.Tooltip:Hide(rowFrame) end,
+                onRowLeave = function(_, rowFrame) ns.UI.Tooltip:Hide(rowFrame) end,
             })
-            local s = VWB.UI:GetScheme()
+            local s = ns.UI:GetScheme()
             local empty = listWidget:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             empty:SetPoint("TOP", 0, -30)
             empty:SetPoint("LEFT", listWidget, "LEFT", 20, 0)
@@ -346,20 +351,20 @@ function Showroom.buildView(container)
         elseif node.id == "modelDress" then
             modelDressFrame = CreateFrame("DressUpModel", nil, parent)
             modelDressFrame:SetFacing(0.5)
-            VWB.UI:WireModelControls(modelDressFrame)
+            ns.UI:WireModelControls(modelDressFrame)
             return modelDressFrame
         elseif node.id == "modelCreature" then
             modelCreatureFrame = CreateFrame("PlayerModel", nil, parent)
             modelCreatureFrame:SetFacing(0.5)
             modelCreatureFrame:Hide() -- dress route is the default until a mount/pet is selected
-            VWB.UI:WireModelControls(modelCreatureFrame)
+            ns.UI:WireModelControls(modelCreatureFrame)
             return modelCreatureFrame
         elseif node.id == "modelScene" then
             modelSceneFrame = CreateFrame("ModelScene", nil, parent, "PanningModelSceneMixinTemplate")
             modelSceneFrame:Hide() -- dress route is the default until a decor item is selected
             return modelSceneFrame
         elseif node.id == "controlsHint" then
-            local s = VWB.UI:GetScheme()
+            local s = ns.UI:GetScheme()
             local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             fs:SetText("Drag to rotate - scroll to zoom")
             fs:SetJustifyH("CENTER") -- spans the model area (fill width); centre the text within it
@@ -367,19 +372,19 @@ function Showroom.buildView(container)
             VWB.Theme:Register(fs, "DimLabel")
             return fs
         elseif node.id == "itemName" then
-            local s = VWB.UI:GetScheme()
+            local s = ns.UI:GetScheme()
             itemNameFS = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
             itemNameFS:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
             VWB.Theme:Register(itemNameFS, "HeaderLabel")
             return itemNameFS
         elseif node.id == "itemDetails" then
-            local s = VWB.UI:GetScheme()
+            local s = ns.UI:GetScheme()
             itemDetailsFS = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             itemDetailsFS:SetTextColor(s.text.r, s.text.g, s.text.b)
             VWB.Theme:Register(itemDetailsFS, "Label")
             return itemDetailsFS
         elseif node.id == "undress" then
-            undressWidget = VWB.UI:CreateCheckbox(parent, "Undress", function(checked)
+            undressWidget = ns.UI:CreateCheckbox(parent, "Undress", function(checked)
                 undressMode(checked and true or false)
             end)
             return undressWidget
@@ -387,7 +392,7 @@ function Showroom.buildView(container)
             recentStripFrame = CreateFrame("Frame", nil, parent)
             return recentStripFrame
         elseif node.id == "addToQueue" then
-            addToQueueBtn = VWB.UI:CreateButton(parent, "Add to Queue", 100, 22)
+            addToQueueBtn = ns.UI:CreateButton(parent, "Add to Queue", 100, 22)
             addToQueueBtn:SetScript("OnClick", function()
                 local item = selected()
                 ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = item.recipeID, qty = 1 })
@@ -399,7 +404,7 @@ function Showroom.buildView(container)
         elseif node.id == "startProject" then
             -- Item 4: Start Project button. Dispatches ADD_PROJECT for the selected item,
             -- then navigates to the Projects view with the new project selected.
-            startProjectBtn = VWB.UI:CreateButton(parent, "Start Project", 100, 22)
+            startProjectBtn = ns.UI:CreateButton(parent, "Start Project", 100, 22)
             startProjectBtn:SetScript("OnClick", function()
                 local item = selected()
                 local icon = C_Item.GetItemIconByID(item.itemID)
@@ -470,11 +475,11 @@ function Showroom.buildView(container)
     -- collection changes -> re-run the row initializer on visible rows. When
     -- missingMode is on the list effect above already re-derives membership; this
     -- is the tick-only path for the far more common missingMode-off case.
-    R.effect(function() collectedRes.epoch(); listWidget:Refresh() end, "showroom:collectionTick")
+    R.effect(function() VWB.Theme.epoch(); collectedRes.epoch(); listWidget:Refresh() end, "showroom:collectionTick") -- theme epoch: repaint on switch
 
     -- Nav tree data: rebuilds whenever the recipe universe, profession/type/
     -- missing/search scope, classification, or collapse state changes.
-    R.effect(function() navTree:SetData(buildNavSections()) end, "showroom:nav")
+    R.effect(function() VWB.Theme.epoch(); navTree:SetData(buildNavSections()) end, "showroom:nav") -- theme epoch: repaint on switch
 
     -- Recent-previews strip: persisted ring (Store ui.recentPreviewed), chips
     -- rebuilt whenever it changes. Pooled buttons -- ported from VPC's
@@ -489,13 +494,14 @@ function Showroom.buildView(container)
         b.icon = icon
         b:SetScript("OnClick", function(self) selectItem(self._data) end)
         b:SetScript("OnEnter", function(self)
-            local tip = VWB.UI.Tooltip
+            local tip = ns.UI.Tooltip
             tip:Begin(self); tip:SetItemHeader(self._data.itemID, self._data.name); tip:Show()
         end)
-        b:SetScript("OnLeave", function(self) VWB.UI.Tooltip:Hide(self) end)
+        b:SetScript("OnLeave", function(self) ns.UI.Tooltip:Hide(self) end)
         return b
     end
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint on switch
         ns.Store:Version("recent")
         local ring = ns.Store:GetState().ui.recentPreviewed
         local xOff = 0
@@ -503,7 +509,7 @@ function Showroom.buildView(container)
             local chip = recentChips[i] or acquireRecentChip()
             recentChips[i] = chip
             chip._data = data
-            chip.icon:SetTexture(data.itemID and C_Item.GetItemIconByID(data.itemID) or QUESTION_ICON)
+            chip.icon:SetTexture(data.itemID and C_Item.GetItemIconByID(data.itemID) or VWB.Constants.ClassificationIcons.Misc)
             chip:ClearAllPoints()
             chip:SetPoint("LEFT", recentStripFrame, "LEFT", xOff, 0)
             chip:Show()
@@ -558,7 +564,7 @@ function Showroom.buildView(container)
         if item.expansion then
             ns.Data.ExpansionData.SetTextColor(itemNameFS, item.expansion)
         else
-            local sc = VWB.UI:GetScheme()
+            local sc = ns.UI:GetScheme()
             itemNameFS:SetTextColor(sc.text_header.r, sc.text_header.g, sc.text_header.b)
         end
         addToQueueBtn:Show()

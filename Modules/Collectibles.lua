@@ -152,13 +152,32 @@ C.UncollectedCount = VWB.Reactor.named("collectibles:uncollectedCount", function
     return n
 end)
 
+-- Collection-event fan-out: ONE owner for the mount/pet/transmog/decor
+-- collection triggers (three separate view-owned event frames existed for the
+-- same events -- unification pass 2026-07-11). Views register invalidation
+-- callbacks here instead of owning raw frames.
+local listeners = {}
+function C:RegisterCollectionListener(fn)
+    listeners[#listeners + 1] = fn
+end
+
+-- Reactive read of the collection epoch (subscribes the calling computed/effect).
+function C.CollectionEpoch()
+    return collectionEpoch()
+end
+
+local function onCollectionChanged()
+    C:BumpCollectionEpoch()
+    for i = 1, #listeners do listeners[i]() end
+end
+
 -- Registration only (no scanning): the same collection events the Showroom's
--- resources and ProjectPlanner watch, bumping the count's epoch.
+-- resources and ProjectPlanner watch, bumping the count's epoch + fan-out.
 function C:Initialize()
     local f = CreateFrame("Frame")
     f:RegisterEvent("NEW_MOUNT_ADDED")
     f:RegisterEvent("NEW_PET_ADDED")
-    f:SetScript("OnEvent", function() C:BumpCollectionEpoch() end)
-    VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", function() C:BumpCollectionEpoch() end)
-    VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", function() C:BumpCollectionEpoch() end)
+    f:SetScript("OnEvent", onCollectionChanged)
+    VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", onCollectionChanged)
+    VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", onCollectionChanged)
 end
