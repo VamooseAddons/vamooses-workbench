@@ -240,6 +240,12 @@ function VWB.Graph:CalculateCraftingSteps(recipeID, qty)
 
     discover(recipeID, 0)
 
+    -- exception(boundary): a PERSISTED queue entry can outlive its recipe --
+    -- discover() creates no node when the recipeID is absent from the store
+    -- (or has no slots), and the root assignment below would crash (found
+    -- live in the VPC donor 2026-07-11; identical line here).
+    if not steps[recipeID] then return {} end
+
     -- Demand propagation (reverse order: parents -> children)
     steps[recipeID].req = qty
 
