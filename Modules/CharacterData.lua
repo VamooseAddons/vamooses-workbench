@@ -136,11 +136,28 @@ function VWB.CharacterData:ScanCurrentProfessions()
                 end
 
                 -- Archaeology (skillLine 794) never got the 8.0 per-expansion
-                -- split -- no tradeskill window, no child professions -- so the
-                -- flat skill off GetProfessionInfo is the ONLY source. Stored as
-                -- a synthetic "Overall" band, fresh every scan (no window needed).
+                -- split -- one flat 1-950 line off GetProfessionInfo, no child
+                -- professions. But the CAP grew per expansion (525 Cata -> 600
+                -- MoP -> 700 WoD -> 800 Legion -> 950 BfA, frozen since -- the
+                -- 12.0 journal still shows /950), so the bracket history IS a
+                -- faithful per-expansion decomposition: 943 = 525/525 + 75/75 +
+                -- 100/100 + 100/100 + 143/150. Rendered like any split
+                -- profession; fresh every scan (no window needed).
                 if skillLine == 794 and flatMax and flatMax > 0 then
-                    skillLevels = { Overall = { current = flatCur, max = flatMax } }
+                    local ARCH_BRACKETS = {
+                        { exp = "Cataclysm",           size = 525 }, -- introduced in Cata; 1-525 incl. old-world digs
+                        { exp = "Mists of Pandaria",   size = 75 },
+                        { exp = "Warlords of Draenor", size = 100 },
+                        { exp = "Legion",              size = 100 },
+                        { exp = "Battle for Azeroth",  size = 150 },
+                    }
+                    skillLevels = {}
+                    local remaining = flatCur
+                    for _, b in ipairs(ARCH_BRACKETS) do
+                        local cur = math.min(remaining, b.size)
+                        skillLevels[b.exp] = { current = cur, max = b.size }
+                        remaining = remaining - cur
+                    end
                 end
 
                 professions[profName] = {
