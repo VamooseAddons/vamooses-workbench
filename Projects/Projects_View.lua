@@ -181,10 +181,26 @@ local function stepRowTemplate(frame)
     frame.who = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     frame.who:SetPoint("RIGHT", frame.action, "LEFT", -6, 0); frame.who:SetWidth(120); frame.who:SetJustifyH("RIGHT")
 
+    -- "queued xN" chip: click feedback for the Queue action (the reducer merges
+    -- by recipe+char, so without this a second click silently doubles the order).
+    -- Single-point FontString sizes to its text; empty = zero width.
+    frame.queued = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    frame.queued:SetPoint("RIGHT", frame.who, "LEFT", -6, 0)
+
     frame.name = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     frame.name:SetPoint("LEFT", frame.chip, "RIGHT", 4, 0)
-    frame.name:SetPoint("RIGHT", frame.who, "LEFT", -6, 0)
+    frame.name:SetPoint("RIGHT", frame.queued, "LEFT", -4, 0)
     frame.name:SetJustifyH("LEFT"); frame.name:SetWordWrap(false)
+end
+
+-- Planned amount already in the crafting queue for this step's assigned crafter.
+-- The paint runs inside projects:detail, which subscribes Version("crafting"),
+-- so queue edits repaint the chip immediately.
+local function queuedQty(recipeID, charKey)
+    for _, q in ipairs(VWB.Store:GetState().crafting.queuedRecipes) do
+        if q.recipeID == recipeID and q.charKey == charKey then return q.qty end
+    end
+    return 0
 end
 
 local function paintStepRow(row, st)
@@ -196,12 +212,16 @@ local function paintStepRow(row, st)
         row.chip:SetText("CRAFT"); row.chip:SetTextColor(c.r, c.g, c.b)
         row.name:SetText(st.done and (st.name .. "  (done)") or string.format("%dx %s", st.need, st.name))
         row.who:SetText(VWB.ProjectPlanner:DisplayName(st.charKey) .. (st.pinned and " *" or ""))
+        local qn = not st.done and queuedQty(st.recipeID, st.charKey) or 0
+        row.queued:SetText(qn > 0 and ("queued x" .. qn) or "")
+        row.queued:SetTextColor(s.success.r, s.success.g, s.success.b)
         row.action:SetText("Queue")
         row.action:SetShown(st.ready and st.charKey == current)
     else
         local chip = CHIP[st.kind]
         local c = s[chip.color]
         row.chip:SetText(chip.text); row.chip:SetTextColor(c.r, c.g, c.b)
+        row.queued:SetText("") -- pooled row may have painted a CRAFT chip last cycle
         row.name:SetText(string.format("%dx %s", st.need, st.name))
         if st.kind == "BUY" then
             row.who:SetText(VWB.UI:FormatMoney(st.unitPrice * st.need))
@@ -227,6 +247,10 @@ local function onStepRowEnter(st, rowFrame)
         T:AddLine(string.format("Need %d (own %d of %d)", st.need, st.owned, st.required))
         local names = VWB.KnownRecipes:KnownByList(st.recipeID)
         T:AddLine("Known by: " .. table.concat(names, ", "))
+        local qn = queuedQty(st.recipeID, st.charKey)
+        if qn > 0 then
+            T:AddLine(string.format("Queued: x%d for %s -- Queue adds more", qn, VWB.ProjectPlanner:DisplayName(st.charKey)))
+        end
         if st.pinned then T:AddLine("* pinned to this character") end
     elseif st.kind == "BLOCKED" then
         T:AddTitle(st.name)
@@ -586,6 +610,7 @@ function Projects.buildView(container)
 
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled step/mat rows on switch
+        ns.Store:Version("crafting") -- queue edits repaint the "queued xN" step chips
         local e = selectedEntry()
         -- Names resolve through nameRes INSIDE this tracked effect: a cold row
         -- subscribes its key, and the load result re-runs the effect with the
