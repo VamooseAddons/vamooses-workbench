@@ -93,7 +93,11 @@ local function appendCraftSteps(project, graphSteps, out)
         local pin = project.pins and project.pins[stepKey]
         local who = pin or knowerKeys(s.recipeID)[1]
         if not who then
-            out[#out + 1] = { kind = "BLOCKED", recipeID = s.recipeID, name = s.name, need = s.missing, stepKey = stepKey }
+            -- Only when something is actually demanded: a "0x" blocked step
+            -- (outputs already owned) asks nobody for nothing -- pure noise.
+            if s.missing > 0 then
+                out[#out + 1] = { kind = "BLOCKED", recipeID = s.recipeID, name = s.name, need = s.missing, stepKey = stepKey }
+            end
         else
             out[#out + 1] = {
                 kind = "CRAFT", recipeID = s.recipeID, name = s.name, stepKey = stepKey,
