@@ -75,7 +75,13 @@ local function RestoreRecipeFilters(snapshot)
     C_TradeSkillUI.SetOnlyShowMakeableRecipes(snapshot.onlyMakeable)
     C_TradeSkillUI.SetOnlyShowSkillUpRecipes(snapshot.onlySkillUp)
     C_TradeSkillUI.SetOnlyShowFirstCraftRecipes(snapshot.onlyFirstCraft)
-    C_TradeSkillUI.SetSourceTypeFilter(snapshot.sourceTypeFilter)
+    -- GetSourceTypeFilter() returns 0 when unfiltered; Set(0) validity unverified in 12.0.5.
+    -- ClearRecipeSourceTypeFilter() is the verified safe clear for the "no filter" state.
+    if not snapshot.sourceTypeFilter or snapshot.sourceTypeFilter == 0 then
+        C_TradeSkillUI.ClearRecipeSourceTypeFilter() -- exception(boundary): verified clear; Set(0) behavior unconfirmed
+    else
+        C_TradeSkillUI.SetSourceTypeFilter(snapshot.sourceTypeFilter)
+    end
 end
 
 -- ============================================================================
@@ -230,6 +236,7 @@ end
 
 function Harvest:CanStart()
     if self.active then return false, "Harvest already running" end
+    if InCombatLockdown() then return false, "Cannot start a harvest while in combat" end
     if not IsInGuild() then
         return false, "Not in a guild - opening your own profession windows fills the recipe book automatically instead"
     end
@@ -256,6 +263,16 @@ function Harvest:Initialize()
     if ProfessionsFrame then self:HookProfessionsFrame() end
 end
 
+-- Register/unregister the combat-abort listener only while a harvest is active
+-- so PLAYER_REGEN_DISABLED is never a standing listener outside a scan.
+function Harvest:_RegisterCombatAbort()
+    self.eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+end
+
+function Harvest:_UnregisterCombatAbort()
+    self.eventFrame:UnregisterEvent("PLAYER_REGEN_DISABLED")
+end
+
 function Harvest:OnEvent(event, arg1)
     if event == "ADDON_LOADED" and arg1 == "Blizzard_Professions" then
         self:HookProfessionsFrame()
@@ -270,6 +287,18 @@ function Harvest:OnEvent(event, arg1)
         if self.loadingProfession then
             self.eventFrame:UnregisterEvent("TRADE_SKILL_LIST_UPDATE")
             self:OnProfessionLoaded()
+        end
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        -- Combat started mid-scan: bump the token so every pending timer callback
+        -- becomes a no-op, then abort cleanly. Timer paths at HEADER_TIMEOUT (~457),
+        -- PROFESSION_TIMEOUT (~473), INTER_PROFESSION_PAUSE (~479/496/558), and the
+        -- budget tick (~541) all guard on self.token ~= token before doing any work;
+        -- Cancel() bumps it, covering all deferred closures in one increment.
+        -- Cancel() fires phase="cancelled" first; the error trigger below overwrites
+        -- it in Records_View so the user sees the combat reason, not a bare cancel.
+        if self.active then
+            self:Cancel() -- bumps token + unregisters REGEN listener inside Cancel
+            VWB.EventBus:Trigger("VWB_HARVEST_PROGRESS", { phase = "error", reason = "Harvest aborted: entered combat" })
         end
     end
 end
@@ -311,6 +340,7 @@ function Harvest:Start()
     self.token = self.token + 1
     local token = self.token
     self.active = true
+    self:_RegisterCombatAbort() -- listen for combat entry; unregistered on Cancel/Finish
     self.newRecipes = {}
     self.coverage = {}
     self.expansionCounts = {}
@@ -339,6 +369,7 @@ end
 function Harvest:Cancel()
     if not self.active then return end
     self.token = self.token + 1
+    self:_UnregisterCombatAbort()
     self:RestoreProfessionsFrame()
     RestoreRecipeFilters(self.filterSnapshot)
     self.filterSnapshot = nil
@@ -351,6 +382,7 @@ end
 
 function Harvest:Finish(token, errorReason)
     if token ~= self.token then return end
+    self:_UnregisterCombatAbort()
     self:RestoreProfessionsFrame()
     RestoreRecipeFilters(self.filterSnapshot)
     self.filterSnapshot = nil

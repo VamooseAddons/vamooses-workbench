@@ -28,19 +28,47 @@ local function measure(node)
 end
 
 
--- View registry: id -> label + a builder that mounts the view into a container
--- and returns its Layout.build handle (.root is what we show/hide). Showroom is
--- real; Workbench is a themed layout skeleton (3-panel, ported from VPC Recipes);
--- the rest are stubs until their views land.
+-- View registry: id -> label + builder + optional badge + subtitle.
+--   badge    : function() -> number  live count; shown as a pill when > 0
+--   subtitle : string  one-line descriptor shown in the nav row tooltip
+-- Projects is TOP of the rail (the plan board -- the addon's hero surface).
+-- Badge: below-par stock count from the projects slice.
 local VIEWS = {
-    { id = "showroom",  text = "Showroom",  build = function(c) return ns.Showroom.buildView(c) end },
-    { id = "workbench", text = "Workbench", build = function(c) return ns.Recipes.buildView(c) end },
-    { id = "stockroom", text = "Stockroom", build = function(c) return ns.Stockroom.buildView(c) end },
-    { id = "ledger",    text = "Ledger",    build = function(c) return ns.Ledger.buildView(c) end },
-    { id = "roster",    text = "Roster",    build = function(c) return ns.Roster.buildView(c) end },
-    { id = "records",   text = "Records",   build = function(c) return ns.Records.buildView(c) end },
-    { id = "settings",  text = "Settings",  build = function(c) return ns.Settings.buildView(c) end },
-    { id = "debug",     text = "Debug",     build = function(c) return ns.Debug.buildView(c) end }, -- last: nav row hides when debug off (no gap)
+    { id = "projects",  text = "Projects",  subtitle = "Pin items and plan your collection",
+      build = function(c) return ns.Projects.buildView(c) end,
+      badge = function()
+          ns.Store:Version("projects")
+          local items = ns.Store:GetState().projects.items
+          local n = 0
+          for _, p in ipairs(items) do
+              if p.kind == "stock" and not p.completedAt then
+                  local owned = VWB.Inventory and VWB.Inventory:GetItemCount(p.itemID) or 0
+                  if owned < (p.par or 1) then n = n + 1 end
+              end
+          end
+          return n
+      end },
+    { id = "showroom",  text = "Showroom",  subtitle = "Browse craftable collectibles",
+      build = function(c) return ns.Showroom.buildView(c) end,
+      badge = nil }, -- slotted Phase 2: uncollected count needs cross-model computed not yet available
+    { id = "workbench", text = "Workbench", subtitle = "Recipes, queue and materials",
+      build = function(c) return ns.Recipes.buildView(c) end,
+      badge = function()
+          ns.Store:Version("crafting")
+          return #ns.Store:GetState().crafting.queuedRecipes
+      end },
+    { id = "stockroom", text = "Stockroom", subtitle = "Raw materials ledger",
+      build = function(c) return ns.Stockroom.buildView(c) end },
+    { id = "ledger",    text = "Ledger",    subtitle = "Profit and AH pricing",
+      build = function(c) return ns.Ledger.buildView(c) end },
+    { id = "roster",    text = "Roster",    subtitle = "Your characters professions",
+      build = function(c) return ns.Roster.buildView(c) end },
+    { id = "records",   text = "Records",   subtitle = "Scan coverage and history",
+      build = function(c) return ns.Records.buildView(c) end },
+    { id = "settings",  text = "Settings",  subtitle = "Options",
+      build = function(c) return ns.Settings.buildView(c) end },
+    { id = "debug",     text = "Debug",     subtitle = "Developer diagnostics",
+      build = function(c) return ns.Debug.buildView(c) end }, -- last: nav row hides when debug off (no gap)
 }
 
 -- Shell chrome frames (sidebar / content / status), themed from the scheme. ---
@@ -64,7 +92,11 @@ local function shellMakeFrame(node, parent)
     return CreateFrame("Frame", nil, parent) -- content
 end
 
--- Nav rows: clickable buttons with an active-highlight wash + label. ---------
+-- Nav rows: clickable buttons with an active-highlight wash + label + badge. --
+-- badge: right-aligned pill (hidden when count=0); colors match the gold active
+-- highlight (warning color at reduced alpha) so it reads as part of the identity
+-- system rather than a separate accent. badgeCount and badgePill are the two
+-- sub-frames: count is the text; pill is the tinted backdrop behind it.
 local function navMakeFrame(node, parent)
     if node.type ~= "item" then return CreateFrame("Frame", nil, parent) end
     local btn = CreateFrame("Button", nil, parent)
@@ -77,6 +109,15 @@ local function navMakeFrame(node, parent)
     fs:SetPoint("LEFT", 10, 0)
     fs:SetText(node.text or node.id)
     btn.label = fs
+    -- badge pill: subtle count on the right edge; hidden when count is zero
+    local pill = btn:CreateTexture(nil, "BACKGROUND")
+    pill:SetSize(22, 14); pill:SetPoint("RIGHT", -4, 0)
+    pill:SetColorTexture(1, 0.82, 0, 0.22); pill:Hide()
+    btn.badgePill = pill
+    local bc = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    bc:SetPoint("CENTER", pill, "CENTER", 0, 0)
+    bc:SetTextColor(1, 0.90, 0.30) -- warm gold readable on the 0.22-alpha pill
+    btn.badgeCount = bc
     return btn
 end
 
@@ -123,6 +164,7 @@ function Shell.openWindow()
     for _, v in ipairs(VIEWS) do if v.id == persisted then known = true break end end
     local activeView = R.signal(known and persisted or VIEWS[1].id) -- fall back if the persisted id was retired
     Shell.setView = function(id) activeView(id) end
+    ns.Nav._setView = Shell.setView  -- late-bind Nav's view-switch hook
     R.effect(function() if VWB_DB then VWB_DB.activeView = activeView() end end)
 
     -- 3. sidebar nav generated from the registry
@@ -140,6 +182,29 @@ function Shell.openWindow()
         R.bindColor(btn.label, function()
             if activeView() == v.id then return 1, 0.82, 0 else return 0.72, 0.72, 0.76 end
         end)
+        -- badge: bind count + pill visibility if the registry entry carries a badge fn
+        if v.badge then
+            local badgeFn = v.badge
+            R.bindText(btn.badgeCount, function()
+                local n = badgeFn()
+                return n > 0 and tostring(n) or ""
+            end)
+            R.bindShown(btn.badgePill, function() return badgeFn() > 0 end)
+        end
+        -- subtitle tooltip via the codebase's VWB.UI.Tooltip engine (same surface
+        -- used by QueueRow hover -- Begin/AddLine/Show, Hide on leave)
+        if v.subtitle then
+            local sub = v.subtitle
+            btn:SetScript("OnEnter", function(self)
+                VWB.UI.Tooltip:Begin(self, "RIGHT")
+                VWB.UI.Tooltip:AddTitle(v.text)
+                VWB.UI.Tooltip:AddLine(sub)
+                VWB.UI.Tooltip:Show()
+            end)
+            btn:SetScript("OnLeave", function(self)
+                VWB.UI.Tooltip:Hide(self)
+            end)
+        end
     end
 
     -- The Debug tab is dev-only: its nav row shows only while debug is on. It's
@@ -166,25 +231,108 @@ function Shell.openWindow()
         shownId = id
     end, "shell:activeView")
 
-    -- 5. Foreman ticker (ported from VPC): "N queued | M mats short | scanned Xh
-    -- ago". Reactive on the crafting + corpus slices -- no polling timer; the
-    -- next dispatch refreshes it (matching VPC's dispatcher-driven update).
+    -- 5. Status bar -- three reactive segments on the status strip:
+    --   [left label]  "N queued | scanned Xh ago"     <- plain text, left-aligned
+    --   [mats button] "M mats short"                  <- clickable; navigates to Stockroom
+    --   [delta label] "+N craftable since open"        <- shown only when delta > 0, right side
+    --
+    -- Baseline: the craftable count is captured the FIRST time the window opens
+    -- (not at PLAYER_LOGIN -- no-login-work rule). A R.signal(nil) becomes a
+    -- number on first Show; subsequent shows leave it in place (session-scoped).
+    local craftableBaseline = R.signal(nil) -- exception(nullable): nil until first open; set once
+
+    -- Helper: count how many queued recipes are craftable right now.
+    -- ns.RecipeQuery is guaranteed post-init (openWindow only called after ADDON_LOADED).
+    local function countCraftable(st)
+        local n = 0
+        for _, r in ipairs(st.crafting.queuedRecipes) do
+            if ns.RecipeQuery:CanCraft(r.recipeID) then n = n + 1 end
+        end
+        return n
+    end
+
+    -- Capture baseline on first window open (this effect runs once; subsequent
+    -- opens find baseline already set and return immediately)
+    R.effect(function()
+        if craftableBaseline() ~= nil then return end
+        ns.Store:Version("crafting")
+        craftableBaseline(countCraftable(ns.Store:GetState()))
+    end, "shell:craftableBaseline")
+
+    -- Left label: queued count + scan age (mats-short moved to its own button)
     R.bindText(status.label, function()
         ns.Store:Version("crafting")
         ns.Store:Version("corpus")
         local st = ns.Store:GetState()
         if not next(st.recipeStore) then return "" end -- nothing harvested yet
         local queued = #st.crafting.queuedRecipes
-        local short = 0
-        for _, mat in ipairs(st.crafting.shoppingList) do
-            if mat.missing > 0 then short = short + 1 end
-        end
         local newest
         for _, entry in pairs(st.recipeCoverage) do
             if entry.lastScan and (not newest or entry.lastScan > newest) then newest = entry.lastScan end
         end
-        return string.format("%d queued   |   %d mats short   |   %s",
-            queued, short, VWB.UI:FormatScannedAgo(newest, time()))
+        return string.format("%d queued   |   %s", queued, VWB.UI:FormatScannedAgo(newest, time()))
+    end)
+
+    -- Mats-short clickable button: text underlines on hover; click = Nav.Go stockroom
+    local matsBtn = CreateFrame("Button", nil, status)
+    matsBtn:SetHeight(14)
+    matsBtn:SetPoint("LEFT", status.label, "RIGHT", 12, 0)
+    matsBtn:SetPoint("RIGHT", status, "CENTER", 0, 0) -- cap width at center
+    local matsBtnFS = matsBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    matsBtnFS:SetAllPoints(); matsBtnFS:SetJustifyH("LEFT")
+    matsBtn.fs = matsBtnFS
+    VWB.Theme:Register(matsBtnFS, "DimLabel")
+
+    R.bindText(matsBtnFS, function()
+        ns.Store:Version("crafting")
+        local st = ns.Store:GetState()
+        if not next(st.recipeStore) then return "" end
+        local short = 0
+        for _, mat in ipairs(st.crafting.shoppingList) do
+            if mat.missing > 0 then short = short + 1 end
+        end
+        if short == 0 then return "" end
+        return short .. " mats short"
+    end)
+    R.bindShown(matsBtn, function()
+        ns.Store:Version("crafting")
+        local st = ns.Store:GetState()
+        if not next(st.recipeStore) then return false end
+        for _, mat in ipairs(st.crafting.shoppingList) do
+            if mat.missing > 0 then return true end
+        end
+        return false
+    end)
+    matsBtn:SetScript("OnEnter", function(self)
+        local c = VWB.UI:GetScheme()
+        self.fs:SetTextColor(c.warning.r, c.warning.g, c.warning.b, 1) -- brighten to warning gold on hover
+    end)
+    matsBtn:SetScript("OnLeave", function(self)
+        local c = VWB.UI:GetScheme()
+        self.fs:SetTextColor(c.text.r, c.text.g, c.text.b, 0.6) -- return to dim
+    end)
+    matsBtn:SetScript("OnClick", function()
+        ns.Nav.Go("stockroom", { filter = "queue" })
+    end)
+
+    -- Delta label: "+N craftable since open"; right-aligned; hidden when delta <= 0
+    local deltaFS = status:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    deltaFS:SetPoint("RIGHT", -8, 0)
+    R.bindText(deltaFS, function()
+        ns.Store:Version("crafting")
+        local baseline = craftableBaseline()
+        if baseline == nil then return "" end
+        local current = countCraftable(ns.Store:GetState())
+        local delta = current - baseline
+        if delta <= 0 then return "" end
+        local c = VWB.UI:GetScheme()
+        return "|cFF" .. VWB.UI:ToHex(c.success) .. "+" .. delta .. " craftable since open|r"
+    end)
+    R.bindShown(deltaFS, function()
+        ns.Store:Version("crafting")
+        local baseline = craftableBaseline()
+        if baseline == nil then return false end
+        return countCraftable(ns.Store:GetState()) > baseline
     end)
 
     -- 6. Craft-complete toast (ported from VPC): a brief fading "Crafted Nx <item>"

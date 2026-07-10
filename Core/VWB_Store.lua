@@ -30,6 +30,7 @@ local state = {
         navSelectedExp = "AllExps", navSelectedItem = nil, navCollapsed = {},
         scopeCharacter = nil, recentPreviewed = {}, recentQueued = {},
     },
+    projects = { items = {}, nextId = 1 },
 }
 
 function Store:GetState() return state end
@@ -44,6 +45,7 @@ local slices = {
     recipes = VWB.Reactor.signal(0), crafting = VWB.Reactor.signal(0),
     characters = VWB.Reactor.signal(0), history = VWB.Reactor.signal(0),
     config = VWB.Reactor.signal(0), minimap = VWB.Reactor.signal(0),
+    projects = VWB.Reactor.signal(0), -- persisted plan board (items + nextId)
     -- corpus = the recipe DEFINITION set (recipeStore itemID/slots). Bumped ONLY
     -- by ADD_RECIPES (own-profession scan / guild scan) -- NOT by SET_KNOWN_RECIPES,
     -- which only flips known-status. Pure-definition derivations (Stockroom
@@ -76,6 +78,10 @@ local ACTION_SLICES = {
     SET_NAV_COLLAPSED_ALL = { "nav" },
     SET_SCOPE = { "nav" }, CLEAR_SCOPE = { "nav" },
     PUSH_RECENT_PREVIEWED = { "recent" }, PUSH_RECENT_QUEUED = { "recent" },
+    ADD_PROJECT = { "projects" }, REMOVE_PROJECT = { "projects" },
+    SET_PROJECT_PAR = { "projects" }, PIN_PROJECT_STEP = { "projects" },
+    UNPIN_PROJECT_STEP = { "projects" }, COMPLETE_PROJECT = { "projects" },
+    PROJECT_REFILLED = { "projects" },
 }
 function Store:Version(slice)
     if slice then return (slices[slice] or error("VWB.Store: unknown slice '" .. tostring(slice) .. "'"))() end
@@ -123,6 +129,10 @@ function Store:LoadFromSavedVariables()
     state.config         = VWB_DB.config
     state.ui             = VWB_DB.ui
     state.ui.scopeCharacter = nil -- scope is session-only, never persists
+    VWB_DB.projects        = VWB_DB.projects or {}
+    VWB_DB.projects.items  = VWB_DB.projects.items or {}
+    if VWB_DB.projects.nextId == nil then VWB_DB.projects.nextId = 1 end
+    state.projects       = VWB_DB.projects
 end
 
 function Store:Initialize()
@@ -206,6 +216,64 @@ reducers.PUSH_RECENT_QUEUED = function(st, p) pushRecent(st.ui.recentQueued, p.i
 -- write nesting to race. Anything with structure gets a named reducer instead.
 reducers.SET_CONFIG = function(st, p) st.config[p.key] = p.value end
 reducers.SET_MINIMAP_POS = function(st, p) st.minimap.minimapPos = p.angle end
+
+-- Projects slice. IDs from a monotonic counter; timestamps from a single time()
+-- read at dispatch so createdAt/completedAt are consistent within one action.
+-- All mutations in-place (alias contract: st.projects IS VWB_DB.projects). ------
+reducers.ADD_PROJECT = function(st, p)
+    local now = p._time or time()
+    local id = st.projects.nextId
+    st.projects.nextId = id + 1
+    st.projects.items[#st.projects.items + 1] = {
+        id = id, name = p.name, icon = p.icon,
+        itemID = p.itemID, recipeID = p.recipeID,
+        kind = p.kind or "collect", par = p.par or 20,
+        pins = {}, createdAt = now, completedAt = nil, refills = 0,
+    }
+end
+
+reducers.REMOVE_PROJECT = function(st, p)
+    local items = st.projects.items
+    for i = #items, 1, -1 do
+        if items[i].id == p.id then table.remove(items, i); return end
+    end
+end
+
+reducers.SET_PROJECT_PAR = function(st, p)
+    local items = st.projects.items
+    for i = 1, #items do
+        if items[i].id == p.id then items[i].par = p.par; return end
+    end
+end
+
+reducers.PIN_PROJECT_STEP = function(st, p)
+    local items = st.projects.items
+    for i = 1, #items do
+        if items[i].id == p.id then items[i].pins[p.stepKey] = p.charKey; return end
+    end
+end
+
+reducers.UNPIN_PROJECT_STEP = function(st, p)
+    local items = st.projects.items
+    for i = 1, #items do
+        if items[i].id == p.id then items[i].pins[p.stepKey] = nil; return end
+    end
+end
+
+reducers.COMPLETE_PROJECT = function(st, p)
+    local now = p._time or time()
+    local items = st.projects.items
+    for i = 1, #items do
+        if items[i].id == p.id then items[i].completedAt = now; return end
+    end
+end
+
+reducers.PROJECT_REFILLED = function(st, p)
+    local items = st.projects.items
+    for i = 1, #items do
+        if items[i].id == p.id then items[i].refills = items[i].refills + 1; return end
+    end
+end
 
 function Store:Dispatch(action, payload)
     local r = reducers[action] or error("VWB.Store: no reducer for '" .. tostring(action) .. "'")

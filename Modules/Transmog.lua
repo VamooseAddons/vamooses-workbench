@@ -5,6 +5,7 @@ VWB.Transmog = {}
 
 local cache = {} -- [itemID] = { hasAppearance = bool, isCollected = bool }
 local eventFrame = nil
+local pendingItemIDs = {} -- [itemID] = true; awaiting ITEM_DATA_LOAD_RESULT to retry GetStatus
 
 -- Equippable slots that carry NO transmog appearance (nothing to collect)
 local NON_VISUAL_SLOTS = {
@@ -53,8 +54,11 @@ function VWB.Transmog:GetStatus(itemID)
 
     -- Get item link
     local itemLink = select(2, C_Item.GetItemInfo(itemID))
-    if not itemLink then
-        C_Item.RequestLoadItemDataByID(itemID)
+    if not itemLink then -- exception(boundary): cold item cache; request once and retry on ITEM_DATA_LOAD_RESULT
+        if not pendingItemIDs[itemID] then
+            pendingItemIDs[itemID] = true
+            C_Item.RequestLoadItemDataByID(itemID)
+        end
         return { hasAppearance = false, isCollected = false }
     end
 
@@ -91,18 +95,26 @@ end
 function VWB.Transmog:Initialize()
     eventFrame = CreateFrame("Frame")
     eventFrame:RegisterEvent("TRANSMOG_COLLECTION_SOURCE_ADDED")
+    eventFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT") -- resolves pendingItemIDs from GetStatus cold-cache misses
 
-    eventFrame:SetScript("OnEvent", function(self, event, sourceID)
-        -- Invalidate uncollected entries
-        for itemID, status in pairs(cache) do
-            if status.hasAppearance and not status.isCollected then
-                cache[itemID] = nil
+    eventFrame:SetScript("OnEvent", function(_, event, arg1)
+        if event == "TRANSMOG_COLLECTION_SOURCE_ADDED" then
+            -- Invalidate uncollected entries so next GetStatus re-checks the wardrobe
+            for itemID, status in pairs(cache) do
+                if status.hasAppearance and not status.isCollected then
+                    cache[itemID] = nil
+                end
             end
-        end
-
-        -- Trigger UI refresh
-        if VWB.EventBus then
             VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {})
+
+        elseif event == "ITEM_DATA_LOAD_RESULT" then
+            -- arg1 = itemID that just loaded (keyOf pattern; O(1) vs full scan)
+            local itemID = arg1
+            if pendingItemIDs[itemID] then
+                pendingItemIDs[itemID] = nil
+                cache[itemID] = nil -- clear the stub entry so GetStatus re-reads
+                VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {}) -- downstream callers (IsUnknown, Showroom resource) re-evaluate
+            end
         end
     end)
 end

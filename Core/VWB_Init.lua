@@ -52,6 +52,7 @@ boot:SetScript("OnEvent", function(self, event, name)
         ns.Inventory:Initialize() -- BAG/BANK/warband change -> VWB_INVENTORY_UPDATE so Stockroom owned counts stay live
         ns.GuildCrafters:Initialize() -- guild-crafter roster + "who can craft this" tooltips
         ns.PSLBridge:Initialize() -- listen for PSL tracked-list changes -> VWB_PSL_TRACKED_CHANGED (inert if PSL lacks the event)
+        ns.ProjectPlanner:Initialize() -- collect auto-complete + stock refill watchers (registration only)
         -- Graph + ReagentSource are lazy, no init.
         -- Rebuild the crafting queue's derived tables (expandedQueue/shoppingList)
         -- from the persisted queuedRecipes -- the reducer that does this only runs

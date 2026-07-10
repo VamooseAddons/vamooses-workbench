@@ -70,7 +70,7 @@ function Reactor.resource(opts)
                         entry.waiting = false
                         entry.value = v
                         entry.sig(v)
-                        epoch(epoch() + 1)
+                        Reactor.untrack(function() epoch(epoch() + 1) end) -- no dep edge if inside a computed
                     end
                 end)
                 return
@@ -91,7 +91,7 @@ function Reactor.resource(opts)
                         end
                     end
                 end
-                if resolved then epoch(epoch() + 1) end -- one bump for all epoch/peek dependents
+                if resolved then Reactor.untrack(function() epoch(epoch() + 1) end) end -- no dep edge if inside a computed
             end)
         end)
     end
@@ -131,19 +131,42 @@ function Reactor.resource(opts)
     -- wire such a resource to invalidateAll, give it an `equals` or compare fields.
     local api = { peek = peek }
     function api.epoch() return epoch() end
-    function api.invalidateAll()
+    -- invalidateAll([filter]) -> re-reads every known key, propagating changed values.
+    -- Optional filter(key, entry) -> bool: when provided, ONLY matching keys are re-read;
+    -- no-arg behavior is identical to before. Scalar contract assert: if a re-read returns
+    -- a table and the resource has no custom equals, error() loudly (fail-loud house rule).
+    -- Change-detection for invalidateAll: use opts.equals when provided (supports
+    -- table-returning resources with a field comparator), else reference equality.
+    local function valueChanged(old, new)
+        if opts.equals then return not opts.equals(old, new) end
+        return old ~= new
+    end
+    function api.invalidateAll(filter)
         Reactor.batch(function()
             local changed = false
             for key, entry in pairs(perKey) do
-                local v = opts.read(key)
-                if v ~= nil and v ~= entry.value then -- only ACTUAL changes bump the epoch
-                    entry.waiting = false
-                    entry.value = v
-                    entry.sig(v) -- equals dedups; a changed value propagates
-                    changed = true
+                if not filter or filter(key, entry) then
+                    local v = opts.read(key)
+                    if v ~= nil then
+                        -- SCALAR CONTRACT: a resource without custom equals must return scalars.
+                        -- A table return means every key appears "changed" on every invalidate,
+                        -- defeating memoization. Error loud; do not silently over-invalidate.
+                        if type(v) == "table" and (not opts.equals) then
+                            error("Reactor.resource: invalidateAll re-read returned a table for key '" ..
+                                tostring(key) .. "' but no custom equals is set. " ..
+                                "Provide opts.equals or return a scalar (bool/string/number). " ..
+                                "A table without equals treats every call as a change and silently over-invalidates forever.")
+                        end
+                        if valueChanged(entry.value, v) then -- only ACTUAL changes bump the epoch
+                            entry.waiting = false
+                            entry.value = v
+                            entry.sig(v) -- signal's own equals dedups further propagation
+                            changed = true
+                        end
+                    end
                 end
             end
-            if changed then epoch(epoch() + 1) end -- wake epoch/peek dependents too
+            if changed then Reactor.untrack(function() epoch(epoch() + 1) end) end -- no dep edge if inside a computed
         end)
     end
     return setmetatable(api, { __call = function(_, key) return get(key) end })

@@ -84,6 +84,7 @@ local recompute -- fwd
 
 -- Lazy pull: ensure a node is up to date before its value is read.
 local function updateIfNecessary(node)
+    if node.kind == "signal" then return end -- signals are always CLEAN; nothing to check
     if node.state == CHECK then
         local srcs = node.sources
         for i = 1, #srcs do

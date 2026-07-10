@@ -30,6 +30,7 @@ Reactor\Reactor_Core.lua
 Reactor\Reactor_Resource.lua
 Reactor\Reactor_Bind.lua
 Reactor\Reactor_WoW.lua
+Core\VWB_Nav.lua
 
 # --- Data layer (signals Store shim + ported VPC modules) ---
 Core\VWB_Store.lua
@@ -52,9 +53,10 @@ Modules\Transmog.lua
 Modules\Collectibles.lua
 Modules\GuildCrafters.lua
 Modules\AmbientTooltips.lua
+Modules\ProjectPlanner.lua
 
-# AmbientTooltips.lua is ported but intentionally NOT loaded -- it hooks EVERY
-# game tooltip at file load (no dormant option). Add it here only after deciding.
+# AmbientTooltips hooks EVERY game tooltip at file load (no dormant option) --
+# flagged decide-or-remove in TODO_VamoosesWorkbench.md.
 
 # --- Layout box model ---
 Layout\Layout.lua
@@ -66,8 +68,10 @@ Layout\LayoutConfig_Ledger.lua
 Layout\LayoutConfig_Roster.lua
 Layout\LayoutConfig_Records.lua
 Layout\LayoutConfig_Settings.lua
+Layout\LayoutConfig_Projects.lua
 
-# --- Showroom view + app shell ---
+# --- Views + app shell ---
+Projects\Projects_View.lua
 Showroom\Showroom_Model.lua
 Showroom\Showroom_View.lua
 Recipes\Recipes_View.lua

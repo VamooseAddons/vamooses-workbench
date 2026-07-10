@@ -52,8 +52,9 @@ end
 local function OnItemTooltip(tooltip, data)
     if tooltip ~= _G.GameTooltip then return end -- exception(boundary): post-call fires for every tooltip frame incl. shopping tooltips
     if VWB.Store:GetState().config.ambientTooltips == false then return end
-    local itemID = data and data.id -- exception(boundary): tooltip payload can lack an item id (e.g. currency-ish tooltips)
-    if not itemID then return end
+    -- exception(boundary): 12.0.5 tooltip data can carry secret strings; numeric id is the only safe read
+    if not (type(data) == "table" and type(data.id) == "number") then return end
+    local itemID = data.id
 
     local required, owned = QueueNeedFor(itemID)
     if required then

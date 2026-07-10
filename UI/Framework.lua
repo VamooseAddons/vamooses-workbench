@@ -2647,3 +2647,72 @@ function VWB.UI:CreateNavTree(parent, options)
 end
 
 -- ============================================================================
+-- ROW ANIMATION HELPERS (factory-time; created ONCE per pooled row)
+-- ============================================================================
+-- Both helpers follow the rule: AnimationGroups are created at factory time
+-- (inside the CreateScrollBox factory/rowTemplate fn), NOT inside paint/update
+-- callbacks. The returned handle only exposes Stop/Play calls. Views must call
+-- :Flash() only on false->true transitions -- they are responsible for tracking
+-- prior state, because these helpers are stateless wrappers.
+--
+-- Texture sublevel -1 sits BELOW the content (icon, text, etc.) which live at
+-- ARTWORK/sublevel 0+. BACKGROUND layer at sublevel -1 is behind all ARTWORK.
+-- ============================================================================
+
+-- VWB.UI:AttachShimmer(row)
+--   Adds a low-alpha full-row shimmer texture that loops 0.04 <-> 0.08 alpha
+--   via an AnimationGroup. Used to signal pending/loading state (PENDING rows).
+--   Returns a handle:
+--     handle:SetShimmering(bool)  show/pause the animation
+function VWB.UI:AttachShimmer(row)
+    local tex = row:CreateTexture(nil, "BACKGROUND", nil, -1) -- behind content
+    tex:SetAllPoints(row)
+    tex:SetColorTexture(1, 1, 1, 0)
+    tex:Hide()
+
+    local ag = row:CreateAnimationGroup()
+    ag:SetLooping("BOUNCE") -- 0.04->0.08->0.04->... natural shimmer pulse
+    local fadeIn = ag:CreateAnimation("Alpha")
+    fadeIn:SetFromAlpha(0.04); fadeIn:SetToAlpha(0.08)
+    fadeIn:SetDuration(0.9); fadeIn:SetOrder(1)
+
+    local handle = {}
+    function handle:SetShimmering(active)
+        if active then
+            tex:Show(); ag:Play()
+        else
+            ag:Stop(); tex:Hide()
+        end
+    end
+    return handle
+end
+
+-- VWB.UI:AttachTransitionWash(row, r, g, b)
+--   Adds a one-shot alpha wash (0.12 -> settle 0.08) for state-transition
+--   celebration (e.g. craftable flipping true). r/g/b set the wash tint;
+--   callers typically pass c.success colors for the craftable signal.
+--   Returns a handle:
+--     handle:Flash()  trigger the one-shot animation (safe to call repeatedly;
+--                     each call restarts the sequence from 0.12)
+function VWB.UI:AttachTransitionWash(row, r, g, b)
+    local tex = row:CreateTexture(nil, "BACKGROUND", nil, -1) -- behind content
+    tex:SetAllPoints(row)
+    tex:SetColorTexture(r, g, b, 0)
+    tex:Hide()
+
+    local ag = row:CreateAnimationGroup()
+    ag:SetScript("OnFinished", function() tex:SetAlpha(0.08) end) -- settle at 0.08
+
+    local burst = ag:CreateAnimation("Alpha")
+    burst:SetFromAlpha(0.12); burst:SetToAlpha(0.08)
+    burst:SetDuration(0.6); burst:SetOrder(1)
+
+    local handle = {}
+    function handle:Flash()
+        tex:SetAlpha(0.12); tex:Show()
+        ag:Stop(); ag:Play()
+    end
+    return handle
+end
+
+-- ============================================================================

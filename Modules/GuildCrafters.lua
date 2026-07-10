@@ -322,3 +322,49 @@ function GC:ClearCache()
     self.craftersByRecipe = {}
     self.pendingRecipeID = nil
 end
+
+-- ============================================================================
+-- PROJECTS AFFORDANCE: online crafter list + prefilled whisper
+-- GetOnlineCrafters(recipeID) -> array of { fullName, displayName, classFileName }
+--   Returns only online members; empty table if none or cache miss (caller
+--   should call Query(recipeID) first and consume VWB_CRAFTERS_UPDATED).
+-- WhisperCrafter(recipeID) -> sent=bool, reason=string
+--   Picks the first online crafter and sends a prefilled polite whisper with
+--   the item link. Caller displays reason on nil/false.
+-- ============================================================================
+
+function GC:GetOnlineCrafters(recipeID)
+    local cached = self.craftersByRecipe[recipeID]
+    if not cached then return {} end -- exception(nullable): cache miss; Query() not yet called
+    local online = {}
+    for _, crafter in ipairs(cached.crafters) do
+        if crafter.online then
+            table.insert(online, {
+                fullName      = crafter.name,
+                displayName   = crafter.displayName,
+                classFileName = crafter.classFile,
+            })
+        end
+    end
+    return online
+end
+
+function GC:WhisperCrafter(recipeID)
+    local online = self:GetOnlineCrafters(recipeID)
+    if #online == 0 then
+        return false, "No online crafters found for this recipe"
+    end
+
+    local crafter = online[1]
+    -- Resolve item link for the output itemID; fall back to name-only if cold cache.
+    local recipe = VWB.Database:GetRecipe(recipeID) -- exception(nullable): recipeID may not be in the local harvest yet
+    local itemLink
+    if recipe and recipe.itemID then
+        itemLink = select(2, C_Item.GetItemInfo(recipe.itemID)) -- exception(boundary): cold item cache returns nil
+    end
+    local itemRef = itemLink or (recipe and recipe.name) or "this item"
+
+    local msg = "Hi! Could you craft " .. itemRef .. " for me when you have a moment? I'll supply mats."
+    SendChatMessage(msg, "WHISPER", nil, crafter.fullName)
+    return true, crafter.displayName
+end

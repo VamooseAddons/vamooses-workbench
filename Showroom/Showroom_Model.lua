@@ -60,6 +60,13 @@ function Showroom.buildModel(deps)
     end)
 
     -- "Expansion \ Category \ N items, N known, N uncollected" counts.
+    -- Custom equals: fresh table each recompute; compare the three integer fields so an
+    -- unchanged tally doesn't re-run bindText effects. (default ref-eq would always differ)
+    -- Guard for nil: a computed's initial prev-value is nil before its first run.
+    local function breadcrumbEq(a, b)
+        if a == nil or b == nil then return a == b end
+        return a.total == b.total and a.known == b.known and a.uncollected == b.uncollected
+    end
     local breadcrumb = R.named("showroom:breadcrumb", function()
         collected.epoch() -- one dep for the whole tally (peek reads below are untracked)
         local total, known, unc = 0, 0, 0
@@ -70,7 +77,7 @@ function Showroom.buildModel(deps)
             elseif c == false then unc = unc + 1 end
         end
         return { total = total, known = known, uncollected = unc }
-    end)
+    end, breadcrumbEq)
 
     return {
         filteredItems = filteredItems,
