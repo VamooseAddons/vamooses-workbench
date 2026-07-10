@@ -71,10 +71,15 @@ local CONVERSION_CATEGORY = {
 }
 local function IsConversionRecipe(recipe)
     if CONVERSION_CATEGORY[recipe.categoryName] then return true end
-    -- Enchanting's "Reagents" category is the legacy shatter family
-    -- (Maelstrom/Void/Ethereal/Sha/Abyssal Shatter) -- profession-qualified
-    -- so other professions' Reagents categories stay expandable.
-    return recipe.categoryName == "Reagents" and recipe.profession == "Enchanting"
+    -- Enchanting's converter/research family lives under era-flavored
+    -- "Reagents..." headers: "Reagents" (TBC prismatic shard up/down-converts),
+    -- "Reagents and Research" (WoD: Secrets of Draenor, Temporal Crystal,
+    -- Luminous Shard -- daily-cooldown research, same buy-dont-chain ruling as
+    -- transmutes). Prefix match, profession-qualified so other professions'
+    -- Reagents categories stay expandable.
+    return recipe.profession == "Enchanting"
+        and recipe.categoryName ~= nil
+        and recipe.categoryName:find("^Reagents") ~= nil
 end
 
 -- Resolve the crafted sub-recipe for a reagent, unless expanding it would
