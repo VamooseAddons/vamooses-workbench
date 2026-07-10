@@ -23,21 +23,33 @@ ns.LayoutConfig.projects = {
             { type = "item", id = "prjTitle", role = "title", grow = true, size = { h = 24 } },
             { type = "item", id = "prjNewStock", size = { w = 150, h = 22 } },
         } },
-        { type = "stack", id = "prjBoard", dir = "row", gap = "sm", grow = true, align = "stretch", children = {
-            { type = "item", id = "prjRail", size = { w = 210 } }, -- vertical project-card rail
-            { type = "stack", id = "prjPlanCol", dir = "col", gap = "sm", padding = "md", align = "stretch", grow = true, chrome = "Panel", children = {
-                { type = "stack", dir = "row", gap = "sm", align = "center", children = {
-                    { type = "item", id = "prjPlanLabel", role = "section", grow = true, size = { h = 20 } },
-                    { type = "item", id = "prjQueueBtn", size = { w = 170, h = 20 } },
-                    { type = "item", id = "prjBuysBtn", size = { w = 180, h = 20 } },
-                } },
-                { type = "item", id = "prjSteps", grow = true },
+        -- Board = GRID with fixed side tracks (rail 210 | plan flex | mats 380).
+        -- NOT a row stack with sized stacks: the engine content-hugs stack
+        -- children (intrinsicSize ignores size on containers), so a
+        -- size={w=380} column collapsed to its hug width -- fixed columns are
+        -- the grid's job, same idiom as LayoutConfig_Recipes' body.
+        { type = "grid", id = "prjBoard", grow = true, padding = 0, gap = 6,
+          columns = { 210, "flex", 380 }, rows = { "flex" },
+          cells = {
+            { at = { col = 1, row = 1 }, child = { type = "item", id = "prjRail" } }, -- vertical project-card rail
+            { at = { col = 2, row = 1 }, child = {
+                type = "stack", id = "prjPlanCol", dir = "col", gap = "sm", padding = "md", align = "stretch", chrome = "Panel", children = {
+                    { type = "stack", dir = "row", gap = "sm", align = "center", children = {
+                        { type = "item", id = "prjPlanLabel", role = "section", grow = true, size = { h = 20 } },
+                        { type = "item", id = "prjQueueBtn", size = { w = 170, h = 20 } },
+                        { type = "item", id = "prjBuysBtn", size = { w = 180, h = 20 } },
+                    } },
+                    { type = "item", id = "prjSteps", grow = true },
+                },
             } },
-            { type = "stack", id = "prjMatsCol", dir = "col", gap = "sm", padding = "md", align = "stretch", size = { w = 380 }, chrome = "Panel", children = {
-                { type = "item", id = "prjMatsLabel", role = "section", size = { h = 16 } },
-                { type = "item", id = "prjMats", grow = true },
+            { at = { col = 3, row = 1 }, child = {
+                type = "stack", id = "prjMatsCol", dir = "col", gap = "sm", padding = "md", align = "stretch", chrome = "Panel", children = {
+                    { type = "item", id = "prjMatsLabel", role = "section", size = { h = 16 } },
+                    { type = "item", id = "prjMats", grow = true },
+                },
             } },
-        } },
+          },
+        },
     },
 }
 
