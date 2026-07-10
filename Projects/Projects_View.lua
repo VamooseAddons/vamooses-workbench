@@ -297,21 +297,32 @@ function Projects.buildView(container)
     local invEpoch = R.signal(0) -- VWB_INVENTORY_UPDATE has no Store slice; local epoch stands in
     VWB.EventBus:Register("VWB_INVENTORY_UPDATE", function() invEpoch(invEpoch() + 1) end)
 
-    -- Cold-cache mat/step names bake as "Loading..." inside Graph's walks, and
-    -- the plans computed had no name-resolve subscription -- so they stayed
-    -- frozen (live report 2026-07-11). Re-derive ONCE per load burst: trailing-
-    -- edge settle over ITEM_DATA_LOAD_RESULT (a 10k-event warmup must not mean
-    -- 10k plan re-derivations).
-    local nameSettle
-    local nameFrame = CreateFrame("Frame")
-    nameFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
-    nameFrame:SetScript("OnEvent", function()
-        if nameSettle then nameSettle:Cancel() end
-        nameSettle = VWB.ReactorWoW.after(0.35, function()
-            nameSettle = nil
-            invEpoch(invEpoch() + 1)
-        end)
-    end)
+    -- Name resolver: the SAME keyed-resource shape the Workbench materials list
+    -- uses. Graph bakes "Loading..." for cold names at derive time; painting
+    -- through the resource resolves each row reactively on ITEM_DATA_LOAD_RESULT.
+    -- (Replaces a hand-rolled event-frame + settle-timer + epoch bump -- the
+    -- imperative path broke the moment Graph's request-once latch removed its
+    -- accidental retry. Owner called it: "are we breaking reactor engine rules
+    -- here" -- we were; async row fields belong in a resource.)
+    local nameRes = R.resource({
+        read = function(itemID) return C_Item.GetItemInfo(itemID) end, -- exception(boundary): nil on cold cache -> pending + request
+        request = function(itemID) C_Item.RequestLoadItemDataByID(itemID) end,
+        event = "ITEM_DATA_LOAD_RESULT", -- fires (itemID, success); keyOf routes O(1)
+        keyOf = function(itemID) return itemID end,
+    })
+    local function liveName(itemID, baked)
+        if baked and baked ~= "Loading..." then return baked end
+        if not itemID then return baked or "?" end -- exception(nullable): synthetic steps carry no itemID
+        local n = nameRes(itemID)
+        if n == nil or R.isPending(n) then return "Loading..." end -- exception(boundary): still cold; resource re-fires the effect on load
+        return n
+    end
+    -- Overlay a resolved name without mutating the derived plan row.
+    local function withLiveName(row)
+        local resolved = liveName(row.itemID, row.name)
+        if resolved == row.name then return row end
+        return setmetatable({ name = resolved }, { __index = row })
+    end
 
     -- goal list -> derived plans, split active/shelf, board-sorted
     local plans = R.named("projects:plans", function()
@@ -581,8 +592,16 @@ function Projects.buildView(container)
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled step/mat rows on switch
         local e = selectedEntry()
-        stepsList:SetData(e and e.plan.steps or {})
-        matsList:SetData(e and e.plan.mats or {})
+        -- Names resolve through nameRes INSIDE this tracked effect: a cold row
+        -- subscribes its key, and the load result re-runs the effect with the
+        -- real name -- no manual re-derive plumbing.
+        local steps, mats = {}, {}
+        if e then
+            for i, st in ipairs(e.plan.steps) do steps[i] = withLiveName(st) end
+            for i, m in ipairs(e.plan.mats) do mats[i] = withLiveName(m) end
+        end
+        stepsList:SetData(steps)
+        matsList:SetData(mats)
     end, "projects:detail")
 
     return handle
