@@ -694,13 +694,16 @@ function Recipes.buildView(container)
                     priorCraftable[item.recipeID] = craftableNow
                 end,
                 onRowClick = function(item)
-                    -- Ctrl: Wowhead link. Shift: Showroom preview. Plain: queue 1.
+                    -- Ctrl: Wowhead. Shift: Showroom preview. Alt: queue 5
+                    -- (VPC's shift-click-5, remapped -- shift navigates here).
+                    -- Plain: queue 1.
                     if IsControlKeyDown() and item.recipeID then
                         ShowWowheadLink(item.recipeID)
                     elseif IsShiftKeyDown() and item.itemID then
                         ns.Nav.Go("showroom", { select = item.itemID })
                     else
-                        ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = item.recipeID, qty = 1 })
+                        local qty = IsAltKeyDown() and 5 or 1
+                        ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = item.recipeID, qty = qty })
                         PushRecent(item.recipeID, item.itemID, item.name)
                     end
                 end,
@@ -708,6 +711,9 @@ function Recipes.buildView(container)
                     local tip = ns.UI.Tooltip
                     tip:Begin(row)
                     if item.itemID then tip:SetItemHeader(item.itemID, item.name) else tip:AddTitle(item.name or "Unknown") end
+                    -- VPC tooltip parity: the raw id line (screenshot-friendly;
+                    -- feeds /vwb classify and wowhead lookups)
+                    tip:AddLine(ns.UI:ColorCode("base01") .. "#" .. tostring(item.itemID or item.recipeID) .. "|r")
 
                     local knownBy = ns.KnownRecipes:KnownByList(item.recipeID)
                     if #knownBy > 0 then
@@ -736,7 +742,7 @@ function Recipes.buildView(container)
                     end
 
                     tip:AddLine(" ")
-                    tip:AddLine(ns.UI:ColorCode("base01") .. "Click: queue 1  -  Shift: Showroom  -  Ctrl: Wowhead link|r")
+                    tip:AddLine(ns.UI:ColorCode("base01") .. "Click: queue 1  -  Alt: queue 5  -  Shift: Showroom  -  Ctrl: Wowhead|r")
                     tip:Show()
                     ns.GuildCrafters:AppendCraftersToTooltip(tip, item.recipeID)
                 end,
