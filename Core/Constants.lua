@@ -335,6 +335,7 @@ VWB.Constants.ProfessionIcons = {
     Cooking = "Interface\\Icons\\INV_Misc_Food_15",
     ["First Aid"] = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
     Fishing = "Interface\\Icons\\Trade_Fishing",
+    Archaeology = "Interface\\Icons\\Trade_Archaeology",
 }
 
 -- ============================================================================

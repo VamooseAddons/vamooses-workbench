@@ -1996,6 +1996,9 @@ end
 
 -- Alphabetical profession-name summary line. professions is always a table
 -- (SAVE_CHARACTER_PROFESSIONS defaults it to {}) -- strict read.
+-- Icon row (2026-07-11): profession NAMES truncated on the narrow rail card
+-- ("Archaeology / Cooking / Ench..."); inline |T|t icons fit every profession
+-- on one line. The hover tooltip still carries names + per-expansion detail.
 local function FormatProfessionSummary(professions)
     local names = {}
     for profName in pairs(professions) do
@@ -2003,7 +2006,12 @@ local function FormatProfessionSummary(professions)
     end
     if #names == 0 then return "No professions scanned" end
     table.sort(names)
-    return table.concat(names, " / ")
+    local out = {}
+    for i, profName in ipairs(names) do
+        local icon = VWB.Constants.ProfessionIcons[profName]
+        out[i] = icon and ("|T" .. icon .. ":12:12|t") or profName -- exception(nullable): unmapped profession falls back to its name
+    end
+    return table.concat(out, " ")
 end
 
 -- Compact per-alt tile for the Roster (Alts tab) character strip. Pooled via

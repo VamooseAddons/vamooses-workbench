@@ -411,26 +411,25 @@ function Roster.buildView(container)
             root.stripHeader:SetPoint("TOPLEFT", 0, 0)
             root.stripHeader:SetText("Character Roster")
 
-            -- Width set explicitly below (after Layout.build sizes `root`) rather
-            -- than a second stretch-anchor -- avoids mixing a TOPLEFT anchor with
-            -- a cross-family point (RIGHT/TOPRIGHT) that would leave the height
-            -- ambiguous alongside the explicit SetHeight.
+            -- Vertical card rail (2026-07-11: was a horizontal strip across the
+            -- top -- fine at 4 alts, unusable at 20). Rail on the left, the
+            -- Account Summary fills the remaining width to its right.
             root.stripHost = CreateFrame("Frame", nil, root)
             root.stripHost:SetPoint("TOPLEFT", root.stripHeader, "BOTTOMLEFT", 0, -4)
-            root.stripHost:SetHeight(STRIP_HEIGHT)
+            root.stripHost:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 0, 0)
+            root.stripHost:SetWidth(CARD_W)
 
             stripScroll = CreateFrame("Frame", nil, root.stripHost, "WowScrollBox")
             stripScroll:SetAllPoints()
             stripContent = CreateFrame("Frame", nil, stripScroll)
             stripContent.scrollable = true -- WowScrollBox contract: exactly one scrollable child
-            stripContent:SetSize(1, STRIP_HEIGHT)
+            stripContent:SetSize(CARD_W, 1)
             local stripView = CreateScrollBoxLinearView()
-            stripView:SetHorizontal(true)
-            stripView:SetPanExtent(CARD_W + CARD_GAP)
+            stripView:SetPanExtent(STRIP_HEIGHT + CARD_GAP)
             stripScroll:Init(stripView)
 
             root.summaryHeader = root:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            root.summaryHeader:SetPoint("TOPLEFT", root.stripHost, "BOTTOMLEFT", 0, -10)
+            root.summaryHeader:SetPoint("TOPLEFT", root, "TOPLEFT", CARD_W + 12, 0)
             root.summaryHeader:SetText("Account Summary")
 
             root.expHdr = buildExpansionHeader(root)
@@ -456,10 +455,10 @@ function Roster.buildView(container)
 
     -- `root` is already SetSize'd by Layout.build at this point (rosGrid is a
     -- leaf item; paint() sizes it before build() returns) -- so its final width
-    -- is real here. Width-stretch the two full-row headers off of it.
+    -- is real here. The expansion header spans the summary column (right of
+    -- the card rail).
     local rootWidth = root:GetWidth()
-    root.stripHost:SetWidth(rootWidth)
-    root.expHdr:SetWidth(rootWidth)
+    root.expHdr:SetWidth(math.max(1, rootWidth - (CARD_W + 12)))
 
     R.bindText(handle.byId.rosTitle.label, function() return "Roster  (" .. #chars() .. " characters)" end)
 
@@ -498,13 +497,13 @@ function Roster.buildView(container)
         local now = time()
         for i, c in ipairs(list) do
             local wrapper = VWB.UI:AcquireRow(stripContent, "charcard", createCharCard)
-            wrapper:SetPoint("TOPLEFT", stripContent, "TOPLEFT", (i - 1) * (CARD_W + CARD_GAP), 0)
+            wrapper:SetPoint("TOPLEFT", stripContent, "TOPLEFT", 0, -(i - 1) * (STRIP_HEIGHT + CARD_GAP))
             wrapper.card:SetData(c.charKey, c.entry, c.charKey == currentCharKey, now)
             wrapper.bar:SetProgress(computeMastery(c.entry.professions))
             wrapper:SetSelected(c.charKey == scopedChar)
         end
         VWB.UI:HideUnusedRows(stripContent)
-        stripContent:SetWidth(math.max(1, #list * (CARD_W + CARD_GAP)))
+        stripContent:SetHeight(math.max(1, #list * (STRIP_HEIGHT + CARD_GAP)))
         stripScroll:FullUpdate(ScrollBoxConstants.UpdateImmediately)
     end, "roster:strip")
 

@@ -20,9 +20,7 @@ ns.Projects = Projects
 local FLAT = VWB.UI.BACKDROP_FLAT -- exception(false-positive): indirection loses type; value is backdropInfo
 local ICON_FALLBACK = 134400 -- INV_Misc_QuestionMark; exception(boundary): GetItemIconByID nil on cold item data
 
-local CARD_W, CARD_H, CARD_GAP = 210, 64, 6
-local STRIP_H = CARD_H + 6
-local MATS_W = 380
+local CARD_W, CARD_H, CARD_GAP = 210, 64, 6 -- rail cards (vertical scroll, left of Plan)
 
 StaticPopupDialogs["VWB_REMOVE_PROJECT"] = {
     text = "Remove project '%s'?",
@@ -396,98 +394,24 @@ function Projects.buildView(container)
         return out
     end)
 
-    local root, stripScroll, stripContent, emptyCard, detailHost, stepsList, matsList, nsPanel
+    -- Board skeleton lives in LayoutConfig_Projects (2026-07-11 -- was hand-
+    -- rolled in here, Roster-style, behind a single prjBody leaf). makeFrame
+    -- below supplies only the LEAVES: rail scroll host, the two lists, the
+    -- three buttons. Overlays (empty card, new-stock picker) anchor over the
+    -- container -- the only genuinely view-managed chrome left.
+    local stripScroll, stripContent, emptyCard, stepsList, matsList, nsPanel
 
-    local function buildStrip()
-        root.stripHost = CreateFrame("Frame", nil, root)
-        root.stripHost:SetPoint("TOPLEFT", 0, 0)
-        root.stripHost:SetHeight(STRIP_H)
-        stripScroll = CreateFrame("Frame", nil, root.stripHost, "WowScrollBox")
-        stripScroll:SetAllPoints()
-        stripContent = CreateFrame("Frame", nil, stripScroll)
-        stripContent.scrollable = true -- WowScrollBox contract: exactly one scrollable child
-        stripContent:SetSize(1, STRIP_H)
-        local view = CreateScrollBoxLinearView()
-        view:SetHorizontal(true)
-        view:SetPanExtent(CARD_W + CARD_GAP)
-        stripScroll:Init(view)
-    end
-
-    local function buildDetail()
-        detailHost = CreateFrame("Frame", nil, root)
-        detailHost:SetPoint("TOPLEFT", root.stripHost, "BOTTOMLEFT", 0, -8)
-        detailHost:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", 0, 0)
-
-        local matsPanel = VWB.UI:CreatePanel(detailHost)
-        matsPanel:SetPoint("TOPRIGHT", 0, 0); matsPanel:SetPoint("BOTTOMRIGHT", 0, 0); matsPanel:SetWidth(MATS_W)
-        local stepsPanel = VWB.UI:CreatePanel(detailHost)
-        stepsPanel:SetPoint("TOPLEFT", 0, 0); stepsPanel:SetPoint("BOTTOMLEFT", 0, 0)
-        stepsPanel:SetPoint("RIGHT", matsPanel, "LEFT", -8, 0)
-
-        local stepsHdr = stepsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        stepsHdr:SetPoint("TOPLEFT", 10, -8); stepsHdr:SetText("Plan")
-        local btnBuys = VWB.UI:CreateButton(stepsPanel, "Send buys to Auctionator", 180, 20)
-        btnBuys:SetPoint("TOPRIGHT", -8, -6)
-        local btnQueue = VWB.UI:CreateButton(stepsPanel, "Queue ready (this char)", 170, 20)
-        btnQueue:SetPoint("RIGHT", btnBuys, "LEFT", -6, 0)
-
-        btnQueue:SetScript("OnClick", function()
-            local e = R.untrack(selectedEntry)
-            if not e then return end -- exception(nullable): click raced a removal
-            local current, n = VWB.CharacterData:GetCharacterKey(), 0
-            for _, st in ipairs(e.plan.steps) do
-                if st.kind == "CRAFT" and st.ready and st.charKey == current then
-                    VWB.Store:Dispatch("ADD_TO_QUEUE", { recipeID = st.recipeID, qty = st.need, charKey = current })
-                    n = n + 1
-                end
-            end
-            VWB.Log:Print(n > 0 and ("Queued " .. n .. " ready step(s)") or "No steps are ready for this character")
-        end)
-        btnBuys:SetScript("OnClick", function()
-            local e = R.untrack(selectedEntry)
-            if not e then return end -- exception(nullable): click raced a removal
-            local rows = {}
-            for _, st in ipairs(e.plan.steps) do
-                if st.kind == "BUY" then rows[#rows + 1] = { itemID = st.itemID, missing = st.need } end
-            end
-            VWB.AuctionatorBridge:SendShortfall(rows)
-        end)
-
-        local stepsHost = CreateFrame("Frame", nil, stepsPanel)
-        stepsHost:SetPoint("TOPLEFT", 6, -30); stepsHost:SetPoint("BOTTOMRIGHT", -6, 6)
-        stepsList = VWB.UI:CreateVirtualizedList(stepsHost, {
-            rowHeight = 26, rowTemplate = stepRowTemplate, updateRow = paintStepRow, onRowEnter = onStepRowEnter,
-        })
-
-        local matsHdr = matsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        matsHdr:SetPoint("TOPLEFT", 10, -8)
-        matsPanel.hdr = matsHdr
-        local matsHost = CreateFrame("Frame", nil, matsPanel)
-        matsHost:SetPoint("TOPLEFT", 6, -30); matsHost:SetPoint("BOTTOMRIGHT", -6, 6)
-        matsList = VWB.UI:CreateVirtualizedList(matsHost, {
-            rowHeight = 20, rowTemplate = matRowTemplate, updateRow = paintMatRow,
-        })
-
-        R.bindText(matsHdr, function()
-            local e = selectedEntry()
-            if not e then return "Materials" end -- exception(nullable): no selection
-            if e.plan.buyCost > 0 then
-                return string.format("Materials  (%d short, %s)", e.plan.matsShort, VWB.UI:FormatMoney(e.plan.buyCost))
-            end
-            return string.format("Materials  (%d short)", e.plan.matsShort)
-        end)
-    end
-
-    -- compact picker: search the harvested corpus, click = track at par 20
-    local function buildNewStockPanel()
-        nsPanel = CreateFrame("Frame", nil, root, "BackdropTemplate")
+    -- compact picker: search the harvested corpus, click = track at par 20.
+    -- Overlay anchored over the container, above the board panels.
+    local function buildNewStockPanel(host)
+        nsPanel = CreateFrame("Frame", nil, host, "BackdropTemplate")
         nsPanel:SetBackdrop(FLAT)
         local s = VWB.UI:GetScheme()
         nsPanel:SetBackdropColor(s.panel.r, s.panel.g, s.panel.b, 0.98)
         nsPanel:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, 1)
         nsPanel:SetSize(320, 260)
-        nsPanel:SetPoint("TOPRIGHT", root, "TOPRIGHT", 0, -2)
-        nsPanel:SetFrameLevel(root:GetFrameLevel() + 20)
+        nsPanel:SetPoint("TOPRIGHT", host, "TOPRIGHT", -6, -34)
+        nsPanel:SetFrameLevel(host:GetFrameLevel() + 20)
         VWB.Theme:Register(nsPanel, "Panel")
 
         local search = VWB.UI:CreateSearchBox(nsPanel, {
@@ -530,34 +454,89 @@ function Projects.buildView(container)
     end
 
     local function makeFrame(node, parent)
-        if node.id == "prjBody" then
-            root = CreateFrame("Frame", nil, parent)
-            return root
-        elseif node.id == "prjNewStock" then
+        if node.id == "prjNewStock" then
             local btn = VWB.UI:CreateButton(parent, "New Stock Project", 150, 22)
             btn:SetScript("OnClick", function() newStockOpen(not R.untrack(newStockOpen)) end)
             return btn
+        elseif node.id == "prjRail" then
+            -- Vertical card rail (2026-07-11: was a horizontal strip across
+            -- the top -- fine at 5 projects, unusable at 20).
+            local host = CreateFrame("Frame", nil, parent)
+            stripScroll = CreateFrame("Frame", nil, host, "WowScrollBox")
+            stripScroll:SetAllPoints()
+            stripContent = CreateFrame("Frame", nil, stripScroll)
+            stripContent.scrollable = true -- WowScrollBox contract: exactly one scrollable child
+            stripContent:SetSize(CARD_W, 1)
+            local view = CreateScrollBoxLinearView()
+            view:SetPanExtent(CARD_H + CARD_GAP)
+            stripScroll:Init(view)
+            return host
+        elseif node.id == "prjQueueBtn" then
+            local btn = VWB.UI:CreateButton(parent, "Queue ready (this char)", 170, 20)
+            btn:SetScript("OnClick", function()
+                local e = R.untrack(selectedEntry)
+                if not e then return end -- exception(nullable): click raced a removal
+                local current, n = VWB.CharacterData:GetCharacterKey(), 0
+                for _, st in ipairs(e.plan.steps) do
+                    if st.kind == "CRAFT" and st.ready and st.charKey == current then
+                        VWB.Store:Dispatch("ADD_TO_QUEUE", { recipeID = st.recipeID, qty = st.need, charKey = current })
+                        n = n + 1
+                    end
+                end
+                VWB.Log:Print(n > 0 and ("Queued " .. n .. " ready step(s)") or "No steps are ready for this character")
+            end)
+            return btn
+        elseif node.id == "prjBuysBtn" then
+            local btn = VWB.UI:CreateButton(parent, "Send buys to Auctionator", 180, 20)
+            btn:SetScript("OnClick", function()
+                local e = R.untrack(selectedEntry)
+                if not e then return end -- exception(nullable): click raced a removal
+                local rows = {}
+                for _, st in ipairs(e.plan.steps) do
+                    if st.kind == "BUY" then rows[#rows + 1] = { itemID = st.itemID, missing = st.need } end
+                end
+                VWB.AuctionatorBridge:SendShortfall(rows)
+            end)
+            return btn
+        elseif node.id == "prjSteps" then
+            local host = CreateFrame("Frame", nil, parent)
+            stepsList = VWB.UI:CreateVirtualizedList(host, {
+                rowHeight = 26, rowTemplate = stepRowTemplate, updateRow = paintStepRow, onRowEnter = onStepRowEnter,
+            })
+            return host
+        elseif node.id == "prjMats" then
+            local host = CreateFrame("Frame", nil, parent)
+            matsList = VWB.UI:CreateVirtualizedList(host, {
+                rowHeight = 20, rowTemplate = matRowTemplate, updateRow = paintMatRow,
+            })
+            return host
         end
     end
 
     local handle = ns.Layout.build(container, ns.LayoutConfig.projects, { makeFrame = makeFrame, measure = Kit.measure })
 
-    root.stripHost = nil -- set in buildStrip; declared for clarity
-    buildStrip()
-    root.stripHost:SetWidth(root:GetWidth()) -- root already sized by Layout.build (Roster pattern)
-    buildDetail()
-    buildNewStockPanel()
+    buildNewStockPanel(container)
 
-    emptyCard = VWB.UI:CreateEmptyStateCard(root, {
+    emptyCard = VWB.UI:CreateEmptyStateCard(container, {
         title = "Plan your collection",
         body = "Pin an uncollected item from the Showroom and the plan appears here -- mats, prices, and which alt crafts each step. Track it to done.",
         buttonText = "Browse the Showroom",
         onClick = function() ns.Nav.Go("showroom") end,
         width = 420, height = 170,
     })
-    emptyCard:SetPoint("CENTER", root, "CENTER", 0, 10)
+    emptyCard:SetPoint("CENTER", container, "CENTER", 0, 10)
 
-    -- title carries the board summary; the shelf lives at the end of the strip
+    handle.byId.prjPlanLabel.label:SetText("Plan")
+    R.bindText(handle.byId.prjMatsLabel.label, function()
+        local e = selectedEntry()
+        if not e then return "Materials" end -- exception(nullable): no selection
+        if e.plan.buyCost > 0 then
+            return string.format("Materials  (%d short, %s)", e.plan.matsShort, VWB.UI:FormatMoney(e.plan.buyCost))
+        end
+        return string.format("Materials  (%d short)", e.plan.matsShort)
+    end)
+
+    -- title carries the board summary; the shelf lives at the end of the rail
     R.bindText(handle.byId.prjTitle.label, function()
         local ps = plans()
         if #ps.shelf > 0 then
@@ -571,8 +550,7 @@ function Projects.buildView(container)
         return (#ps.active + #ps.shelf) > 0
     end
     R.bindShown(emptyCard, function() return not hasProjects() end)
-    R.bindShown(root.stripHost, hasProjects)
-    R.bindShown(detailHost, function() return hasProjects() and selectedEntry() ~= nil end)
+    R.bindShown(handle.byId.prjBoard, hasProjects)
 
     -- keep a valid selection: first board card when none/stale (write-once guard
     -- so the effect converges instead of re-firing on its own signal write)
@@ -594,7 +572,7 @@ function Projects.buildView(container)
         end
     end, "projects:pendingSelect")
 
-    -- the card strip: active board first, trophy shelf dimmed at the end
+    -- the card rail: active board first, trophy shelf dimmed at the end
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled card rows on switch
         local ps = plans()
@@ -604,13 +582,13 @@ function Projects.buildView(container)
         local function place(e)
             i = i + 1
             local card = VWB.UI:AcquireRow(stripContent, "prjcard", function(p) return createProjectCard(p, selectedId) end)
-            card:SetPoint("TOPLEFT", stripContent, "TOPLEFT", (i - 1) * (CARD_W + CARD_GAP), 0)
+            card:SetPoint("TOPLEFT", stripContent, "TOPLEFT", 0, -(i - 1) * (CARD_H + CARD_GAP))
             paintProjectCard(card, e, e.p.id == sel)
         end
         for _, e in ipairs(ps.active) do place(e) end
         for _, e in ipairs(ps.shelf) do place(e) end
         VWB.UI:HideUnusedRows(stripContent)
-        stripContent:SetWidth(math.max(1, i * (CARD_W + CARD_GAP)))
+        stripContent:SetHeight(math.max(1, i * (CARD_H + CARD_GAP)))
         stripScroll:FullUpdate(ScrollBoxConstants.UpdateImmediately)
     end, "projects:strip")
 
