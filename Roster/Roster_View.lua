@@ -100,6 +100,7 @@ local function paintSummaryRow(row, item)
     end
     for i, expInfo in ipairs(ED.EXPANSION_ORDER) do
         local best = item.best[expInfo.display]
+        if i == 1 and not best then best = item.best.Overall end -- flat-skill profs (Archaeology): single value, first column
         local cell = row.cells[i]
         if best then
             -- Gold cell when the scoped character holds this expansion's best.
@@ -133,6 +134,13 @@ local function onSummaryRowEnter(item, rowFrame)
                 string.format("%d/%d  (%s)", best.current, best.max, best.charKey),
                 1, 1, 1, 0.7, 0.7, 0.7)
         end
+    end
+    local flat = item.best.Overall -- exception(optional): flat-skill profs (Archaeology) only
+    if flat then
+        any = true
+        GameTooltip:AddDoubleLine("Overall (no expansion bands)",
+            string.format("%d/%d  (%s)", flat.current, flat.max, flat.charKey),
+            1, 1, 1, 0.7, 0.7, 0.7)
     end
     if not any then
         GameTooltip:AddLine("No characters have scanned this profession yet.", 0.6, 0.6, 0.6)
@@ -185,6 +193,8 @@ local function characterTooltipBody(entry)
                     if sd.current < sd.max then behind[#behind + 1] = expInfo.abbr end
                 end
             end
+            local flat = profData.skillLevels.Overall -- exception(optional): flat-skill profs (Archaeology) only
+            if flat then cur, max = cur + flat.current, max + flat.max end
             local pct = max > 0 and math.floor(cur / max * 100 + 0.5) or 0
             local vr, vg, vb = 0.9, 0.82, 0.3
             if pct >= 100 then vr, vg, vb = 0.3, 0.9, 0.3 end
@@ -337,6 +347,8 @@ function Roster.buildView(container)
                     local sd = profData.skillLevels[expInfo.display]
                     if sd then recordIfBest(best, profName, expInfo.display, sd, charKey) end
                 end
+                local flat = profData.skillLevels.Overall -- exception(optional): flat-skill profs (Archaeology) only
+                if flat then recordIfBest(best, profName, "Overall", flat, charKey) end
             end
         end
         return best

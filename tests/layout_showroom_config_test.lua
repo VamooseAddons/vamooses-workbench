@@ -52,7 +52,7 @@ do
     local stage = find(root, "stageCol")
     local modelArea, details = find(stage, "modelArea"), find(stage, "detailsPanel")
     check("model area grows tallest", modelArea.rect.h > 300)
-    check("details panel fixed 44", near(details.rect.h, 44))
+    check("details panel tall enough for the button stack", details.rect.h >= 44) -- fixed 54 may flex-shrink a few px
     check("model area sits above details", modelArea.rect.y < details.rect.y)
 end
 
@@ -71,16 +71,23 @@ do
     check("controls hint spans bottom", near(hint.rect.x, 0) and near(hint.rect.w, modelArea.rect.w) and hint.rect.y > modelArea.rect.h - 30)
 end
 
--- 5. details panel: name top-left (fill width), details anchored under name.
---    Add to Queue lives in the top control row now, not the details panel.
+-- 5. details panel (2026-07-11 restack, owner request): a ROW stack -- text
+--    column (name over details, both fill-width so neither truncates) on the
+--    left, the two ACTION buttons (Start Project / Add to Queue) stacked on
+--    the right, next to the item identity they act on.
 do
+    -- Rects are PARENT-LOCAL: compare the two column nodes in detailsPanel
+    -- space, and the leaves within their own columns.
     local details = deep(root, "detailsPanel")
-    local name, dtl = find(details, "itemName"), find(details, "itemDetails")
-    check("item name placed top-left", near(name.rect.x, 4) and near(name.rect.y, 4)) -- pad "sm"=4
-    check("item name fills the panel width", name.rect.w > 300)
-    check("details anchored to name (sibling, no rect)", dtl.rect == nil and dtl.anchor.to == "itemName" and dtl.anchor.at == "BOTTOMLEFT")
-    check("add-to-queue moved out of details panel", find(details, "addToQueue") == nil)
-    check("add-to-queue now in the stage control row", deep(root, "addToQueue") ~= nil)
+    local textCol, btnCol = details.children[1], details.children[2]
+    local name, dtl = deep(textCol, "itemName"), deep(textCol, "itemDetails")
+    local sp, aq = deep(btnCol, "startProject"), deep(btnCol, "addToQueue")
+    check("item name fills the text column", name ~= nil and near(name.rect.w, textCol.rect.w))
+    check("item details FILL width (no 'Profession...' truncation)", dtl ~= nil and near(dtl.rect.w, name.rect.w))
+    check("details sits under the name", dtl.rect.y > name.rect.y)
+    check("both action buttons in the details panel", sp ~= nil and aq ~= nil and near(sp.rect.w, 110))
+    check("button column RIGHT of the text column", btnCol.rect.x > textCol.rect.x + textCol.rect.w - 1)
+    check("buttons stacked (Start Project over Add to Queue)", aq.rect.y > sp.rect.y)
 end
 
 print(string.format("Showroom config: %d passed, %d failed", pass, fail))

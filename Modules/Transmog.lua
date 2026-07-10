@@ -6,6 +6,7 @@ VWB.Transmog = {}
 local cache = {} -- [itemID] = { hasAppearance = bool, isCollected = bool }
 local eventFrame = nil
 local pendingItemIDs = {} -- [itemID] = true; awaiting ITEM_DATA_LOAD_RESULT to retry GetStatus
+local loadSettle = nil -- trailing-edge coalescer for the load-burst VWB_TRANSMOG_UPDATED fire
 
 -- Equippable slots that carry NO transmog appearance (nothing to collect)
 local NON_VISUAL_SLOTS = {
@@ -113,7 +114,17 @@ function VWB.Transmog:Initialize()
             if pendingItemIDs[itemID] then
                 pendingItemIDs[itemID] = nil
                 cache[itemID] = nil -- clear the stub entry so GetStatus re-reads
-                VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {}) -- downstream callers (IsUnknown, Showroom resource) re-evaluate
+                -- COALESCED fire (perf, observed live 2026-07-11): a cold-start
+                -- warmup streams THOUSANDS of loads (10k events -> 3k per-item
+                -- fires), and every fire runs the full listener fan-out (badge
+                -- corpus walk, Showroom invalidateAll, Workbench re-derive) =
+                -- ~10s of jank on view switch. One trailing-edge fire per
+                -- settle window carries the same information.
+                if loadSettle then loadSettle:Cancel() end
+                loadSettle = VWB.ReactorWoW.after(0.3, function()
+                    loadSettle = nil
+                    VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {})
+                end)
             end
         end
     end)

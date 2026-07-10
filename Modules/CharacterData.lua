@@ -115,7 +115,7 @@ function VWB.CharacterData:ScanCurrentProfessions()
 
     for _, slot in ipairs(profSlots) do
         if slot then
-            local name, icon, _, _, _, _, skillLine = GetProfessionInfo(slot)
+            local name, icon, flatCur, flatMax, _, _, skillLine = GetProfessionInfo(slot)
             local profName = PROFESSION_SKILL_LINES[skillLine] or name
 
             if profName then
@@ -133,6 +133,14 @@ function VWB.CharacterData:ScanCurrentProfessions()
                             end
                         end
                     end
+                end
+
+                -- Archaeology (skillLine 794) never got the 8.0 per-expansion
+                -- split -- no tradeskill window, no child professions -- so the
+                -- flat skill off GetProfessionInfo is the ONLY source. Stored as
+                -- a synthetic "Overall" band, fresh every scan (no window needed).
+                if skillLine == 794 and flatMax and flatMax > 0 then
+                    skillLevels = { Overall = { current = flatCur, max = flatMax } }
                 end
 
                 professions[profName] = {

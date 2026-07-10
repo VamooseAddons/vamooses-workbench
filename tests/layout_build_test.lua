@@ -35,7 +35,7 @@ do
     local want = { "profbar", "navCol", "navTree", "listCol", "search", "typeToggle",
         "missingPill", "breadcrumb", "list", "stageCol", "modelArea", "modelDress",
         "modelCreature", "modelScene", "controlsHint", "detailsPanel", "itemName",
-        "itemDetails", "addToQueue" }
+        "itemDetails", "startProject", "addToQueue" }
     local missing = {}
     for _, id in ipairs(want) do if not handle.byId[id] then missing[#missing + 1] = id end end
     check("byId has every id (" .. #want .. ")", #missing == 0)
@@ -49,13 +49,24 @@ do
     check("profbar TOPLEFT-anchored", #pf.points == 1 and pf.points[1].p == "TOPLEFT")
 end
 
--- 3. the sibling-anchor node (itemDetails) SetPoints to itemName's frame ------
+-- 3. sibling-anchor BUILD mechanism (own fixture -- the live Showroom config
+-- no longer uses `anchor` after the 2026-07-11 details-panel restack, and a
+-- feature test must not couple to app config shape) --------------------------
 do
-    local dtl = handle.byId["itemDetails"]
-    local nameFrame = handle.byId["itemName"]
-    check("itemDetails anchored once", #dtl.points == 1)
-    check("itemDetails anchors to itemName frame", dtl.points[1].rel == nameFrame)
-    check("itemDetails from/at TOPLEFT->BOTTOMLEFT", dtl.points[1].p == "TOPLEFT" and dtl.points[1].rp == "BOTTOMLEFT")
+    local made2 = {}
+    local h2 = Layout.build(container, {
+        type = "free", id = "fixRoot", size = { h = 60 }, children = {
+            { type = "item", id = "fixA", size = { w = 100, h = 16 }, place = { h = "left", v = "top" } },
+            { type = "item", id = "fixB", anchor = { to = "fixA", from = "TOPLEFT", at = "BOTTOMLEFT", dy = -5 } },
+        },
+    }, {
+        makeFrame = function() local m = mockFrame(); made2[#made2 + 1] = m; return m end,
+        measure = function() return { w = 80, h = 12 } end,
+    })
+    local b, a = h2.byId["fixB"], h2.byId["fixA"]
+    check("anchor node anchored once", #b.points == 1)
+    check("anchor node SetPoints to the sibling frame", b.points[1].rel == a)
+    check("anchor from/at TOPLEFT->BOTTOMLEFT", b.points[1].p == "TOPLEFT" and b.points[1].rp == "BOTTOMLEFT")
 end
 
 -- 4. role-default ellipsis reached the fontstring-bearing item ----------------

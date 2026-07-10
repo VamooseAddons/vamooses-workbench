@@ -112,7 +112,7 @@ local function navMakeFrame(node, parent)
     btn.label = fs
     -- badge pill: subtle count on the right edge; hidden when count is zero
     local pill = btn:CreateTexture(nil, "BACKGROUND")
-    pill:SetSize(22, 14); pill:SetPoint("RIGHT", -4, 0)
+    pill:SetSize(30, 14); pill:SetPoint("RIGHT", -4, 0)
     pill:SetColorTexture(1, 0.82, 0, 0.22); pill:Hide()
     btn.badgePill = pill
     local bc = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -188,7 +188,9 @@ function Shell.openWindow()
             local badgeFn = v.badge
             R.bindText(btn.badgeCount, function()
                 local n = badgeFn()
-                return n > 0 and tostring(n) or ""
+                if n <= 0 then return "" end
+                if n >= 1000 then return string.format("%.1fk", n / 1000) end -- four digits burst the pill
+                return tostring(n)
             end)
             R.bindShown(btn.badgePill, function() return badgeFn() > 0 end)
         end

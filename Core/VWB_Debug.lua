@@ -138,8 +138,18 @@ function Debug:Enable()
 
     origTrigger = VWB.EventBus.Trigger
     VWB.EventBus.Trigger = function(bus, event, payload)
-        eventCounts[event] = (eventCounts[event] or 0) + 1
-        return origTrigger(bus, event, payload)
+        -- Count AND time the whole listener fan-out: invalidateAll re-reads,
+        -- epoch-bump recomputes etc. run synchronously inside Trigger, and the
+        -- reactive hotspot list never sees them (found the hard way: 3k
+        -- VWB_TRANSMOG_UPDATED fires whose cost was invisible in perf stats).
+        local s = eventCounts[event]
+        if not s then s = { n = 0, total = 0, max = 0 }; eventCounts[event] = s end
+        local t0 = clock()
+        origTrigger(bus, event, payload)
+        local dt = clock() - t0
+        s.n = s.n + 1
+        s.total = s.total + dt
+        if dt > s.max then s.max = dt end
     end
 
     for _, m in ipairs(LOG_METHODS) do
@@ -227,12 +237,14 @@ function Debug:PerfReport()
     end
 
     local ev = {}
-    for name, n in pairs(eventCounts) do ev[#ev + 1] = { name = name, n = n } end
-    table.sort(ev, function(a, b) return a.n > b.n end)
+    for name, s in pairs(eventCounts) do ev[#ev + 1] = { name = name, s = s } end
+    table.sort(ev, function(a, b) return a.s.total > b.s.total end) -- by fan-out cost, not count
     lines[#lines + 1] = ""
-    lines[#lines + 1] = "== EVENT BUS (top " .. EVENT_TOP .. ") =="
+    lines[#lines + 1] = "== EVENT BUS (top " .. EVENT_TOP .. " by total listener ms) =="
+    lines[#lines + 1] = string.format("%-40s %7s %9s %8s", "event", "count", "total", "max")
     for i = 1, math.min(#ev, EVENT_TOP) do
-        lines[#lines + 1] = string.format("%-44s %6d", ev[i].name, ev[i].n)
+        local e = ev[i]
+        lines[#lines + 1] = string.format("%-40s %7d %8.1f %8.2f", e.name:sub(1, 40), e.s.n, e.s.total, e.s.max)
     end
     return table.concat(lines, "\n")
 end

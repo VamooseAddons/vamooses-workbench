@@ -52,20 +52,21 @@ local listPanel = {
     },
 }
 
--- Stage column: a top control row / the lit model area / a slim name+details
--- panel. The model area is a `free` region: DressUpModel + PlayerModel +
--- ModelScene all fill and OVERLAP (the view shows whichever fits the collectible
--- kind), with the controls hint spanning the bottom (fill width -> centre text).
--- Add to Queue moved up to the control row (was crammed into the details panel).
--- itemName now takes a FILL width so a long name no longer truncates.
+-- Stage column: a top control row / the lit model area / a name+details panel
+-- with the ACTION buttons (owner 2026-07-11: Start Project / Add to Queue live
+-- at the BOTTOM next to the item identity they act on, not in the top chrome).
+-- The model area is a `free` region: DressUpModel + PlayerModel + ModelScene
+-- all fill and OVERLAP (the view shows whichever fits the collectible kind),
+-- with the controls hint spanning the bottom (fill width -> centre text).
+-- itemName/itemDetails take FILL widths: both are empty at build time, so an
+-- intrinsic-width measure clamps to ~0px and long text truncates ("Rhinest...",
+-- "Profession..."). Fill = the column width -> no truncation.
 local stagePanel = {
     type = "stack", id = "stageCol", dir = "col", gap = "sm", padding = "md", align = "stretch", chrome = "Panel",
     children = {
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {
             { type = "item", id = "undress", size = { w = 90, h = 20 } },
             { type = "item", id = "recentStrip", grow = true, size = { h = 20 } },
-            { type = "item", id = "startProject", size = { w = 110, h = 20 } }, -- Item 4
-            { type = "item", id = "addToQueue", size = { w = 110, h = 20 } },
         } },
         { type = "free", id = "modelArea", grow = true, children = {
             { type = "item", id = "modelDress",    size = { w = "fill", h = "fill" } },
@@ -73,12 +74,15 @@ local stagePanel = {
             { type = "item", id = "modelScene",    size = { w = "fill", h = "fill" } },
             { type = "item", id = "controlsHint", size = { w = "fill", h = 14 }, place = { h = "left", v = "bottom", dy = -6 } },
         } },
-        { type = "free", id = "detailsPanel", size = { h = 44 }, padding = "sm", children = {
-            -- itemName gets an explicit FILL width: it's empty at build time, so
-            -- the old intrinsic-width measure clamped it to ~0px and a long name
-            -- truncated to "Rhinest...". Fill = the panel width -> no truncation.
-            { type = "item", id = "itemName",    role = "title", size = { w = "fill" }, place = { h = "left", v = "top" } },
-            { type = "item", id = "itemDetails", role = "body",  anchor = { to = "itemName", from = "TOPLEFT", at = "BOTTOMLEFT", dy = -5 } },
+        { type = "stack", id = "detailsPanel", dir = "row", gap = "sm", padding = "sm", size = { h = 54 }, align = "center", children = {
+            { type = "stack", dir = "col", gap = "xs", grow = true, align = "stretch", children = {
+                { type = "item", id = "itemName",    role = "title", size = { w = "fill", h = 16 } },
+                { type = "item", id = "itemDetails", role = "body",  size = { w = "fill", h = 14 } },
+            } },
+            { type = "stack", dir = "col", gap = "xs", children = {
+                { type = "item", id = "startProject", size = { w = 110, h = 20 } },
+                { type = "item", id = "addToQueue",   size = { w = 110, h = 20 } },
+            } },
         } },
     },
 }

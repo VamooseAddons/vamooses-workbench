@@ -297,6 +297,22 @@ function Projects.buildView(container)
     local invEpoch = R.signal(0) -- VWB_INVENTORY_UPDATE has no Store slice; local epoch stands in
     VWB.EventBus:Register("VWB_INVENTORY_UPDATE", function() invEpoch(invEpoch() + 1) end)
 
+    -- Cold-cache mat/step names bake as "Loading..." inside Graph's walks, and
+    -- the plans computed had no name-resolve subscription -- so they stayed
+    -- frozen (live report 2026-07-11). Re-derive ONCE per load burst: trailing-
+    -- edge settle over ITEM_DATA_LOAD_RESULT (a 10k-event warmup must not mean
+    -- 10k plan re-derivations).
+    local nameSettle
+    local nameFrame = CreateFrame("Frame")
+    nameFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
+    nameFrame:SetScript("OnEvent", function()
+        if nameSettle then nameSettle:Cancel() end
+        nameSettle = VWB.ReactorWoW.after(0.35, function()
+            nameSettle = nil
+            invEpoch(invEpoch() + 1)
+        end)
+    end)
+
     -- goal list -> derived plans, split active/shelf, board-sorted
     local plans = R.named("projects:plans", function()
         ns.Store:Version("projects"); ns.Store:Version("corpus"); ns.Store:Version("characters")
