@@ -494,3 +494,202 @@ VAMOOSE_SchemeConstants = {
         },
     },
 }
+
+-- ============================================================================
+-- HDG THEME LIFT (2026-07-11) -- palette-per-theme + composer.
+-- Lifted from HousingDecorGuide/Core/HDGR_SchemeConstants.lua: each theme is
+-- ~16 hex values straight from its upstream (vim/Catppuccin/etc.) source; the
+-- composer assembles VWB's flat scheme shape. Adding a theme = one palette
+-- table below + a ThemeOrder/Names/DisplayNames entry in Core/Constants.lua.
+-- ============================================================================
+
+-- Parse "#RRGGBB" to an rgba table (optional alpha arg). Hard-errors on
+-- malformed input rather than letting a tonumber-failure cascade into
+-- {r=nil} and a paint-time crash. (HDG's hex(), verbatim behavior.)
+local function hex(s, a)
+    if type(s) ~= "string" or s:sub(1, 1) ~= "#" or #s ~= 7 then
+        error(("hex(): expected \"#RRGGBB\", got %q"):format(tostring(s)), 2)
+    end
+    local r = tonumber(s:sub(2, 3), 16)
+    local g = tonumber(s:sub(4, 5), 16)
+    local b = tonumber(s:sub(6, 7), 16)
+    if not (r and g and b) then
+        error(("hex(): non-hex digits in %q"):format(s), 2)
+    end
+    return { r = r / 255, g = g / 255, b = b / 255, a = a or 1 }
+end
+
+local function withAlpha(c, a) return { r = c.r, g = c.g, b = c.b, a = a } end
+
+-- Locale-safe base font (HDG lesson): FRIZQT__.TTF is LATIN-ONLY; Blizzard's
+-- STANDARD_TEXT_FONT points at the correct per-locale file (identical to
+-- FRIZQT on enUS/Latin clients). Shared table across the lifted themes.
+local _base = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF" -- exception(boundary): Blizzard global, set pre-addon-load
+local LIFTED_FONTS = {
+    header = { file = _base, size = 14, flags = "" },
+    body   = { file = _base, size = 12, flags = "" },
+    small  = { file = _base, size = 10, flags = "" },
+}
+
+local PALETTE_KEYS = {
+    "bg", "panel", "border", "text", "text_header", "text_dim", "text_disabled",
+    "button_normal", "button_hover", "button_active", "button_disabled",
+    "accent", "accent_brighter", "success", "warning", "error",
+}
+
+-- Compose VWB's flat scheme shape from a palette. Loud on a missing key --
+-- a silent nil here becomes a paint-time crash six views away.
+local function BuildScheme(p)
+    for _, key in ipairs(PALETTE_KEYS) do
+        if p[key] == nil then error(("BuildScheme: palette missing %q"):format(key), 2) end
+    end
+    return {
+        bg = p.bg, panel = p.panel, border = p.border,
+        text = p.text, text_header = p.text_header, text_dim = p.text_dim,
+        button_normal = p.button_normal, button_hover = p.button_hover,
+        button_active = p.button_active, button_inactive = p.button_disabled,
+        button_text_norm = p.text, button_text_hover = p.accent_brighter,
+        button_text_dis = p.text_disabled,
+        accent = p.accent, success = p.success, warning = p.warning, error = p.error,
+        fonts = LIFTED_FONTS,
+    }
+end
+
+-- Palettes: values verbatim from HDG (each sourced from the theme's upstream).
+local Palettes = {}
+
+-- Catppuccin Mocha -- https://github.com/catppuccin/catppuccin#-palette
+Palettes.Mocha = {
+    bg = hex("#1e1e2e", 0.95), panel = hex("#313244"), border = hex("#6c7086"),
+    text = hex("#cdd6f4"), text_header = hex("#cdd6f4"), text_dim = hex("#a6adc8"),
+    text_disabled = hex("#6c7086"),
+    button_normal = hex("#45475a"), button_hover = hex("#585b70"),
+    button_active = hex("#313244"), button_disabled = withAlpha(hex("#45475a"), 0.40),
+    accent = hex("#89b4fa"), accent_brighter = hex("#b4befe"),
+    success = hex("#a6e3a1"), warning = hex("#f9e2af"), error = hex("#f38ba8"),
+}
+
+-- Tokyonight Night -- https://github.com/folke/tokyonight.nvim
+Palettes.TokyonightNight = {
+    bg = hex("#1a1b26", 0.95), panel = hex("#292e42"), border = hex("#3b4261"),
+    text = hex("#c0caf5"), text_header = hex("#c0caf5"), text_dim = hex("#737aa2"),
+    text_disabled = hex("#565f89"),
+    button_normal = hex("#3b4261"), button_hover = hex("#414868"),
+    button_active = hex("#292e42"), button_disabled = withAlpha(hex("#3b4261"), 0.40),
+    accent = hex("#7aa2f7"), accent_brighter = hex("#89ddff"),
+    success = hex("#9ece6a"), warning = hex("#e0af68"), error = hex("#f7768e"),
+}
+
+-- Rose Pine main -- https://rosepinetheme.com/palette
+Palettes.RosePineMain = {
+    bg = hex("#1f1d2e", 0.95), panel = hex("#26233a"), border = hex("#6e6a86"),
+    text = hex("#e0def4"), text_header = hex("#e0def4"), text_dim = hex("#6e6a86"),
+    text_disabled = hex("#524f67"),
+    button_normal = hex("#403d52"), button_hover = hex("#524f67"),
+    button_active = hex("#26233a"), button_disabled = withAlpha(hex("#403d52"), 0.40),
+    accent = hex("#9ccfd8"), accent_brighter = hex("#ebbcba"),
+    success = hex("#31748f"), warning = hex("#f6c177"), error = hex("#eb6f92"),
+}
+
+-- Gruvbox dark hard -- https://github.com/morhetz/gruvbox
+Palettes.GruvboxDarkHard = {
+    bg = hex("#282828", 0.95), panel = hex("#3c3836"), border = hex("#7c6f64"),
+    text = hex("#ebdbb2"), text_header = hex("#fbf1c7"), text_dim = hex("#bdae93"),
+    text_disabled = hex("#a89984"),
+    button_normal = hex("#504945"), button_hover = hex("#665c54"),
+    button_active = hex("#3c3836"), button_disabled = withAlpha(hex("#504945"), 0.40),
+    accent = hex("#83a598"), accent_brighter = hex("#8ec07c"),
+    success = hex("#b8bb26"), warning = hex("#fabd2f"), error = hex("#fb4934"),
+}
+
+-- ColorblindSafe -- WCAG AA; deuteranopia/protanopia/tritanopia safe (HDG original)
+Palettes.ColorblindSafe = {
+    bg = hex("#101418", 0.95), panel = hex("#182029"), border = hex("#46515D"),
+    text = hex("#F1F5F9"), text_header = hex("#FFFFFF"), text_dim = hex("#7E8B99"),
+    text_disabled = hex("#5F6A75"),
+    button_normal = hex("#32414D"), button_hover = hex("#3C4C59"),
+    button_active = hex("#182029"), button_disabled = withAlpha(hex("#32414D"), 0.40),
+    accent = hex("#4EA3F1"), accent_brighter = hex("#93C5FD"),
+    success = hex("#00A896"), warning = hex("#F2C94C"), error = hex("#D84C8B"),
+}
+
+-- Nord -- https://www.nordtheme.com/docs/colors-and-palettes
+Palettes.Nord = {
+    bg = hex("#2e3440", 0.95), panel = hex("#434c5e"), border = hex("#4c566a"),
+    text = hex("#d8dee9"), text_header = hex("#eceff4"), text_dim = hex("#d8dee9"),
+    text_disabled = hex("#4c566a"),
+    button_normal = hex("#434c5e"), button_hover = hex("#4c566a"),
+    button_active = hex("#3b4252"), button_disabled = withAlpha(hex("#434c5e"), 0.40),
+    accent = hex("#88c0d0"), accent_brighter = hex("#8fbcbb"),
+    success = hex("#a3be8c"), warning = hex("#ebcb8b"), error = hex("#bf616a"),
+}
+
+-- Dracula -- https://draculatheme.com/contribute
+Palettes.Dracula = {
+    bg = hex("#282a36", 0.95), panel = hex("#383a47"), border = hex("#6272a4"),
+    text = hex("#f8f8f2"), text_header = hex("#f8f8f2"), text_dim = hex("#6272a4"),
+    text_disabled = hex("#44475a"),
+    button_normal = hex("#44475a"), button_hover = hex("#6272a4"),
+    button_active = hex("#383a47"), button_disabled = withAlpha(hex("#44475a"), 0.40),
+    accent = hex("#bd93f9"), accent_brighter = hex("#ff79c6"),
+    success = hex("#50fa7b"), warning = hex("#f1fa8c"), error = hex("#ff5555"),
+}
+
+-- Nightfly -- https://github.com/bluz71/vim-nightfly-colors
+Palettes.Nightfly = {
+    bg = hex("#011627", 0.95), panel = hex("#0e293f"), border = hex("#4b6479"),
+    text = hex("#c3ccdc"), text_header = hex("#fafafa"), text_dim = hex("#7c8f8f"),
+    text_disabled = hex("#4b6479"),
+    button_normal = hex("#1d3b53"), button_hover = hex("#2c3043"),
+    button_active = hex("#0e293f"), button_disabled = withAlpha(hex("#1d3b53"), 0.40),
+    accent = hex("#82aaff"), accent_brighter = hex("#7fdbca"),
+    success = hex("#a1cd5e"), warning = hex("#ecc48d"), error = hex("#ff5874"),
+}
+
+-- OneNord -- https://github.com/rmehri01/onenord.nvim
+Palettes.OneNord = {
+    bg = hex("#2e3440", 0.95), panel = hex("#3b4252"), border = hex("#6c7a93"),
+    text = hex("#d8dee9"), text_header = hex("#d8dee9"), text_dim = hex("#6c7a93"),
+    text_disabled = hex("#4c566a"),
+    button_normal = hex("#3b4252"), button_hover = hex("#4c566a"),
+    button_active = hex("#2e3440"), button_disabled = withAlpha(hex("#3b4252"), 0.40),
+    accent = hex("#81a1c1"), accent_brighter = hex("#88c0d0"),
+    success = hex("#a3be8c"), warning = hex("#ebcb8b"), error = hex("#bf616a"),
+}
+
+-- Badwolf -- https://github.com/sjl/badwolf
+Palettes.Badwolf = {
+    bg = hex("#1c1b1a", 0.95), panel = hex("#35322d"), border = hex("#857f78"),
+    text = hex("#f8f6f2"), text_header = hex("#ffffff"), text_dim = hex("#998f84"),
+    text_disabled = hex("#666462"),
+    button_normal = hex("#35322d"), button_hover = hex("#45413b"),
+    button_active = hex("#242321"), button_disabled = withAlpha(hex("#35322d"), 0.40),
+    accent = hex("#0a9dff"), accent_brighter = hex("#60bfff"),
+    success = hex("#aeee00"), warning = hex("#ffa724"), error = hex("#ff2c4b"),
+}
+
+-- Purpura -- VSCode Purpura port (HDG's signature pink-on-violet)
+Palettes.Purpura = {
+    bg = hex("#1e0030", 0.95), panel = hex("#350043"), border = hex("#490e6d"),
+    text = hex("#f0f0f0"), text_header = hex("#ffffff"), text_dim = hex("#898989"),
+    text_disabled = hex("#808080"),
+    button_normal = hex("#471469"), button_hover = hex("#5e0066"),
+    button_active = hex("#25003d"), button_disabled = withAlpha(hex("#471469"), 0.40),
+    accent = hex("#ff00d4"), accent_brighter = hex("#ff59e3"),
+    success = hex("#acff59"), warning = hex("#ffc363"), error = hex("#f44747"),
+}
+
+-- Green -- phosphor-terminal green-on-black (HDG original)
+Palettes.Green = {
+    bg = hex("#030702", 0.95), panel = hex("#0b1606"), border = hex("#448c27"),
+    text = hex("#5ec435"), text_header = hex("#72f13e"), text_dim = hex("#356d1e"),
+    text_disabled = hex("#254d15"),
+    button_normal = hex("#0f1f09"), button_hover = hex("#17300d"),
+    button_active = hex("#081105"), button_disabled = withAlpha(hex("#0f1f09"), 0.40),
+    accent = hex("#72f13e"), accent_brighter = hex("#9cf578"),
+    success = hex("#5ec435"), warning = hex("#c4d62a"), error = hex("#aa3731"),
+}
+
+for name, palette in pairs(Palettes) do
+    VAMOOSE_SchemeConstants[name] = BuildScheme(palette)
+end

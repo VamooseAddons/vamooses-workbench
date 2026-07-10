@@ -17,17 +17,29 @@ VWB.Colors.Schemes = VAMOOSE_SchemeConstants or {}
 -- 2. THEME MANAGEMENT
 -- ============================================================================
 
--- Theme cycle order (11 themes)
+-- Theme cycle order (11 originals + 12 lifted from HDG 2026-07-11)
 VWB.Constants.ThemeOrder = {
     "solarizeddark",
     "solarizedlight",
     "gruvboxdark",
     "gruvboxlight",
+    "gruvboxhard",
     "everforestdark",
     "everforestlight",
     "everforestaccess",
     "kanagawadark",
     "kanagawalight",
+    "mocha",
+    "tokyonight",
+    "rosepine",
+    "nord",
+    "onenord",
+    "dracula",
+    "nightfly",
+    "badwolf",
+    "purpura",
+    "green",
+    "colorblind",
     "accessibilityhc",
     "housingtheme"
 }
@@ -45,6 +57,19 @@ VWB.Constants.ThemeNames = {
     kanagawalight = "KanagawaLight",
     accessibilityhc = "AccessibilityHC",
     housingtheme = "HousingTheme",
+    -- Lifted from HDG (palette + composer in SchemeConstants.lua)
+    mocha = "Mocha",
+    tokyonight = "TokyonightNight",
+    rosepine = "RosePineMain",
+    gruvboxhard = "GruvboxDarkHard",
+    colorblind = "ColorblindSafe",
+    nord = "Nord",
+    onenord = "OneNord",
+    dracula = "Dracula",
+    nightfly = "Nightfly",
+    badwolf = "Badwolf",
+    purpura = "Purpura",
+    green = "Green",
     -- Legacy mappings for backwards compatibility
     dark = "SolarizedDark",
     light = "SolarizedLight",
@@ -65,6 +90,19 @@ VWB.Constants.ThemeDisplayNames = {
     kanagawalight = "Kanagawa Light",
     accessibilityhc = "Accessibility HC",
     housingtheme = "Housing Theme",
+    -- Lifted from HDG
+    mocha = "Catppuccin Mocha",
+    tokyonight = "Tokyonight Night",
+    rosepine = "Rose Pine",
+    gruvboxhard = "Gruvbox Dark Hard",
+    colorblind = "Colorblind Safe",
+    nord = "Nord",
+    onenord = "OneNord",
+    dracula = "Dracula",
+    nightfly = "Nightfly",
+    badwolf = "Badwolf",
+    purpura = "Purpura",
+    green = "Terminal Green",
     -- Legacy mappings
     dark = "Solarized Dark",
     light = "Solarized Light",

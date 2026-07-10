@@ -469,6 +469,7 @@ function Roster.buildView(container)
     R.bindShown(root.summaryHost, hasChars)
 
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled card rows on switch
         local list = chars()
         -- Nav version read here so scope changes repaint card selection rings
         -- without a full chars() recompute (chars() only tracks "characters" slice).
@@ -488,7 +489,10 @@ function Roster.buildView(container)
         stripScroll:FullUpdate(ScrollBoxConstants.UpdateImmediately)
     end, "roster:strip")
 
-    R.effect(function() summaryList:SetData(summaryRows()) end, "roster:summary")
+    R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled summary rows on switch
+        summaryList:SetData(summaryRows())
+    end, "roster:summary")
 
     return handle
 end

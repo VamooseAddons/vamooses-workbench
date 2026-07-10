@@ -624,6 +624,7 @@ function Records.buildView(container)
     end)
 
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled coverage rows on switch
         local d = coverageData()
         covList:SetData(d.rows)
         for i in ipairs(ns.Data.ExpansionData.EXPANSION_ORDER) do

@@ -526,6 +526,7 @@ function Stockroom.buildView(container)
     -- List data + empty states in one effect: bare vs no-search-results get
     -- distinct copy, same distinction VPC's PaintList drew.
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
         local list = items()
         listWidget:SetData(list)
         if #classified() == 0 then
@@ -564,6 +565,7 @@ function Stockroom.buildView(container)
     -- reverse lookup the hover tooltip only hinted at. Reactive on the selection +
     -- the corpus (a rescan can add recipes that touch this reagent).
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
         local id = selectedItemID()
         ns.Store:Version("corpus")
         if not id then

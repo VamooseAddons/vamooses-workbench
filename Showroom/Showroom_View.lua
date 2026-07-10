@@ -430,6 +430,7 @@ function Showroom.buildView(container)
     -- Also owns the empty-state caption: a blank list is ambiguous (nothing
     -- here? filters too tight? a bug?) -- name the reason instead of going quiet.
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
         local items = model.filteredItems()
         listWidget:SetData(items)
         if #items > 0 then

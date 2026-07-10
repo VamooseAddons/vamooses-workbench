@@ -76,6 +76,12 @@ local function rowTemplate(frame)
     frame._washHandle = VWB.UI:AttachTransitionWash(frame, c.success.r, c.success.g, c.success.b)
 end
 
+-- Forward declaration: OnCraftClick is DEFINED in the craft-execution block
+-- below, but queueRowTemplate's hammer closure references it -- without this
+-- local in scope the closure would compile the name as a (nil) global lookup
+-- and the first hammer click would crash.
+local OnCraftClick
+
 -- Queue row: icon + name(xqty) + a dedicated remove button. The remove click
 -- reads frame.data at click time (set fresh by updateRow every repaint) so the
 -- handler is wired ONCE at row creation, same idiom as CreateVirtualizedList's
@@ -278,7 +284,7 @@ end
 -- Hammer click: window closed or wrong profession open -> OpenRecipe navigates
 -- the journal AT this recipe (HDG's open-for-you flow), user clicks again.
 -- Ready + matching -> the confirm popup.
-local function OnCraftClick(item)
+function OnCraftClick(item) -- assigns the forward local declared above queueRowTemplate
     -- exception(boundary): C_TradeSkillUI window state is external
     if not C_TradeSkillUI.IsTradeSkillReady() or C_TradeSkillUI.IsNPCCrafting() then
         C_TradeSkillUI.OpenRecipe(item.recipeID)
@@ -921,6 +927,17 @@ function Recipes.buildView(container)
     pillDismiss:SetScript("OnClick", function() ns.Store:Dispatch("CLEAR_SCOPE") end)
     scopePill:Hide()
 
+    -- Gap A: scope pill chrome was painted once with a stale pillScheme; re-read
+    -- on every theme switch so the accent color tracks the live scheme.
+    R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint scope-pill chrome on switch
+        local c = VWB.UI:GetScheme()
+        scopePill:SetBackdropColor(c.accent.r, c.accent.g, c.accent.b, 0.18)
+        scopePill:SetBackdropBorderColor(c.accent.r, c.accent.g, c.accent.b, 0.40)
+        pillLabel:SetTextColor(c.accent.r, c.accent.g, c.accent.b)
+        pillX:SetTextColor(c.accent.r, c.accent.g, c.accent.b)
+    end, "recipes:scopePillChrome")
+
     -- F1: reactive scope pill visibility + label; re-derives on nav slice.
     R.effect(function()
         ns.Store:Version("nav")
@@ -1002,6 +1019,7 @@ function Recipes.buildView(container)
     end)
 
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
         local list = recipeList()
         listWidget:SetData(list)
         if not profession() then
@@ -1106,6 +1124,7 @@ function Recipes.buildView(container)
     -- later (GET_ITEM_INFO_RECEIVED) re-runs THIS effect and repaints the row --
     -- otherwise "Loading..." sticks until the next queue change.
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
         ns.Store:Version("crafting")
         local mats = ns.Store:GetState().crafting.shoppingList
         local out = {}

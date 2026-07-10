@@ -598,7 +598,10 @@ function Ledger.buildView(container)
         rebuildProfitRows()
     end, "ledger:rebuildWatch")
 
-    R.effect(function() listWidget:SetData(filtered().rows) end, "ledger:list")
+    R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
+        listWidget:SetData(filtered().rows)
+    end, "ledger:list")
     R.effect(function() paintSummary(summaryFrame, filtered()) end, "ledger:summary")
 
     R.bindText(handle.byId.ldgKpiProfit.label, function()

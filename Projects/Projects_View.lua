@@ -544,6 +544,7 @@ function Projects.buildView(container)
 
     -- the card strip: active board first, trophy shelf dimmed at the end
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled card rows on switch
         local ps = plans()
         local sel = selectedId()
         VWB.UI:ResetRows(stripContent)
@@ -562,6 +563,7 @@ function Projects.buildView(container)
     end, "projects:strip")
 
     R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint pooled step/mat rows on switch
         local e = selectedEntry()
         stepsList:SetData(e and e.plan.steps or {})
         matsList:SetData(e and e.plan.mats or {})

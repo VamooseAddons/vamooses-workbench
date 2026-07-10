@@ -52,11 +52,19 @@ function VWB.Theme:Initialize()
     local themeName = VWB.Constants.ThemeNames[themeKey] or "SolarizedDark" -- exception(boundary): stale/legacy persisted key -> safe default
     self.currentScheme = VWB.Colors.Schemes[themeName]
 
+    -- Theme epoch (Gap B): registered widgets repaint via UpdateAll, but POOLED
+    -- list rows paint their colors in updateRow -- without a reactive nudge they
+    -- keep the old theme until the next data-driven repaint (scroll/dispatch).
+    -- List-render effects read Theme.epoch() so a switch re-runs them.
+    -- Created here, not at file load: Reactor loads after ThemeEngine in the TOC.
+    self.epoch = VWB.Reactor.signal(0)
+
     VWB.EventBus:Register("VWB_THEME_UPDATE", function(payload)
         if payload.themeName then -- font/opacity refreshes fire without themeName; keep current scheme
             self.currentScheme = VWB.Colors.Schemes[payload.themeName]
         end
         self:UpdateAll()
+        VWB.Reactor.untrack(function() self.epoch(self.epoch() + 1) end) -- after UpdateAll: rows repaint against the NEW scheme
     end)
 end
 
