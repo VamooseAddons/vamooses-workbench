@@ -55,7 +55,24 @@ end
 -- ============================================================================
 
 function VWB.CharacterData:Initialize()
-    -- No WoW events needed here; scanning is on-demand
+    -- SKILL_LINES_CHANGED is the canonical "a skill line changed" event: fires
+    -- on every skill-up (Archaeology digs, Fishing casts -- neither has a
+    -- tradeskill window, so TRADE_SKILL_LIST_UPDATE never covers them),
+    -- learn/unlearn included. Event-driven slot scan replaces the
+    -- scan-on-window-open workaround (owner: "maybe it fires its own event
+    -- rather than hacking it" -- it does). Debounced: the event bursts at
+    -- login and around skill-ups; the slot read is cheap but the dispatch
+    -- repaints the Roster.
+    local settle
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("SKILL_LINES_CHANGED")
+    f:SetScript("OnEvent", function()
+        if settle then settle:Cancel() end
+        settle = VWB.ReactorWoW.after(0.5, function()
+            settle = nil
+            VWB.CharacterData:ScanCurrentProfessions()
+        end)
+    end)
 end
 
 function VWB.CharacterData:GetCharacterKey()

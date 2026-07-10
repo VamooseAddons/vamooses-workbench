@@ -123,11 +123,7 @@ local function navMakeFrame(node, parent)
 end
 
 function Shell.openWindow()
-    if Shell._win then
-        ns.CharacterData:ScanCurrentProfessions() -- refresh own slots per open (first-open path scans below)
-        Shell._win:Show()
-        return Shell._win
-    end
+    if Shell._win then Shell._win:Show(); return Shell._win end
 
     local s = VWB.UI:GetScheme()
     local win = CreateFrame("Frame", "VWB_Main", UIParent, "BackdropTemplate")
@@ -362,14 +358,6 @@ function Shell.openWindow()
         toast:SetAlpha(1); toast:Show()
         fade:Stop(); fade:Play()
     end)
-
-    -- First-open slot scan: TRADE_SKILL_LIST_UPDATE only fires for real
-    -- C_TradeSkillUI sessions -- the Archaeology UI (Blizzard_ArchaeologyUI /
-    -- research APIs) and the professions book fire NO tradeskill events, so
-    -- flat-skill data went stale unless a crafting window happened to open.
-    -- The slot read is ~5 cheap calls; running it here (user-initiated, NOT
-    -- login) keeps the current character's Roster row fresh on every open.
-    ns.CharacterData:ScanCurrentProfessions()
 
     Shell._win = win
     return win
