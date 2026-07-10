@@ -283,10 +283,13 @@ local function CollapseRanks(results)
     return collapsed
 end
 
--- filters = { profession, expansion, search, decorOnly, uncollectedDecorOnly,
---             canCraftOnly, transmogOnly, unknownTransmogOnly, skillUpOnly,
+-- filters = { profession, expansion, search, canCraftOnly, skillUpOnly,
 --             classification, category, folderCategories, collapseRanks }
 -- Returns array of { recipeID, recipe }
+-- Collection-kind scoping (transmog/pet/mount/decor + missing) is NOT a
+-- GetFiltered concern: views post-filter via VWB.Collectibles:ClassifyKind /
+-- IsUncollectedCollectible (the one canonical chain; refactor 2026-07-11
+-- removed the four per-kind flags that duplicated it here).
 function VWB.RecipeQuery:GetFiltered(filters)
     filters = filters or {}
     local all = VWB.Database:GetAllRecipes()
@@ -310,30 +313,6 @@ function VWB.RecipeQuery:GetFiltered(filters)
             if not (recipe.name and recipe.name:lower():find(filters.search, 1, true)) then
                 passes = false
             end
-        end
-
-        -- Decor only (live catalog, replaces the old static-DB decorID field --
-        -- nil-catalog-cold and "not decor" collapse to the same false answer
-        -- here, same tradeoff as VWB.DecorOwnership:IsUncollected)
-        if passes and filters.decorOnly then
-            if not VWB.DecorOwnership:IsDecor(recipe.itemID) then passes = false end
-        end
-
-        -- Uncollected decor only (nil ownership = catalog cold -> keep visible)
-        if passes and filters.uncollectedDecorOnly then
-            if VWB.DecorOwnership:IsUncollected(recipe.itemID) == false then passes = false end
-        end
-
-        -- Transmoggable scope: output is equippable gear with a visual slot
-        -- (synchronous, cache-independent -- collection state is
-        -- unknownTransmogOnly's job)
-        if passes and filters.transmogOnly then
-            if not VWB.Transmog:IsTransmoggable(recipe.itemID) then passes = false end
-        end
-
-        -- Unknown transmog only
-        if passes and filters.unknownTransmogOnly then
-            if not VWB.Transmog:IsUnknown(recipe.itemID) then passes = false end
         end
 
         -- Skill-up only: recipes below THIS character's current skill in that
