@@ -77,7 +77,7 @@ local stagePanel = {
         { type = "stack", id = "detailsPanel", dir = "row", gap = "sm", padding = "sm", size = { h = 54 }, align = "center", children = {
             { type = "stack", dir = "col", gap = "xs", grow = true, align = "stretch", children = {
                 { type = "item", id = "itemName",    role = "title", size = { w = "fill", h = 16 } },
-                { type = "item", id = "itemDetails", role = "body",  size = { w = "fill", h = 14 } },
+                { type = "item", id = "itemDetails", role = "body",  size = { w = "fill", h = 28 } }, -- two lines: view re-enables wrap post-build
             } },
             { type = "stack", dir = "col", gap = "xs", children = {
                 { type = "item", id = "startProject", size = { w = 110, h = 20 } },

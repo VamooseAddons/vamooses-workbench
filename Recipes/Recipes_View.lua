@@ -710,10 +710,12 @@ function Recipes.buildView(container)
                 onRowEnter = function(item, row)
                     local tip = ns.UI.Tooltip
                     tip:Begin(row)
-                    if item.itemID then tip:SetItemHeader(item.itemID, item.name) else tip:AddTitle(item.name or "Unknown") end
-                    -- VPC tooltip parity: the raw id line (screenshot-friendly;
-                    -- feeds /vwb classify and wowhead lookups)
-                    tip:AddLine(ns.UI:ColorCode("base01") .. "#" .. tostring(item.itemID or item.recipeID) .. "|r")
+                    if item.itemID then
+                        tip:SetItemHeader(item.itemID, item.name) -- renders the #id line itself
+                    else
+                        tip:AddTitle(item.name or "Unknown")
+                        tip:AddLine(ns.UI:ColorCode("base01") .. "#" .. tostring(item.recipeID) .. "|r")
+                    end
 
                     local knownBy = ns.KnownRecipes:KnownByList(item.recipeID)
                     if #knownBy > 0 then
@@ -742,7 +744,9 @@ function Recipes.buildView(container)
                     end
 
                     tip:AddLine(" ")
-                    tip:AddLine(ns.UI:ColorCode("base01") .. "Click: queue 1  -  Alt: queue 5  -  Shift: Showroom  -  Ctrl: Wowhead|r")
+                    -- Two lines: four gestures on one line overran the tooltip width
+                    tip:AddLine(ns.UI:ColorCode("base01") .. "Click: queue 1  -  Alt-click: queue 5|r")
+                    tip:AddLine(ns.UI:ColorCode("base01") .. "Shift: Showroom  -  Ctrl: Wowhead link|r")
                     tip:Show()
                     ns.GuildCrafters:AppendCraftersToTooltip(tip, item.recipeID)
                 end,

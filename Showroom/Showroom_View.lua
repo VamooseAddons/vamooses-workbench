@@ -422,6 +422,14 @@ function Showroom.buildView(container)
     end
 
     local handle = ns.Layout.build(container, ns.LayoutConfig.showroom, { makeFrame = makeFrame, measure = VWB.ViewKit.measure })
+    -- Details gets TWO lines (h=28 in the LayoutConfig): the engine's role
+    -- default forces no-wrap ellipsis at build; re-enable wrap here so the
+    -- Profession | Expansion | collected line never truncates beside the
+    -- button column (live report: "Expansion: Battle for...").
+    itemDetailsFS:SetWordWrap(true)
+    itemDetailsFS:SetMaxLines(2)
+    itemDetailsFS:SetJustifyH("LEFT")
+    itemDetailsFS:SetJustifyV("TOP")
     handle.model = model
     handle.selected = selected
 
@@ -546,15 +554,32 @@ function Showroom.buildView(container)
         end
 
         itemNameFS:SetText(item.name or ("item:" .. tostring(item.itemID)))
+        -- VPC-parity pretty text: era-colored name, dim labels + colored values
+        if item.expansion then
+            ns.Data.ExpansionData.SetTextColor(itemNameFS, item.expansion)
+        else
+            local sc = VWB.UI:GetScheme()
+            itemNameFS:SetTextColor(sc.text_header.r, sc.text_header.g, sc.text_header.b)
+        end
         addToQueueBtn:Show()
         startProjectBtn:Show()
         local kind = model.kindOf(item.itemID)
         local collected = model.collectedOf(item.itemID)
+        local dim = ns.UI:ColorCode("base01")
         local details = {}
-        if item.profession then details[#details + 1] = "Profession: " .. item.profession end
-        if item.expansion then details[#details + 1] = "Expansion: " .. item.expansion end
+        if item.profession then details[#details + 1] = dim .. "Profession: |r" .. item.profession end
+        if item.expansion then
+            local ec = ns.Data.ExpansionData.GetColor(item.expansion)
+            if ec then
+                details[#details + 1] = dim .. "Expansion: |r|cFF" .. ns.UI:ToHex(ec) .. item.expansion .. "|r"
+            else -- exception(nullable): legacy/unaliased expansion label
+                details[#details + 1] = dim .. "Expansion: |r" .. item.expansion
+            end
+        end
         if collected ~= R.PENDING then
-            details[#details + 1] = COLLECT_LABEL[kind] .. (collected and ": collected" or ": NOT collected")
+            details[#details + 1] = dim .. COLLECT_LABEL[kind] .. ": |r"
+                .. (collected and (ns.UI:ColorCode("green") .. "collected|r")
+                    or (ns.UI:ColorCode("cyan") .. "NOT collected|r"))
         end
 
         if kind == "mount" or kind == "pet" then
