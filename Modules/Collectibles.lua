@@ -146,11 +146,25 @@ end
 -- from the timer driver, OUTSIDE any flush; the finished total lands in a
 -- plain signal. Consumers lag one recount (a few frames), never stall a flush.
 local uncollectedCount = VWB.Reactor.signal(0)
-local recountToken = 0
+local walkToken = 0     -- bumped ONLY for corpus restarts (and fresh starts)
+local walkRunning = false
+local walkDirty = false -- collection event landed mid-walk: rerun after completion
 local RECOUNT_CHUNK = 400 -- recipeStore keys per tick (~5k corpus = ~13 frames)
 
+-- Walk lifecycle (regression fix, same day): the first cut restarted the walk
+-- on EVERY collection epoch bump. During item-load warmup each transmog settle
+-- bumped the epoch every ~0.5s, so walks never got past the first few thousand
+-- keys -- the corpus tail was never reached, the badge froze on a stale
+-- partial count, and every partial pass pended a few more cold items whose
+-- load results fired the NEXT settle: a self-sustaining creep (live: 550
+-- settles, 15 fps). Now only CORPUS changes restart (resuming next() across
+-- key inserts is undefined behavior); collection events set walkDirty and the
+-- running walk COMPLETES -- the tail gets its item requests out early, warmup
+-- converges in a few large batches, and the rerun coalesces behind it.
+local beginWalk
+
 local function recountTick(token, lastKey, seen, n)
-    if token ~= recountToken then return end -- superseded: a newer recount owns the answer
+    if token ~= walkToken then return end -- superseded by a corpus restart
     local store = VWB.Store:GetState().recipeStore
     local processed = 0
     local k, recipe = lastKey, nil
@@ -158,6 +172,13 @@ local function recountTick(token, lastKey, seen, n)
         k, recipe = next(store, k)
         if k == nil then
             uncollectedCount(n)
+            walkRunning = false
+            if walkDirty then
+                walkDirty = false
+                VWB.ReactorWoW.after(0.5, function()
+                    if not walkRunning then beginWalk() end
+                end)
+            end
             return
         end
         local itemID = recipe.itemID
@@ -167,18 +188,16 @@ local function recountTick(token, lastKey, seen, n)
         end
         processed = processed + 1
         if processed >= RECOUNT_CHUNK then
-            -- Resuming next(store, k) across ticks is safe: key INSERTION only
-            -- happens via ADD_RECIPES, which bumps corpus and restarts the
-            -- recount under a fresh token before the stale walk resumes.
             VWB.ReactorWoW.after(0, function() recountTick(token, k, seen, n) end)
             return
         end
     end
 end
 
-local function requestRecount()
-    recountToken = recountToken + 1
-    local token = recountToken
+beginWalk = function()
+    walkToken = walkToken + 1
+    walkRunning = true
+    local token = walkToken
     VWB.ReactorWoW.after(0, function() recountTick(token, nil, {}, 0) end)
 end
 
@@ -214,12 +233,17 @@ function C:Initialize()
     f:SetScript("OnEvent", onCollectionChanged)
     VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", onCollectionChanged)
     VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", onCollectionChanged)
-    -- Recount triggers: corpus growth + any collection event. The effect only
-    -- ARMS the chunked walk (no signal writes, no API calls in the flush);
-    -- runs once at init so the badge is live from login without the Showroom.
+    -- Recount triggers, SPLIT by restart semantics: corpus changes restart
+    -- the walk (fresh next() iteration); collection events let the running
+    -- walk finish and rerun behind it. The effects only ARM ticks (no signal
+    -- writes, no API calls in the flush); recountCorpus fires at init so the
+    -- badge is live from login without mounting the Showroom.
     VWB.Reactor.effect(function()
         VWB.Store:Version("corpus")
+        beginWalk()
+    end, "collectibles:recountCorpus")
+    VWB.Reactor.effect(function()
         collectionEpoch()
-        requestRecount()
-    end, "collectibles:recountTrigger")
+        if walkRunning then walkDirty = true else beginWalk() end
+    end, "collectibles:recountCollection")
 end
