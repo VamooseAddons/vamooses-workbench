@@ -225,7 +225,12 @@ function VWB.KnownRecipes:Initialize()
             end
         elseif event == "TRADE_SKILL_ITEM_CRAFTED_RESULT" then
             local data = ...
-            -- exception(boundary): Blizzard payload; itemID/name absent for enchant/salvage results
+            -- isEnchant: the event ALSO fires for enchant applications and
+            -- weapon imbues (Flametongue Weapon etc.), where data.itemID is
+            -- the TARGET item -- logging "Farstrider's Chopper x1" per imbue
+            -- (live 2026-07-11). Nothing was crafted; skip history entirely.
+            if data and data.isEnchant then return end
+            -- exception(boundary): Blizzard payload; itemID/name absent for salvage results
             if data and data.itemID then
                 local baseInfo = C_TradeSkillUI.GetBaseProfessionInfo()
                 local profName = baseInfo and baseInfo.professionName
