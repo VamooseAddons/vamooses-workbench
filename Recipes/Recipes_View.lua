@@ -457,9 +457,14 @@ function Recipes.buildView(container)
 
         local kind = kindMode()
         local missing = missingPill()
-        -- Collection state lives outside the Store: subscribe the epoch while
-        -- any collection-scoped filter is active so collects re-derive this.
-        if kind ~= "all" or missing then VWB.Collectibles.CollectionEpoch() end
+        -- Collection + item-record state live outside the Store: subscribe
+        -- both epochs while any collection-scoped filter is active --
+        -- collects flip answers, and a broker record landing can flip an
+        -- item's classification (ClassifyKind/IsUnknown read latches).
+        if kind ~= "all" or missing then
+            VWB.Collectibles.CollectionEpoch()
+            VWB.ItemData.changedEpoch()
+        end
         local cco = canCraftOnly()
         if cco then ns.Store:Version("crafting") end
         local q = search()

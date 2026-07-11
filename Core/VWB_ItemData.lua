@@ -56,10 +56,17 @@ end
 -- The latch-at-the-moment-of-truth read. Runs INSIDE the ItemEventListener
 -- callback (data guaranteed hot per the event's contract; when the lossy
 -- cache breaks that contract we see nil here and take the R5 retry).
+-- Every field a consumer might need later is captured HERE -- reading the
+-- client cache after this moment is the eviction bug class. bind feeds
+-- Stockroom's BoP tag; isPet feeds Showroom classification (pet detection
+-- needs full item data, so it is a latch-time fact, not a read-time one).
 local function readRecord(id)
-    local name, link, quality = C_Item.GetItemInfo(id) -- exception(boundary): inside the load callback; nil = lossy-cache anomaly
+    local name, link, quality, _, _, _, _, _, _, _, _, _, _, bind = C_Item.GetItemInfo(id) -- exception(boundary): inside the load callback; nil = lossy-cache anomaly
     if not name then return nil end
-    return { name = name, link = link, quality = quality }
+    return {
+        name = name, link = link, quality = quality, bind = bind,
+        isPet = C_PetJournal.GetPetInfoByItemID(id) ~= nil, -- exception(boundary): journal-by-item needs the hot cache we have right now
+    }
 end
 
 local requestKey -- fwd (retry path re-enters under the R5 exception)
@@ -144,6 +151,17 @@ function ItemData.get(id)
 end
 
 function ItemData.peek(id) return latch:peek(id) end
+
+-- Untracked acquire-and-read: for aggregate walkers that subscribe
+-- changedEpoch() as their ONE dependency and peek thousands of keys per walk
+-- (Stockroom reagents, Showroom classification). Same normalization as get().
+function ItemData.query(id)
+    ensureFailureListener()
+    acquire(id)
+    local v = latch:peek(id)
+    if v == nil then return Reactor.PENDING end
+    return v
+end
 function ItemData.isTerminal(id)
     local v = latch:peek(id)
     return v ~= nil and v ~= Reactor.PENDING

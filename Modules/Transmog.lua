@@ -106,7 +106,12 @@ function VWB.Transmog:GetStatus(itemID)
     local hit = cache[itemID]
     if hit then return hit end
 
-    local rec = VWB.ItemData.get(itemID)
+    -- query (untracked), not get: GetStatus is called from peek-style walkers
+    -- over thousands of keys whose ONE reactive dep is an aggregate epoch --
+    -- per-key edges at that scale are the O(edges) blowup the epoch pattern
+    -- exists to avoid. Reactivity: ItemData.changedEpoch in the walkers'
+    -- composite deps re-runs them when records land.
+    local rec = VWB.ItemData.query(itemID)
     if rec == VWB.ItemData.PENDING then return NOT_TRANSMOG end -- not latched yet: no cache write, re-derives on latch
     if rec == VWB.ItemData.DEAD or rec == VWB.ItemData.NODATA then
         cache[itemID] = NOT_TRANSMOG

@@ -95,27 +95,30 @@ local function matchesSource(info, sel)
 end
 local function labelForKey(key) return key == OTHER_KEY and "Other" or key end
 
--- Item name/quality/bop, resolved async via the item cache -- same resource shape
--- as Showroom's kind/collected: request = RequestLoadItemDataByID -> event
--- ITEM_DATA_LOAD_RESULT, keyOf = itemID for O(1) per-load resolution (vital at
--- ~10k reagents).
+-- Item name/quality/bop over the ItemData broker (Constitution step 4: the
+-- private resource here was the LAST parallel item-data requester). Same
+-- peek/epoch surface the walker uses -- peek acquires, as the old resource's
+-- ensureEntry did. name, quality, and bind were all captured at the broker's
+-- load callback, so BoP tags can no longer bounce with client cache eviction
+-- (the original VPC Stockroom bug). Mapped rows memoize per RECORD, weak
+-- keys: a manual refetch swaps the record and the stale mapping GCs away.
 local nameRes
 local function ensureNameRes()
     if nameRes then return end
-    nameRes = ns.Reactor.resource({
-        read = function(itemID)
-            local info = { C_Item.GetItemInfo(itemID) } -- exception(boundary): all-nil on cold cache
-            local name = info[1]
-            if not name then return nil end
-            -- bindType (14th return) lands with the name, so carry bop on the SAME
-            -- resource: classified is Store-only and never re-walks on a cache fill,
-            -- but items() reads nameRes and re-derives on GET_ITEM_INFO_RECEIVED.
-            return { name = name, quality = info[3], bop = info[14] == Enum.ItemBind.OnAcquire }
+    local mapped = setmetatable({}, { __mode = "k" })
+    nameRes = {
+        epoch = VWB.ItemData.changedEpoch,
+        peek = function(itemID)
+            local rec = VWB.ItemData.query(itemID)
+            if type(rec) ~= "table" then return ns.Reactor.PENDING end -- pending + terminal no-data: the row keeps its id fallback
+            local m = mapped[rec]
+            if not m then
+                m = { name = rec.name, quality = rec.quality, bop = rec.bind == Enum.ItemBind.OnAcquire }
+                mapped[rec] = m
+            end
+            return m
         end,
-        request = function(itemID) C_Item.RequestLoadItemDataByID(itemID) end,
-        event = "ITEM_DATA_LOAD_RESULT", -- RequestLoadItemDataByID fires THIS, not GET_ITEM_INFO_RECEIVED
-        keyOf = function(itemID) return itemID end, -- O(1) direct lookup (vital at ~10k reagents)
-    })
+    }
 end
 
 -- A themed reagent row: icon | name | itemID | class badge | evidence | owned | BoP | queue need.

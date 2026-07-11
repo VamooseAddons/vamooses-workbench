@@ -127,57 +127,15 @@ function Reactor.resource(opts)
     local function get(key) return ensureEntry(key).sig() end
     local function peek(key) return ensureEntry(key).value end
 
-    -- Callable table: get(key) via __call, plus peek/epoch (see above) and
-    -- invalidateAll() so a resource can re-resolve when data changes through a
-    -- channel its `event` doesn't cover (housing catalog warming, a mount/pet/
-    -- appearance collected). Re-reads every known key; a changed value propagates
-    -- (signal equals dedups), a resolved key can flip -- fixing the "latched first
-    -- value, stale until reload" class. Pending keys that still read nil stay waiting.
-    -- CONTRACT: change-detection below is `v ~= entry.value` (reference equality),
-    -- so invalidateAll is for SCALAR-returning resources (kind/collected: string/
-    -- bool). A resource whose read() returns a fresh TABLE each call (e.g. nameRes
-    -- {name,quality,bop}) would treat every key as "changed" every call -- if you
-    -- wire such a resource to invalidateAll, give it an `equals` or compare fields.
+    -- Callable table: get(key) via __call, plus peek/epoch (see above).
+    -- invalidateAll was DELETED here (Constitution migration step 4): its
+    -- semantic -- lazy re-read of stored per-key state on a bulk event -- is
+    -- the latch-at-boundary violation that fed 2026-07-11's request loops.
+    -- Domains latch forward now (latchMap below): scoped events reconcile one
+    -- key; genuinely bulk events sweep-and-re-latch eagerly at the boundary,
+    -- where equality dedup makes the unchanged majority silent.
     local api = { peek = peek }
     function api.epoch() return epoch() end
-    -- invalidateAll([filter]) -> re-reads every known key, propagating changed values.
-    -- Optional filter(key, entry) -> bool: when provided, ONLY matching keys are re-read;
-    -- no-arg behavior is identical to before. Scalar contract assert: if a re-read returns
-    -- a table and the resource has no custom equals, error() loudly (fail-loud house rule).
-    -- Change-detection for invalidateAll: use opts.equals when provided (supports
-    -- table-returning resources with a field comparator), else reference equality.
-    local function valueChanged(old, new)
-        if opts.equals then return not opts.equals(old, new) end
-        return old ~= new
-    end
-    function api.invalidateAll(filter)
-        Reactor.batch(function()
-            local changed = false
-            for key, entry in pairs(perKey) do
-                if not filter or filter(key, entry) then
-                    local v = opts.read(key)
-                    if v ~= nil then
-                        -- SCALAR CONTRACT: a resource without custom equals must return scalars.
-                        -- A table return means every key appears "changed" on every invalidate,
-                        -- defeating memoization. Error loud; do not silently over-invalidate.
-                        if type(v) == "table" and (not opts.equals) then
-                            error("Reactor.resource: invalidateAll re-read returned a table for key '" ..
-                                tostring(key) .. "' but no custom equals is set. " ..
-                                "Provide opts.equals or return a scalar (bool/string/number). " ..
-                                "A table without equals treats every call as a change and silently over-invalidates forever.")
-                        end
-                        if valueChanged(entry.value, v) then -- only ACTUAL changes bump the epoch
-                            entry.waiting = false
-                            entry.value = v
-                            entry.sig(v) -- signal's own equals dedups further propagation
-                            changed = true
-                        end
-                    end
-                end
-            end
-            if changed then Reactor.untrack(function() epoch(epoch() + 1) end) end -- no dep edge if inside a computed
-        end)
-    end
     return setmetatable(api, { __call = function(_, key) return get(key) end })
 end
 

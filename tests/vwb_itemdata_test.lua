@@ -42,6 +42,7 @@ _G.C_Item = {
         return name, "link:" .. id, 2
     end,
 }
+_G.C_PetJournal = { GetPetInfoByItemID = function() return nil end } -- broker latches isPet at the callback
 local pendingCbs, addCallbackCount = {}, {}
 _G.ItemEventListener = {
     AddCallback = function(_, id, cb)

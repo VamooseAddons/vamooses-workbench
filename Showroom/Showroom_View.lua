@@ -37,146 +37,67 @@ local DEFAULT_DECOR_SCENE_ID = 859 -- Blizzard housing preview scene; ported fro
 local COLLECT_LABEL = { decor = "Decor", transmog = "Appearance", mount = "Mount", pet = "Pet" }
 local RECENT_CHIP = 18 -- recent-previews chip size, ported from VPC's Preview.lua
 
--- Classification + collection resources (singletons; item data resolves async).
--- request = RequestLoadItemDataByID, which fires ITEM_DATA_LOAD_RESULT (NOT the
--- legacy GET_ITEM_INFO_RECEIVED). keyOf = itemID makes each load event an O(1)
--- perKey lookup, not an O(n) scan of all pending keys -- the item cache fires this
--- event constantly, so without keyOf that was an O(n^2) freeze invisible to the
--- reactive profiler (it runs in the event handler, not a recompute). Decor items
--- don't resolve via item-load (they need the housing catalog) -- they resolve via
--- invalidateAll() on VWB_DECOR_OWNERSHIP_UPDATE, so scoping to one item is safe.
+-- Classification + collection, derived over LATCHES (Constitution step 4).
+-- The two RESOURCES that lived here owned their own RequestLoad + event
+-- re-read wiring -- parallel requesters beside the ItemData broker, and the
+-- invalidateAll web that re-read (and on cold keys re-REQUESTED) the universe
+-- per settle. Deleted. Classification now derives at read time from
+-- eviction-proof sources only: GetItemInfoInstant static data (transmog
+-- scope), the static mount map, decor ownership latches, and broker records
+-- (which carry latch-time isPet -- pet detection needs full item data, so it
+-- is a latch-time fact, not a read-time one). peek() keeps the old resource
+-- contract (acquires on first sight, untracked read, kind|PENDING out);
+-- epoch() is the composite of every source that can change an answer, so
+-- Showroom_Model's one-dep + peek-walk shape is untouched.
 local kindRes, collectedRes
 local function ensureResources()
     if kindRes then return end
-    local R = ns.Reactor
-    kindRes = R.resource({
-        read = function(itemID)
-            -- Cache-FREE checks first. IsMount is a STATIC item->mount map and
-            -- IsTransmoggable is GetItemInfoInstant -- both answerable with no full
-            -- item cache, so a mount/transmog classifies instantly even cold.
-            -- (There used to be an `if not classID then return nil` guard up front.
-            -- classID -- which nothing else here reads -- is nil on a cold item, so
-            -- that guard PENDed the item BEFORE IsMount ran and stranded cold MOUNTS
-            -- forever: no log, no retry -- the silent failure behind "JC mounts
-            -- don't show". Removed; IsMount now runs unconditionally.)
-            if ns.Transmog:IsTransmoggable(itemID) then return "transmog" end
-            if ns.Collectibles:IsMount(itemID) then return "mount" end
-            if ns.Collectibles:IsPet(itemID) then return "pet" end
-            local dec = ns.DecorOwnership:IsUncollected(itemID) -- true/false/nil(cold)
-            if dec ~= nil then return "decor" end
-            -- Nothing matched yet. Pet detection (GetPetInfoByItemID) needs the FULL
-            -- item cached and decor needs the housing catalog -- if the item isn't
-            -- cached we can't honestly rule out pet, so stay PENDING and re-read on
-            -- ITEM_DATA_LOAD_RESULT rather than latching a wrong "none".
-            -- Dead ids (server refused the load) can never cache: resolve them to
-            -- a final "none" or the key pends forever and every settle re-reads it.
-            if ns.Transmog:IsDeadItem(itemID) then return "none" end
-            if not C_Item.IsItemDataCachedByID(itemID) then return nil end -- exception(boundary): pet lookup needs the item cached; re-read on load
-            if ns.DecorOwnership:IsCatalogCold() then return nil end -- might be decor; retry when catalog warms
-            return "none"
-        end,
-        request = function(itemID) C_Item.RequestLoadItemDataByID(itemID) end,
-        event = "ITEM_DATA_LOAD_RESULT", -- RequestLoadItemDataByID fires THIS, not GET_ITEM_INFO_RECEIVED
-        keyOf = function(itemID) return itemID end, -- O(1): the event names exactly this itemID
-    })
-    collectedRes = R.resource({
-        read = function(itemID)
-            -- mount/pet collection is a synchronous journal lookup; only transmog
-            -- ownership needs the async item LINK, and decor needs the catalog.
-            local m = ns.Collectibles:IsMountCollected(itemID); if m ~= nil then return m end
-            local p = ns.Collectibles:IsPetCollected(itemID); if p ~= nil then return p end
-            if ns.Transmog:IsTransmoggable(itemID) then
-                if ns.Transmog:IsDeadItem(itemID) then return false end -- server refused the id: final
-                -- Cold probe via IsItemDataCachedByID, NOT bare GetItemInfo: a
-                -- GetItemInfo nil-probe fires an implicit server request every
-                -- call, and this read re-runs per settle for pending keys --
-                -- the re-request pump behind the unbounded load-result climb.
-                if not C_Item.IsItemDataCachedByID(itemID) then return nil end -- transmog "collected" needs the item link -> pending
-                return ns.Transmog:GetStatus(itemID).isCollected
-            end
-            local dec = ns.DecorOwnership:IsUncollected(itemID); if dec ~= nil then return not dec end
-            if ns.DecorOwnership:IsCatalogCold() then return nil end -- decor collection unknown until catalog warms
-            return false
-        end,
-        request = function(itemID) C_Item.RequestLoadItemDataByID(itemID) end,
-        event = "ITEM_DATA_LOAD_RESULT", -- RequestLoadItemDataByID fires THIS, not GET_ITEM_INFO_RECEIVED
-        keyOf = function(itemID) return itemID end, -- O(1): the event names exactly this itemID
-    })
+    local PENDING = ns.Reactor.PENDING
 
-    -- LIVE collection updates: DecorOwnership/Transmog already fire these on
-    -- their own Blizzard event (HOUSING_STORAGE_ENTRY_UPDATED /
-    -- TRANSMOG_COLLECTION_SOURCE_ADDED). invalidateAll() re-reads every
-    -- already-requested key so a collected item's tick/Missing state flips
-    -- immediately -- this is what "stale until reload" was missing.
-    --
-    -- Item 3: scoped filter predicates so each event only re-reads relevant keys,
-    -- not the full ~5k universe in one event frame. Decor events re-read keys
-    -- whose last latched kind is "decor", PENDING, or nil (might be decor).
-    -- Transmog events re-read "transmog"/PENDING. Scalar values are strings/bools
-    -- so the table-equals assert in invalidateAll will not fire.
-    local function isDecorOrPending(_, entry)
-        local v = entry.value
-        return v == R.PENDING or v == nil or v == "decor" or v == "none"
-    end
-    local function isTransmogOrPending(_, entry)
-        local v = entry.value
-        return v == R.PENDING or v == nil or v == "transmog"
+    local function deriveKind(itemID)
+        -- Cache-FREE checks first (order preserved from the resource era: a
+        -- mount/transmog classifies instantly even cold; the JC-mounts lesson).
+        if ns.Transmog:IsTransmoggable(itemID) then return "transmog" end
+        if ns.Collectibles:IsMount(itemID) then return "mount" end
+        local dec = ns.DecorOwnership:IsUncollected(itemID) -- true/false/nil(cold)
+        if dec ~= nil then return "decor" end
+        local rec = VWB.ItemData.query(itemID) -- acquires once (R4); untracked
+        if rec == PENDING then return PENDING end
+        if rec ~= VWB.ItemData.DEAD and rec ~= VWB.ItemData.NODATA and rec.isPet then return "pet" end
+        if ns.DecorOwnership:IsCatalogCold() then return PENDING end -- might be decor; resolves when the catalog warms
+        return "none" -- incl. terminal no-data/dead ids: never classifiable
     end
 
-    -- B4: Mirror the kind-filter pattern for collectedRes. collectedRes.value is
-    -- a bool (or nil/PENDING), so we can't classify from its value directly.
-    -- Instead peek kindRes (untracked) to determine which collection domain
-    -- each itemID belongs to, then only re-read keys that could have changed.
-    local function isCollectedDecorOrPending(key, entry)
-        local v = entry.value
-        if v == R.PENDING or v == nil then return true end -- unknown domain; may be decor
-        local k = kindRes.peek(key)
-        return k == "decor" or k == R.PENDING or k == nil
-    end
-    local function isCollectedTransmogOrPending(key, entry)
-        local v = entry.value
-        if v == R.PENDING or v == nil then return true end -- unknown domain; may be transmog
-        local k = kindRes.peek(key)
-        return k == "transmog" or k == R.PENDING or k == nil
+    local function deriveCollected(itemID)
+        local m = ns.Collectibles:IsMountCollected(itemID); if m ~= nil then return m end
+        local k = deriveKind(itemID)
+        if k == PENDING then return PENDING end
+        if k == "pet" then return ns.Collectibles:IsPetCollected(itemID) == true end
+        if k == "transmog" then return ns.Transmog:GetStatus(itemID).isCollected end
+        if k == "decor" then return not ns.DecorOwnership:IsUncollected(itemID) end
+        return false
     end
 
-    VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", function()
-        kindRes.invalidateAll(isDecorOrPending) -- re-read only decor/PENDING kind keys
-        collectedRes.invalidateAll(isCollectedDecorOrPending) -- re-read only decor-or-unknown collected keys
-    end)
-    VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", function()
-        kindRes.invalidateAll(isTransmogOrPending) -- re-read only transmog/PENDING kind keys
-        collectedRes.invalidateAll(isCollectedTransmogOrPending) -- re-read only transmog-or-unknown collected keys
-    end)
-
-    -- Mounts/pets/transmog/decor collection events are now unified under
-    -- VWB.Collectibles:RegisterCollectionListener (one owner; Collectibles.lua
-    -- registers NEW_MOUNT_ADDED, NEW_PET_ADDED, and listens on the VWB_TRANSMOG_UPDATED
-    -- + VWB_DECOR_OWNERSHIP_UPDATE EventBus events internally). The old view-local
-    -- collectionFrame duplicated those registrations.
-    --
-    -- Equivalence: old frame caught NEW_MOUNT_ADDED + NEW_PET_ADDED + TRANSMOG_COLLECTION_SOURCE_ADDED
-    -- and called collectedRes.invalidateAll(). Collectibles.Initialize() already owns
-    -- NEW_MOUNT_ADDED + NEW_PET_ADDED. TRANSMOG_COLLECTION_SOURCE_ADDED feeds into
-    -- VWB_TRANSMOG_UPDATED (coalesced by Transmog.lua) -- the EventBus path above at
-    -- line ~123 already handles that for kindRes; collectedRes.invalidateAll() there
-    -- covers the collected side too. Net: no event is dropped; coalescing is strictly
-    -- better than raw for TRANSMOG_COLLECTION_SOURCE_ADDED (multiple sources per craft).
-    -- The listener fires for ALL collection sources (mounts, pets, transmog
-    -- settles, decor updates), but transmog/decor keys are already covered by
-    -- the two filtered EventBus registrations above. Unfiltered, this re-read
-    -- the FULL universe -- every cold key included -- once per transmog settle
-    -- during item-load warmup: the biggest per-settle pump in the 2026-07-11
-    -- evening loop. Scope it to the only domain no other path covers.
-    local function isCollectedMountPetOrPending(key, entry)
-        local v = entry.value
-        if v == R.PENDING or v == nil then return true end -- unknown domain; may be mount/pet
-        local k = kindRes.peek(key)
-        return k == "mount" or k == "pet" or k == R.PENDING or k == nil
+    -- One subscription covering every input that can flip a derived answer:
+    -- broker records landing, mount/pet/transmog collection changes (the
+    -- Collectibles store, incl. the batch transmog settle), decor ownership
+    -- reconciles. Values are meaningless; the SUM changes iff any input did.
+    local function compositeEpoch()
+        return VWB.ItemData.changedEpoch()
+            + ns.Collectibles.CollectionEpoch()
+            + ns.DecorOwnership.Epoch()
     end
-    VWB.Collectibles:RegisterCollectionListener(function()
-        collectedRes.invalidateAll(isCollectedMountPetOrPending)
-    end)
+
+    kindRes = { peek = deriveKind, epoch = compositeEpoch }
+    collectedRes = { peek = deriveCollected, epoch = compositeEpoch }
+
+    -- No invalidateAll, no event registrations, no collection listener: every
+    -- live update reaches the view through the composite epoch (decor
+    -- reconciles bump DecorOwnership.Epoch; mount/pet/transmog changes bump
+    -- Collectibles.CollectionEpoch; record latches bump ItemData.changedEpoch)
+    -- and the derive functions read the CURRENT latches on the next walk.
+    -- The whole "re-read the right subset per event" problem dissolved with
+    -- the stored per-key state it existed to refresh.
 end
 
 -- The full craftable universe (rank-collapsed), reshaped to the light record
