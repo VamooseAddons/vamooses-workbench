@@ -62,6 +62,7 @@ local function listRowTemplate(frame)
         width = 104,
         context = function()
             local rec = frame.data
+            if not rec then return nil end -- exception(boundary): SetupMenu pre-generates at row-template creation, before any data row is bound
             return {
                 name = rec.name, count = countRecipeCriteria(rec),
                 defaultStatus = "backlog", -- an import is an intention; promote when ready

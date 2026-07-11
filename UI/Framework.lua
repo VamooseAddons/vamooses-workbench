@@ -835,6 +835,7 @@ local function commissionDone(prj)
 end
 
 local function commissionMenu(root, ctx)
+    if not ctx then return end -- exception(boundary): SetupMenu PRE-generates once at creation, before the surface has a subject (live crash 2026-07-12)
     root:CreateButton("New commission...", function()
         VWB.UI:ShowNewCommissionDialog(ctx)
     end)

@@ -399,6 +399,7 @@ function Showroom.buildView(container)
                 width = 110,
                 context = function()
                     local item = selected()
+                    if not item then return nil end -- exception(boundary): SetupMenu pre-generates before any selection
                     return {
                         name = item.name or ("item:" .. tostring(item.itemID)),
                         count = 1,
