@@ -264,5 +264,25 @@ end
 
 function VWB.RecipeSources.epoch() return sources.epoch() end
 function VWB.RecipeSources.peek(recipeID) return sources:peek(recipeID) end
+
+-- On-demand parsed source for ONE recipe (study-piece plans need acquisition
+-- data whether or not the Study walk has run). Plain memo, NOT the latchMap:
+-- sourceText is static per session, so this read needs no reactivity -- and
+-- a latch write here would be a signal write inside the plans computed.
+local adhoc = {}
+function VWB.RecipeSources.Describe(recipeID)
+    local latched = sources:peek(recipeID)
+    if latched then return latched end
+    local hit = adhoc[recipeID]
+    if hit ~= nil then
+        if hit == false then return nil end -- exception(nullable): memoized no-data
+        return hit
+    end
+    local text = C_TradeSkillUI.GetRecipeSourceText(recipeID) -- exception(boundary): nil/"" when the server has no acquisition data
+    local rec = (text and text ~= "") and VWB.RecipeSources.Parse(text) or false
+    adhoc[recipeID] = rec
+    if rec == false then return nil end
+    return rec
+end
 function VWB.RecipeSources.IsWalking() return walking end
 function VWB.RecipeSources.Stats() return stats end

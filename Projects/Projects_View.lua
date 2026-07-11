@@ -284,6 +284,7 @@ end
 local CHIP = { -- text + scheme color key per step kind; CRAFT resolves by readiness
     BUY = { text = "BUY", color = "accent" }, FARM = { text = "FARM", color = "text" },
     STAGE = { text = "STAGE", color = "warning" }, BLOCKED = { text = "NO ALT", color = "error" },
+    LEARN = { text = "LEARN", color = "accent" }, -- study pieces: acquisition sources, not crafts
 }
 
 local function stepRowTemplate(frame)
@@ -347,6 +348,13 @@ local function paintStepRow(row, st)
         local c = s[chip.color]
         row.chip:SetText(chip.text); row.chip:SetTextColor(c.r, c.g, c.b)
         row.queued:SetText("") -- pooled row may have painted a CRAFT chip last cycle
+        if st.kind == "LEARN" then -- a source, not a quantity
+            row.name:SetText(st.name)
+            row.who:SetText(st.zone or "")
+            row.action:SetShown(false)
+            row.name:SetTextColor(1, 1, 1)
+            return
+        end
         row.name:SetText(string.format("%dx %s", st.need, st.name))
         if st.kind == "BUY" then
             row.who:SetText(VWB.UI:FormatMoney(st.unitPrice * st.need))
@@ -386,6 +394,12 @@ local function onStepRowEnter(st, rowFrame)
         else
             T:AddLine("No guild crafters online right now")
         end
+    elseif st.kind == "LEARN" then
+        T:AddTitle(st.name)
+        T:AddLine("Learn the recipe to complete this piece.")
+        if st.zone then T:AddLine("Zone: " .. st.zone) end
+        if st.cost then T:AddLine("Cost: " .. st.cost) end
+        if st.faction then T:AddLine("Requires: " .. st.faction) end
     elseif st.kind == "BUY" then
         T:AddTitle(st.name)
         T:AddLine(string.format("%d short -- %s each", st.need, VWB.UI:FormatMoney(st.unitPrice)))

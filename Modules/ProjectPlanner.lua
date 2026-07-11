@@ -171,6 +171,24 @@ function P:DerivePiecePlan(piece)
     local plan = { steps = {}, mats = {}, matsShort = 0, buyCost = 0, done = 0, total = 0 }
     if piece.completedAt then plan.status = "complete"; return plan end
 
+    -- STUDY pieces: the task is GO LEARN IT, not craft it -- the plan is the
+    -- recipe's acquisition sources (the seam the owner flagged 2026-07-12:
+    -- a craft plan for an unlearned recipe answers the wrong question).
+    if piece.kind == "study" then
+        plan.status = "active"
+        local desc = VWB.RecipeSources.Describe(piece.recipeID)
+        if desc then
+            for _, s in ipairs(desc.sources) do
+                plan.steps[#plan.steps + 1] = { kind = "LEARN",
+                    name = s.kind .. (s.detail and (": " .. s.detail) or ""),
+                    zone = s.zone, cost = s.cost, faction = s.faction }
+            end
+        end
+        plan.total, plan.done = 1, 0
+        if #plan.steps == 0 then plan.unresolved = true end -- no acquisition data on file
+        return plan
+    end
+
     local qty
     if piece.kind == "craft" then
         plan.status = "active" -- completion is the history sweep's call, never derived here
