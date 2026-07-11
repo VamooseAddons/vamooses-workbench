@@ -32,7 +32,10 @@ local navPanel = {
 local listPanel = {
     type = "stack", id = "listCol", dir = "col", gap = "sm", padding = "md", align = "stretch", chrome = "Panel",
     children = {
-        { type = "item", id = "search", size = { w = "fill", h = 20 } },
+        { type = "stack", dir = "row", gap = "sm", children = {
+            { type = "item", id = "search", grow = true, size = { h = 22 } },
+            { type = "item", id = "expansionDD", size = { w = 170, h = 22 } }, -- multi-select, Stockroom pattern
+        } },
         { type = "item", id = "breadcrumb", role = "section", size = { h = 16 } },
         { type = "item", id = "list", grow = true }, -- CreateVirtualizedList target
     },

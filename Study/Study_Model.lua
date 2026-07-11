@@ -8,7 +8,8 @@
 --   universe = () -> array of { recipeID, itemID?, name, profession, expansion }
 --   source   = { peek(recipeID) -> { lines, sources }|nil, epoch() }  (RecipeSources)
 --   known    = { version = fn (subscribing read), isKnown = fn(recipeID) plain }
---   filters  = { search, profession, navKey, collapsed, showMissing } (Reactor signals)
+--   filters  = { search, profession, navKey, collapsed, showMissing,
+--                expansions (set of display names; empty = all) }     (Reactor signals)
 -- navKey grammar: nil = everything | "Kind::*" = one kind, all zones |
 -- "Kind::Zone" = one kind in one zone. (Item keys always carry "::" so they
 -- can never collide with the section header keys the NavTree also tracks.)
@@ -28,6 +29,8 @@ function Study.buildModel(deps)
 
     local function passes(item)
         if f.profession() ~= "all" and item.profession ~= f.profession() then return false end
+        local selExp = f.expansions()
+        if next(selExp) ~= nil and not selExp[item.expansion] then return false end
         local q = f.search()
         if q ~= "" and not (item.name or ""):lower():find(q, 1, true) then return false end
         return true

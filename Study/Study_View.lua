@@ -69,7 +69,23 @@ function Study.buildView(container)
         search = R.signal(""), profession = R.signal("all"),
         navKey = R.signal(nil), collapsed = R.signal({}),
         showMissing = R.signal(true), -- include recipes with no source data (owner: on by default -- a player hunting a recipe must FIND it and see why it has no source)
+        expansions = R.signal({}), -- set of expansion display names; empty = all (Stockroom pattern)
     }
+
+    -- Menu items in EXPANSION_DATA order, tinted by brand color; keys are the
+    -- display names the harvest writes into recipe.expansion.
+    local EXPANSION_ITEMS = {}
+    for _, e in ipairs(ns.Data.ExpansionData.EXPANSION_DATA) do
+        EXPANSION_ITEMS[#EXPANSION_ITEMS + 1] = { key = e.display, label = e.display, color = e.color }
+    end
+
+    -- Immutable toggle: a NEW set each time so the signal sees a value change.
+    local function toggleExpansion(key)
+        local nxt = {}
+        for k in pairs(filters.expansions()) do nxt[k] = true end
+        if nxt[key] then nxt[key] = nil else nxt[key] = true end
+        filters.expansions(nxt)
+    end
     local model = Study.buildModel({
         universe = universe,
         source = { peek = ns.RecipeSources.peek, epoch = ns.RecipeSources.epoch },
@@ -127,6 +143,14 @@ function Study.buildView(container)
             local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             fs:SetText(ns.UI:ColorCode("cyan") .. "Sources|r")
             return fs
+        elseif node.id == "expansionDD" then
+            return ns.UI:CreateMultiSelectDropdown(parent, {
+                width = node.size.w, height = node.size.h,
+                allLabel = "All Expansions", items = EXPANSION_ITEMS,
+                isAll = function() return next(filters.expansions()) == nil end,
+                isSelected = function(key) return filters.expansions()[key] == true end,
+                onAll = function() filters.expansions({}) end,
+                onToggle = toggleExpansion })
         elseif node.id == "missingToggle" then
             local cb = ns.UI:CreateCheckbox(parent, "Missing", function(checked)
                 filters.showMissing(checked and true or false)

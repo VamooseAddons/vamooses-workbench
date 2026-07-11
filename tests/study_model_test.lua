@@ -125,6 +125,7 @@ local filters = {
     search = R.signal(""), profession = R.signal("all"),
     navKey = R.signal(nil), collapsed = R.signal({}),
     showMissing = R.signal(true),
+    expansions = R.signal({}),
 }
 local model = ns.Study.buildModel({
     universe = function() return recipes end,
@@ -178,7 +179,7 @@ do
     check("Unspecified pinned last", secs[#secs].key == "Unspecified")
 end
 
--- 10. Search + profession filters scope rows AND sections ---------------------
+-- 10. Search + profession + expansion filters scope rows AND sections ---------
 do
     filters.profession("Cooking")
     check("profession filter", #model.rows() == 1 and model.rows()[1].item.recipeID == 3)
@@ -186,6 +187,20 @@ do
     filters.search("zebra")
     check("search filter", #model.rows() == 1 and model.rows()[1].item.recipeID == 4)
     filters.search("")
+    filters.expansions({ ["Midnight"] = true })
+    check("expansion filter scopes rows", (function()
+        for _, r in ipairs(model.rows()) do
+            if r.item.expansion ~= "Midnight" then return false end
+        end
+        return #model.rows() > 0
+    end)())
+    filters.expansions({ ["Midnight"] = true, ["TBC"] = true })
+    check("multi-select unions", (function()
+        local sawTBC = false
+        for _, r in ipairs(model.rows()) do sawTBC = sawTBC or r.item.expansion == "TBC" end
+        return sawTBC
+    end)())
+    filters.expansions({})
 end
 
 -- 11. Learning a recipe drops ALL its rows on the version bump (the reactive
