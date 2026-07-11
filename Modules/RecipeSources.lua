@@ -174,13 +174,13 @@ function VWB.RecipeSources.Parse(text)
     return rec
 end
 
--- The walk's work list: not yet latched, not yet learned. Learned recipes are
--- the VIEW's filter concern; skipping them here just scopes the walk (and the
--- export) to what Study can ever show.
+-- The walk's work list: every unlatched id -- KNOWN recipes included, since
+-- Study's Missing toggle (unticked) shows learned recipes with their sources
+-- (owner semantics 2026-07-11). Which recipes display is the VIEW's concern.
 local function pendingIDs()
     local ids = {}
     for recipeID in pairs(VWB.Database:GetAllRecipes()) do
-        if not VWB.KnownRecipes:IsKnown(recipeID) and not sources:hasKey(recipeID) then
+        if not sources:hasKey(recipeID) then
             ids[#ids + 1] = recipeID
         end
     end

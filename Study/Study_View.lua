@@ -68,7 +68,7 @@ function Study.buildView(container)
     local filters = {
         search = R.signal(""), profession = R.signal("all"),
         navKey = R.signal(nil), collapsed = R.signal({}),
-        showMissing = R.signal(true), -- include recipes with no source data (owner: on by default -- a player hunting a recipe must FIND it and see why it has no source)
+        missingOnly = R.signal(true), -- ticked = only recipes MISSING from the account's knowledge; untick to see learned ones alongside (green names)
         expansions = R.signal({}), -- set of expansion display names; empty = all (Stockroom pattern)
     }
 
@@ -120,7 +120,12 @@ function Study.buildView(container)
             tip:AddLine(ns.UI:ColorCode("base01") .. prof .. "|r")
         end
         tip:AddLine(" ")
-        tip:AddLine(ns.UI:ColorCode("cyan") .. "Recipe: unlearned on this account|r")
+        if e.known then
+            local knownBy = ns.KnownRecipes:KnownByList(item.recipeID)
+            tip:AddLine(ns.UI:ColorCode("base01") .. "Recipe known by: " .. table.concat(knownBy, ", ") .. "|r")
+        else
+            tip:AddLine(ns.UI:ColorCode("cyan") .. "Recipe: unlearned on this account|r")
+        end
         if #e.lines == 0 then
             tip:AddLine(ns.UI:ColorCode("base01") .. "No data found for source|r")
         else
@@ -153,7 +158,7 @@ function Study.buildView(container)
                 onToggle = toggleExpansion })
         elseif node.id == "missingToggle" then
             local cb = ns.UI:CreateCheckbox(parent, "Missing", function(checked)
-                filters.showMissing(checked and true or false)
+                filters.missingOnly(checked and true or false)
             end)
             cb.button:SetChecked(true)
             return cb
@@ -189,7 +194,9 @@ function Study.buildView(container)
                         local icon = item.itemID and C_Item.GetItemIconByID(item.itemID) -- exception(boundary): icon can lag a cold item; profession icon stands in
                         row.icon:SetTexture(icon or VWB.Constants.ProfessionIcons[item.profession]
                             or "Interface\\Icons\\INV_Misc_QuestionMark")
-                        row.text:SetText(item.name or ("recipe:" .. tostring(item.recipeID)))
+                        local name = item.name or ("recipe:" .. tostring(item.recipeID))
+                        if e.known then name = ns.UI:ColorCode("green") .. name .. "|r" end -- learned: visible when Missing unticked
+                        row.text:SetText(name)
                     end
                     local s = e.source
                     local dim = ns.UI:ColorCode("base01")

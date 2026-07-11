@@ -124,7 +124,7 @@ local knownV = R.signal(0)
 local filters = {
     search = R.signal(""), profession = R.signal("all"),
     navKey = R.signal(nil), collapsed = R.signal({}),
-    showMissing = R.signal(true),
+    missingOnly = R.signal(true),
     expansions = R.signal({}),
 }
 local model = ns.Study.buildModel({
@@ -215,24 +215,29 @@ do
     check("version bump drops all three vendor rows", seen == 2)
 end
 
--- 12. Missing toggle: no-source recipes gate on showMissing; recipeCount
--- always counts them (they still need learning).
+-- 12. Missing toggle (owner semantics): ticked = unlearned only; unticked =
+-- learned recipes join, flagged known. Zero-source recipes ALWAYS show.
 do
-    check("missing shown by default", (function()
+    check("zero-source rows always shown", (function()
         for _, r in ipairs(model.rows()) do if r.source.kind == "Unspecified" then return true end end
     end)())
+    check("ticked: no known rows", (function()
+        for _, r in ipairs(model.rows()) do if r.known then return false end end
+        return true
+    end)())
     local before = model.entries().recipeCount
-    filters.showMissing(false)
-    check("untick hides Unspecified rows", (function()
-        for _, r in ipairs(model.rows()) do if r.source.kind == "Unspecified" then return false end end
+    filters.missingOnly(false)
+    check("untick: learned recipes appear flagged known", (function()
+        for _, r in ipairs(model.rows()) do
+            if r.item.recipeID == 1 and r.known then return true end -- recipe 1 is learned + latched (Trainer)
+        end
+    end)())
+    check("recipeCount (to learn) unchanged by the toggle", model.entries().recipeCount == before)
+    filters.missingOnly(true)
+    check("re-tick drops the known rows", (function()
+        for _, r in ipairs(model.rows()) do if r.known then return false end end
         return true
     end)())
-    check("untick drops the Unspecified section", (function()
-        for _, s in ipairs(model.sections()) do if s.key == "Unspecified" then return false end end
-        return true
-    end)())
-    check("recipeCount unchanged by the toggle", model.entries().recipeCount == before)
-    filters.showMissing(true)
 end
 
 -- 13. Collapse state flows into sections ---------------------------------------

@@ -8,7 +8,9 @@
 --   universe = () -> array of { recipeID, itemID?, name, profession, expansion }
 --   source   = { peek(recipeID) -> { lines, sources }|nil, epoch() }  (RecipeSources)
 --   known    = { version = fn (subscribing read), isKnown = fn(recipeID) plain }
---   filters  = { search, profession, navKey, collapsed, showMissing,
+--   filters  = { search, profession, navKey, collapsed,
+--                missingOnly (ticked = unlearned recipes only; unticked =
+--                learned recipes join the list, flagged known),
 --                expansions (set of display names; empty = all) }     (Reactor signals)
 -- navKey grammar: nil = everything | "Kind::*" = one kind, all zones |
 -- "Kind::Zone" = one kind in one zone. (Item keys always carry "::" so they
@@ -47,31 +49,35 @@ function Study.buildModel(deps)
     -- "N recipes | M sources" split.
     local entries = R.named("study:entries", function()
         known.version(); src.epoch()
-        local out, recipes = {}, 0
+        local missingOnly = f.missingOnly()
+        local out, toLearn = {}, 0
         for _, item in ipairs(u()) do
-            if not known.isKnown(item.recipeID) and passes(item) then
+            local isKnown = known.isKnown(item.recipeID)
+            if passes(item) then
                 local rec = src.peek(item.recipeID)
-                if rec then
-                    recipes = recipes + 1 -- counted even when Missing is hidden: it still needs learning
+                if rec and not isKnown then
+                    toLearn = toLearn + 1 -- breadcrumb: unlearned count, independent of the toggle
+                end
+                if rec and (isKnown and not missingOnly or not isKnown) then
+                    -- Zero-source recipes ALWAYS show (owner: a player hunting a
+                    -- recipe must find it and see why it has no source).
                     if #rec.sources == 0 then
-                        if f.showMissing() then
-                            out[#out + 1] = { item = item, source = UNSPEC_SOURCE, lines = rec.lines }
-                        end
+                        out[#out + 1] = { item = item, source = UNSPEC_SOURCE, lines = rec.lines, known = isKnown }
                     else
                         for _, s in ipairs(rec.sources) do
                             if s.zones and #s.zones > 0 then
                                 for _, z in ipairs(s.zones) do
-                                    out[#out + 1] = { item = item, source = s, zone = z, lines = rec.lines }
+                                    out[#out + 1] = { item = item, source = s, zone = z, lines = rec.lines, known = isKnown }
                                 end
                             else
-                                out[#out + 1] = { item = item, source = s, lines = rec.lines }
+                                out[#out + 1] = { item = item, source = s, lines = rec.lines, known = isKnown }
                             end
                         end
                     end
                 end
             end
         end
-        out.recipeCount = recipes
+        out.recipeCount = toLearn
         return out
     end)
 
@@ -92,7 +98,7 @@ function Study.buildModel(deps)
         for _, e in ipairs(entries()) do
             local s = e.source
             if not kind or (s.kind == kind and (not zone or e.zone == zone)) then
-                out[#out + 1] = { item = e.item, source = s, zone = e.zone, lines = e.lines }
+                out[#out + 1] = { item = e.item, source = s, zone = e.zone, lines = e.lines, known = e.known }
             end
         end
         table.sort(out, function(a, b)
