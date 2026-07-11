@@ -60,12 +60,14 @@ ns.LayoutConfig.recipes = {
         { at = { col = 1, row = 1 }, child = {
             type = "stack", dir = "row", gap = "sm", align = "center", children = {
                 { type = "item", id = "rcpSearch", grow = true, size = { h = 18 } },
-                -- Mechanical filters (layer on top of any category selection):
+                -- Recipe-state filters (knowledge-domain ruling 2026-07-11:
+                -- the Workbench is RECIPE knowledge; item-collection Missing
+                -- lives in the Showroom only):
                 { type = "item", id = "craftablePill", size = { w = 90, h = 18 } },
                 { type = "item", id = "skillUpPill",   size = { w = 90, h = 18 } },
-                -- Category selector (Showroom parity) + Missing-within-category:
+                { type = "item", id = "unlearnedPill", size = { w = 90, h = 18 } },
+                -- Output-type selector (a recipe attribute):
                 { type = "item", id = "kindToggle",    size = { w = 300, h = 18 } },
-                { type = "item", id = "missingPill",   size = { w = 90, h = 18 } },
             },
         } },
         { at = { col = 1, row = 2 }, child = { type = "item", id = "profTabBar" } },

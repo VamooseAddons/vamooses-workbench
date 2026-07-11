@@ -1,12 +1,12 @@
 -- ============================================================================
 -- VWB Workbench (Recipes) - VIEW / controller. Slice: FULL FILTER SURFACE.
 -- ============================================================================
--- The flagship crafting tab's left side, wired to real data: profession tab
--- bar (RecipeQuery:GetProfessions) + category selector (All/Transmog/Pet/
--- Mount/Decor, Showroom parity) with Missing-within-category + independent
--- Craftable/Skill-Up pills + an expansion/category nav tree all feed ONE
--- shared filteredBase computed (GetFiltered for the mechanical filters,
--- Collectibles kind chain for the collection scoping). Recipe rows
+-- The flagship crafting tab's left side, wired to real data. This tab is
+-- RECIPE knowledge (knowledge-domain ruling 2026-07-11: Workbench = what can
+-- I make; Showroom = what do I want to own; Stockroom = what do I hold):
+-- profession tab bar + output-type selector (All/Decor/Transmog/Mount/Pet)
+-- + recipe-state pills (Craftable / Skill-Up / Unlearned-by-scoped-char) +
+-- an expansion/category nav tree all feed ONE shared filteredBase computed. Recipe rows
 -- show icon / name / up to CHIP_MAX status chips (Ready / short N /
 -- uncollected / new mog / alt-known), a hover tooltip (known-by, appearance,
 -- short mats, guild crafters), and click-to-queue (also pushes the MRU
@@ -243,29 +243,30 @@ end
 -- FILTER / CHIP / NAV HELPERS (pure -- safe to call from a Reactor computed)
 -- ============================================================================
 
--- Category + Missing filter (refactor 2026-07-11: same model as the Showroom).
--- kindMode is a Showroom-style category selector (all|transmog|pet|mount|decor)
--- classified through the Collectibles canonical chain (decor -> transmog ->
--- mount -> pet, cold-safe memoization); Missing applies WITHIN the selected
--- category (kind=all + Missing = any uncollected collectible). Craftable and
--- Skill-Up are independent mechanical filters layered on top. The old model
--- (Transmog pill + All|Decor toggle + RecipeQuery kind flags) is gone.
--- Decor's cold-catalog nil fails honest and the list effect's empty state
--- surfaces the "open the housing catalog" message -- the category is never
--- disabled.
+-- KNOWLEDGE-DOMAIN split (owner ruling 2026-07-11 night): the Workbench is
+-- RECIPE knowledge (what can I make -- known/unlearned/craftable/skill-up,
+-- keyed by recipeID, scoped by character); the Showroom is ITEM/collection
+-- knowledge (what do I want to own -- collected/missing, keyed by itemID).
+-- So this bar's filters are recipe-state filters:
+--   kindMode  = the recipe's OUTPUT TYPE (all|decor|transmog|mount|pet) --
+--               a recipe attribute, classified through the Collectibles
+--               canonical chain; never disabled (cold catalog surfaces the
+--               honest empty state instead).
+--   Unlearned = recipes the SCOPED character does not know (Blizzard's
+--               tradeskill vocabulary). Item-collection "Missing" lives in
+--               the Showroom ONLY -- it was briefly here and made the two
+--               tabs answer the same question with different numbers.
+-- Craftable and Skill-Up remain independent mechanical filters on top.
 local KIND_SEGMENTS = {
     { key = "all", label = "All" }, { key = "decor", label = "Decor" },
     { key = "transmog", label = "Transmog" }, { key = "mount", label = "Mount" },
     { key = "pet", label = "Pet" },
 }
 
-local function passesKindAndMissing(itemID, kind, missing)
-    if kind == "all" and not missing then return true end
-    if not itemID then return false end -- no output item (enchants/writs): never a collectible
-    local k = ns.Collectibles:ClassifyKind(itemID)
-    if kind ~= "all" and k ~= kind then return false end
-    if missing then return ns.Collectibles:IsUncollectedCollectible(itemID) end
-    return true
+local function passesKind(itemID, kind)
+    if kind == "all" then return true end
+    if not itemID then return false end -- no output item (enchants/writs): no output type to match
+    return ns.Collectibles:ClassifyKind(itemID) == kind
 end
 
 -- Chip specs by priority (capped CHIP_MAX): Ready > short N > uncollected >
@@ -425,7 +426,7 @@ function Recipes.buildView(container)
     local kindMode = R.signal("all") -- category selector: all|transmog|pet|mount|decor (Showroom parity)
     local canCraftOnly = R.signal(false)
     local skillUpOnly = R.signal(false)
-    local missingPill = R.signal(false) -- Missing WITHIN the selected category
+    local unlearnedPill = R.signal(false) -- recipe knowledge: not known by the scoped character
     -- Collection events bump VWB.Collectibles.CollectionEpoch() (one owner, Collectibles.lua).
     -- Views read CollectionEpoch() as a reactive signal; no view-local epoch needed.
 
@@ -456,17 +457,17 @@ function Recipes.buildView(container)
         if not prof then return {} end
 
         local kind = kindMode()
-        local missing = missingPill()
-        -- Collection + item-record state live outside the Store: subscribe
-        -- both epochs while any collection-scoped filter is active --
-        -- collects flip answers, and a broker record landing can flip an
-        -- item's classification (ClassifyKind/IsUnknown read latches).
-        if kind ~= "all" or missing then
+        local unlearned = unlearnedPill()
+        -- Output-type classification lives outside the Store: subscribe the
+        -- epochs while the type filter is scoped -- a broker record landing
+        -- or a decor reconcile can flip an item's classification.
+        if kind ~= "all" then
             VWB.Collectibles.CollectionEpoch()
             VWB.ItemData.changedEpoch()
         end
         local cco = canCraftOnly()
         if cco then ns.Store:Version("crafting") end
+        local me = effectiveCharKey()
         local q = search()
         local results = ns.RecipeQuery:GetFiltered({
             collapseRanks = true,
@@ -475,12 +476,17 @@ function Recipes.buildView(container)
             canCraftOnly = cco,
             skillUpOnly = skillUpOnly(),
         })
-        if kind == "all" and not missing then return results end
-        -- Category/Missing post-filter, applied HERE so list rows and nav
-        -- counts stay in step (navSections groups this same array).
+        if kind == "all" and not unlearned then return results end
+        -- Output-type / Unlearned post-filter, applied HERE so list rows and
+        -- nav counts stay in step (navSections groups this same array).
+        -- Unlearned = recipe knowledge (not known by the SCOPED character;
+        -- the "alt" chip still marks known-elsewhere), NOT item collection.
         local out = {}
         for _, e in ipairs(results) do
-            if passesKindAndMissing(e.recipe.itemID, kind, missing) then out[#out + 1] = e end
+            if passesKind(e.recipe.itemID, kind)
+                and (not unlearned or not ns.KnownRecipes:IsKnownBy(e.recipeID, me)) then
+                out[#out + 1] = e
+            end
         end
         return out
     end)
@@ -545,8 +551,8 @@ function Recipes.buildView(container)
                 segments = KIND_SEGMENTS, default = "all",
                 onSelect = function(key) kindMode(key) end,
             })
-        elseif node.id == "missingPill" then
-            return ns.UI:CreateFilterPill(parent, "Missing", function(checked) missingPill(checked and true or false) end)
+        elseif node.id == "unlearnedPill" then
+            return ns.UI:CreateFilterPill(parent, "Unlearned", function(checked) unlearnedPill(checked and true or false) end)
         elseif node.id == "rcpNavLabel" then
             local f = ns.ViewKit.roleLabel(node, parent)
             -- Expand-all / collapse-all: one button that flips whichever state
@@ -972,18 +978,17 @@ function Recipes.buildView(container)
             emptyCard.button:Show()
             emptyCard:Show()
         elseif #list == 0 then
-            -- Cold-catalog: when the Missing pill is on (or Decor type is active)
-            -- and the housing catalog hasn't been loaded, decor rows are excluded
-            -- not because they're collected but because ownership is unknown.
+            -- Cold-catalog: when the Decor output type is active and the
+            -- housing catalog hasn't been loaded, decor rows are excluded not
+            -- because they don't exist but because classification is unknown.
             -- Surface the honest message rather than letting the list go silently empty.
             -- exception(boundary): IsCatalogCold checks Blizzard housing catalog state.
-            local decorInScope = kindMode() == "decor" or missingPill()
-            if decorInScope and ns.DecorOwnership:IsCatalogCold() then
+            if kindMode() == "decor" and ns.DecorOwnership:IsCatalogCold() then
                 emptyCard.title:SetText("Housing catalog not loaded")
                 emptyCard.body:SetText("Open the housing catalog once this session, then come back.")
-            elseif missingPill() then
-                emptyCard.title:SetText("Nothing left to collect here")
-                emptyCard.body:SetText("You have everything -- or no craftable collectibles match the current filters.")
+            elseif unlearnedPill() then
+                emptyCard.title:SetText("Nothing left to learn here")
+                emptyCard.body:SetText("This character knows every matching recipe -- switch character scope in the Roster to plan an alt.")
             else
                 emptyCard.title:SetText("Nothing matches")
                 emptyCard.body:SetText("Try loosening a filter or clearing your search.")
