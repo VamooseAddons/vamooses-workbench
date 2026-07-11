@@ -39,6 +39,13 @@ StaticPopupDialogs["VWB_REMOVE_PROJECT"] = {
     timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
 }
 
+StaticPopupDialogs["VWB_REMOVE_PIECE"] = {
+    text = "Remove piece '%s'?",
+    button1 = "Remove", button2 = "Cancel",
+    OnAccept = function(self, d) VWB.Store:Dispatch("REMOVE_PIECE", { projectId = d.projectId, pieceId = d.pieceId }) end,
+    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
+
 -- ============================================================================
 -- Project card (pooled via VWB.UI:AcquireRow on the horizontal strip)
 -- ============================================================================
@@ -510,17 +517,20 @@ function Projects.buildView(container)
         return nil -- exception(nullable): selection outlived its project (removed)
     end)
 
-    -- Piece drill-in (Commissions v2): the Plan panel is two states -- A =
-    -- the selected project's PIECES list, B = one piece's step list. A
-    -- single-piece project locks to State B (v1 behavior preserved).
-    local selectedPiece = R.signal(nil) -- 1-based piece index, nil = State A
+    -- Universal piece SELECTION (design-lab E): the tree shows everything;
+    -- selecting a piece (by stable id -- v3 entities) scopes Materials and
+    -- the queue buttons to it. nil = whole commission.
+    local selectedPiece = R.signal(nil) -- pieceId or nil
     local function effectivePiece(e)
         if not e then return nil end
-        if #e.p.pieces == 1 then return 1 end
-        local i = selectedPiece()
-        if i and e.p.pieces[i] then return i end
+        local id = selectedPiece()
+        if id == nil then return nil end
+        for i, pc in ipairs(e.p.pieces) do
+            if pc.id == id then return i end -- plan arrays stay index-parallel to pieces
+        end
         return nil
     end
+    local expandCollapsed = R.signal({}) -- [pieceId] = true when collapsed (default: expanded)
     local addPieceTarget = R.signal(nil) -- projectId the picker adds pieces to (nil = picker creates new stock projects)
 
     -- consumables matching the new-stock search (name match over the harvested corpus)
@@ -544,7 +554,7 @@ function Projects.buildView(container)
     -- below supplies only the LEAVES: rail scroll host, the lists, the
     -- three buttons. Overlays (empty card, new-stock picker) anchor over the
     -- container -- the only genuinely view-managed chrome left.
-    local stripScroll, stripContent, emptyCard, stepsList, piecesList, matsList, nsPanel
+    local stripScroll, stripContent, emptyCard, stepsList, matsList, nsPanel
 
     -- compact picker: search the harvested corpus, click = track at par 20.
     -- Overlay anchored over the container, above the board panels.
@@ -676,60 +686,105 @@ function Projects.buildView(container)
             end)
             return btn
         elseif node.id == "prjSteps" then
+            -- THE TREE (design-lab E): one mixed-row list -- piece headers
+            -- with their executable steps beneath. No drill-in, no back
+            -- button; the tasks are always visible (owner ruling).
             local host = CreateFrame("Frame", nil, parent)
             stepsList = VWB.UI:CreateVirtualizedList(host, {
-                rowHeight = 26, rowTemplate = stepRowTemplate, updateRow = paintStepRow, onRowEnter = onStepRowEnter,
-            })
-            -- State A list: the selected commission's pieces (own list widget
-            -- over the same host; the detail effect shows exactly one).
-            piecesList = VWB.UI:CreateVirtualizedList(host, {
                 rowHeight = 26,
                 rowTemplate = function(f)
-                    f.icon = f:CreateTexture(nil, "ARTWORK"); f.icon:SetSize(18, 18); f.icon:SetPoint("LEFT", 4, 0)
-                    f.status = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-                    f.status:SetPoint("RIGHT", -6, 0); f.status:SetWidth(150); f.status:SetJustifyH("RIGHT")
-                    f.status:SetWordWrap(false); f.status:SetMaxLines(1)
-                    f.name = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                    f.name:SetPoint("LEFT", f.icon, "RIGHT", 6, 0)
-                    f.name:SetPoint("RIGHT", f.status, "LEFT", -8, 0)
-                    f.name:SetJustifyH("LEFT"); f.name:SetWordWrap(false); f.name:SetMaxLines(1)
+                    stepRowTemplate(f) -- the step widgets (chip/name/who/queued/action)
+                    -- header widgets overlay the same pooled frame. Expand and
+                    -- remove are child BUTTONS: they capture their own clicks
+                    -- before the row's select handler.
+                    f.hExpand = CreateFrame("Button", nil, f)
+                    f.hExpand:SetSize(18, 22); f.hExpand:SetPoint("LEFT", 2, 0)
+                    f.hExpand.txt = f.hExpand:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                    f.hExpand.txt:SetPoint("CENTER")
+                    f.hExpand:SetScript("OnClick", function(self)
+                        local r = f.data
+                        local nxt = {}
+                        for k, v in pairs(expandCollapsed()) do nxt[k] = v end
+                        if nxt[r.piece.id] then nxt[r.piece.id] = nil else nxt[r.piece.id] = true end
+                        expandCollapsed(nxt)
+                    end)
+                    f.hIcon = f:CreateTexture(nil, "ARTWORK"); f.hIcon:SetSize(18, 18)
+                    f.hIcon:SetPoint("LEFT", 22, 0)
+                    f.hStatus = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    f.hStatus:SetPoint("RIGHT", -24, 0); f.hStatus:SetWidth(150); f.hStatus:SetJustifyH("RIGHT")
+                    f.hStatus:SetWordWrap(false); f.hStatus:SetMaxLines(1)
+                    f.hName = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                    f.hName:SetPoint("LEFT", f.hIcon, "RIGHT", 6, 0)
+                    f.hName:SetPoint("RIGHT", f.hStatus, "LEFT", -8, 0)
+                    f.hName:SetJustifyH("LEFT"); f.hName:SetWordWrap(false); f.hName:SetMaxLines(1)
+                    f.hRemove = CreateFrame("Button", nil, f)
+                    f.hRemove:SetSize(16, 22); f.hRemove:SetPoint("RIGHT", -4, 0)
+                    f.hRemove.txt = f.hRemove:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    f.hRemove.txt:SetPoint("CENTER"); f.hRemove.txt:SetText("x")
+                    f.hRemove:SetScript("OnClick", function()
+                        local r = f.data
+                        StaticPopup_Show("VWB_REMOVE_PIECE", r.name, nil,
+                            { projectId = r.projectId, pieceId = r.piece.id })
+                    end)
                 end,
-                updateRow = function(row, pr)
+                updateRow = function(row, r)
                     local s = VWB.UI:GetScheme()
-                    if pr.addRow then
-                        row.icon:SetTexture("Interface\\Buttons\\UI-PlusButton-Up")
-                        row.name:SetText("Add piece...")
-                        row.name:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
-                        row.status:SetText("")
+                    local isHdr = r.pieceHdr or r.addRow
+                    -- one pooled frame serves three row kinds: hide the other set
+                    row.chip:SetShown(not isHdr); row.name:SetShown(not isHdr)
+                    row.who:SetShown(not isHdr); row.queued:SetShown(not isHdr)
+                    row.action:SetShown(false)
+                    row.hExpand:SetShown(r.pieceHdr or false); row.hIcon:SetShown(isHdr or false)
+                    row.hName:SetShown(isHdr or false); row.hStatus:SetShown(r.pieceHdr or false)
+                    row.hRemove:SetShown((r.pieceHdr and r.removable) or false)
+                    if r.addRow then
+                        row.hIcon:SetTexture("Interface\\Buttons\\UI-PlusButton-Up")
+                        row.hName:SetText("Add piece...")
+                        row.hName:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
                         return
                     end
-                    row.icon:SetTexture((pr.piece.itemID and C_Item.GetItemIconByID(pr.piece.itemID)) or ICON_FALLBACK)
-                    row.name:SetText(pr.name)
-                    row.name:SetTextColor(1, 1, 1)
-                    local pp = pr.piecePlan
-                    if pp.status == "complete" then
-                        row.status:SetText("done")
-                        row.status:SetTextColor(s.success.r, s.success.g, s.success.b)
-                    elseif pr.piece.kind == "stock" then
-                        row.status:SetText(string.format("par %d -- %d on hand", pp.par or 1, pp.level or 0))
-                        row.status:SetTextColor((pp.status == "dormant" and s.success or s.warning).r,
-                            (pp.status == "dormant" and s.success or s.warning).g,
-                            (pp.status == "dormant" and s.success or s.warning).b)
-                    elseif pp.unresolved then
-                        row.status:SetText("recipe not scanned")
-                        row.status:SetTextColor(s.text.r, s.text.g, s.text.b)
-                    else
-                        row.status:SetText(string.format("%d/%d steps", pp.done, pp.total))
-                        row.status:SetTextColor(s.text.r, s.text.g, s.text.b)
+                    if r.pieceHdr then
+                        row.hExpand.txt:SetText(r.expanded and "-" or "+")
+                        row.hExpand.txt:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
+                        row.hIcon:SetTexture((r.piece.itemID and C_Item.GetItemIconByID(r.piece.itemID)) or ICON_FALLBACK)
+                        row.hName:SetText(r.name)
+                        if r.selected then
+                            row.hName:SetTextColor(s.warning.r, s.warning.g, s.warning.b)
+                        else
+                            row.hName:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
+                        end
+                        row.hRemove.txt:SetTextColor(s.error.r, s.error.g, s.error.b)
+                        local pp = r.piecePlan
+                        if pp.status == "complete" then
+                            row.hStatus:SetText("done"); row.hStatus:SetTextColor(s.success.r, s.success.g, s.success.b)
+                        elseif r.piece.kind == "stock" then
+                            local c = pp.status == "dormant" and s.success or s.warning
+                            row.hStatus:SetText(string.format("par %d -- %d on hand", pp.par or 1, pp.level or 0))
+                            row.hStatus:SetTextColor(c.r, c.g, c.b)
+                        elseif pp.unresolved then
+                            row.hStatus:SetText("recipe not scanned"); row.hStatus:SetTextColor(s.text.r, s.text.g, s.text.b)
+                        else
+                            row.hStatus:SetText(string.format("%d/%d steps", pp.done, pp.total))
+                            row.hStatus:SetTextColor(s.text.r, s.text.g, s.text.b)
+                        end
+                        row:SetAlpha(1)
+                        return
+                    end
+                    paintStepRow(row, r)
+                    if not r._canWork then row.action:SetShown(false) end -- ruling 6A: execution is Active-only
+                    row:SetAlpha(r._dim and 0.45 or 1)
+                end,
+                onRowClick = function(r)
+                    if r.addRow then
+                        addPieceTarget(r.projectId)
+                        newStockOpen(true)
+                    elseif r.pieceHdr then
+                        -- body click = SELECT toggle (expand/remove are child buttons)
+                        selectedPiece(selectedPiece() == r.piece.id and nil or r.piece.id)
                     end
                 end,
-                onRowClick = function(pr)
-                    if pr.addRow then
-                        addPieceTarget(pr.projectId)
-                        newStockOpen(true)
-                    else
-                        selectedPiece(pr.index)
-                    end
+                onRowEnter = function(r, rowFrame)
+                    if not r.pieceHdr and not r.addRow then onStepRowEnter(r, rowFrame) end
                 end,
             })
             return host
@@ -778,28 +833,38 @@ function Projects.buildView(container)
         return e, i, i and e.plan.pieces[i] or e.plan
     end
 
-    -- Back link out of the piece drill (only meaningful on multi-piece
-    -- commissions; single-piece locks to State B, v1 behavior).
-    local backBtn = VWB.UI:CreateButton(handle.byId.prjPlanLabel:GetParent(), "< Pieces", 70, 18) -- inside the view tree, never the shared container (cross-tab leak)
-    backBtn:SetPoint("BOTTOMLEFT", handle.byId.prjPlanLabel, "BOTTOMLEFT", 0, 0)
-    backBtn:SetFrameLevel(handle.byId.prjPlanLabel:GetFrameLevel() + 5)
-    backBtn:SetScript("OnClick", function() selectedPiece(nil) end)
-    R.bindShown(backBtn, function()
-        local e = selectedEntry()
-        return (e and #e.p.pieces > 1 and effectivePiece(e) ~= nil) or false
-    end)
+    -- Piece-filter clear (the tree replaces the drill-in; selection only
+    -- SCOPES, so the exit is one visible button). Inside the view tree,
+    -- never the shared container (cross-tab leak class).
+    local clearBtn = VWB.UI:CreateButton(handle.byId.prjPlanLabel:GetParent(), "Show all pieces", 110, 18)
+    clearBtn:SetPoint("RIGHT", handle.byId.prjQueueBtn, "LEFT", -8, 0)
+    clearBtn:SetScript("OnClick", function() selectedPiece(nil) end)
+    R.bindShown(clearBtn, function() return selectedPiece() ~= nil end)
 
     R.bindText(handle.byId.prjPlanLabel.label, function()
-        local e, i = currentScope()
+        local e = selectedEntry()
         if not e then return "Plan" end -- exception(nullable): no selection
+        local txt = string.format("%s  (%d/%d done)", e.p.name, e.plan.done, e.plan.total)
+        local i = effectivePiece(e)
         if i then
-            local pc = e.p.pieces[i]
-            local name = liveName(pc.itemID, pc.name)
-            if #e.p.pieces > 1 then return "        " .. name end -- indented past the back button
-            return name
+            txt = txt .. "  --  " .. liveName(e.p.pieces[i].itemID, e.p.pieces[i].name) .. " only"
         end
-        return string.format("Pieces  (%d/%d done)", e.plan.done, e.plan.total)
+        if e.p.status == "backlog" then
+            txt = txt .. "   " .. ns.UI:ColorCode("yellow") .. "Backlog -- move to Active to work it|r"
+        elseif e.p.status == "done" then
+            txt = txt .. "   " .. ns.UI:ColorCode("green") .. "Done|r"
+        end
+        return txt
     end)
+
+    -- Ruling 6A: execution is Active-only -- the same rule the reducer
+    -- enforces, rendered as disabled bulk buttons.
+    R.effect(function()
+        local e = selectedEntry()
+        local can = (e ~= nil and e.p.status == "bench") or false
+        handle.byId.prjQueueBtn:SetEnabled(can)
+        handle.byId.prjBuysBtn:SetEnabled(can)
+    end, "projects:workGate")
 
     R.bindText(handle.byId.prjMatsLabel.label, function()
         local e, _, scope = currentScope()
@@ -874,7 +939,7 @@ function Projects.buildView(container)
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled step/mat rows on switch
         ns.Store:Version("crafting") -- queue edits repaint the "queued xN" step chips
-        local e, pieceIdx, scope = currentScope()
+        local e, _, scope = currentScope()
         -- Names resolve through nameRes INSIDE this tracked effect: a cold row
         -- subscribes its key, and the load result re-runs the effect with the
         -- real name -- no manual re-derive plumbing.
@@ -884,29 +949,37 @@ function Projects.buildView(container)
         end
         matsList:SetData(mats)
 
-        if e and pieceIdx then -- State B: one piece's step list
-            piecesList:Hide()
-            local steps = {}
-            for i, st in ipairs(scope.steps) do steps[i] = withLiveName(st) end
-            stepsList:SetData(steps)
-            stepsList:Show()
-        elseif e then -- State A: the commission's pieces
-            stepsList:Hide()
-            local rows = {}
+        -- THE TREE: piece headers with their steps beneath, in ONE list.
+        -- Step rows are always fresh copies (the derived plan rows are shared
+        -- computed values -- never mutate them with row-local flags).
+        local rows = {}
+        if e then
+            local canWork = e.p.status == "bench"
+            local collapsed = expandCollapsed()
+            local selId = selectedPiece()
+            local removable = e.p.status ~= "done" -- sealed
             for i, pc in ipairs(e.p.pieces) do
-                rows[i] = { index = i, piece = pc, piecePlan = e.plan.pieces[i],
-                    name = liveName(pc.itemID, pc.name) }
+                local pp = e.plan.pieces[i]
+                local expanded = not collapsed[pc.id]
+                rows[#rows + 1] = { pieceHdr = true, piece = pc, piecePlan = pp,
+                    name = liveName(pc.itemID, pc.name), expanded = expanded,
+                    selected = selId == pc.id, removable = removable, projectId = e.p.id }
+                if expanded then
+                    for _, st in ipairs(pp.steps) do
+                        local r = {}
+                        for k, v in pairs(st) do r[k] = v end
+                        r.name = liveName(st.itemID, st.name)
+                        r._canWork = canWork
+                        r._dim = selId ~= nil and selId ~= pc.id
+                        rows[#rows + 1] = r
+                    end
+                end
             end
             if #e.p.pieces < VWB.Constants.Projects.MAX_PIECES and e.p.status ~= "done" then
                 rows[#rows + 1] = { addRow = true, projectId = e.p.id }
             end
-            piecesList:SetData(rows)
-            piecesList:Show()
-        else
-            stepsList:SetData({})
-            piecesList:Hide()
-            stepsList:Show()
         end
+        stepsList:SetData(rows)
     end, "projects:detail")
 
     return handle
