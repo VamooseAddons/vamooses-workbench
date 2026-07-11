@@ -418,6 +418,9 @@ end
 -- Materials rows
 -- ============================================================================
 
+-- The right panel is SOURCES / MATERIALS (owner 2026-07-12): one mixed list
+-- -- mat rows, dim section/piece headers, and full-width acquisition source
+-- lines for study pieces (their supporting detail is WHERE, not what-mats).
 local function matRowTemplate(frame)
     frame.name = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     frame.name:SetPoint("LEFT", 4, 0); frame.name:SetWidth(170); frame.name:SetJustifyH("LEFT"); frame.name:SetWordWrap(false)
@@ -429,10 +432,26 @@ local function matRowTemplate(frame)
     frame.price:SetPoint("LEFT", frame.count, "RIGHT", 4, 0)
     frame.price:SetPoint("RIGHT", -4, 0)
     frame.price:SetJustifyH("RIGHT"); frame.price:SetWordWrap(false); frame.price:SetMaxLines(1)
+    -- full-width line for source rows / headers (raw colored sourceText)
+    frame.line = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.line:SetPoint("LEFT", 4, 0); frame.line:SetPoint("RIGHT", -4, 0)
+    frame.line:SetJustifyH("LEFT"); frame.line:SetWordWrap(false); frame.line:SetMaxLines(1)
 end
 
 local function paintMatRow(row, m)
     local s = VWB.UI:GetScheme()
+    local isLine = m.kind == "hdr" or m.kind == "src"
+    row.name:SetShown(not isLine); row.count:SetShown(not isLine); row.price:SetShown(not isLine)
+    row.line:SetShown(isLine)
+    if m.kind == "hdr" then
+        row.line:SetText(m.label)
+        row.line:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
+        return
+    elseif m.kind == "src" then
+        row.line:SetText(m.line)
+        row.line:SetTextColor(1, 1, 1) -- sourceText carries its own embedded colors
+        return
+    end
     row.name:SetText(m.name)
     row.count:SetText(m.owned .. "/" .. m.required)
     if m.missing == 0 then
@@ -877,11 +896,14 @@ function Projects.buildView(container)
 
     R.bindText(handle.byId.prjMatsLabel.label, function()
         local e, _, scope = currentScope()
-        if not e then return "Materials" end -- exception(nullable): no selection
+        if not e then return "Sources / Materials" end -- exception(nullable): no selection
         if scope.buyCost > 0 then
-            return string.format("Materials  (%d short, %s)", scope.matsShort, VWB.UI:FormatMoney(scope.buyCost))
+            return string.format("Sources / Materials  (%d short, %s)", scope.matsShort, VWB.UI:FormatMoney(scope.buyCost))
         end
-        return string.format("Materials  (%d short)", scope.matsShort)
+        if scope.matsShort > 0 then
+            return string.format("Sources / Materials  (%d short)", scope.matsShort)
+        end
+        return "Sources / Materials"
     end)
 
     -- title carries the board summary
@@ -948,13 +970,39 @@ function Projects.buildView(container)
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled step/mat rows on switch
         ns.Store:Version("crafting") -- queue edits repaint the "queued xN" step chips
-        local e, _, scope = currentScope()
+        local e, pieceIdx, scope = currentScope()
         -- Names resolve through nameRes INSIDE this tracked effect: a cold row
         -- subscribes its key, and the load result re-runs the effect with the
         -- real name -- no manual re-derive plumbing.
+        -- SOURCES / MATERIALS: mats first (actionable now), then per-piece
+        -- acquisition source blocks for the scope's study pieces.
         local mats = {}
         if e then
-            for i, m in ipairs(scope.mats) do mats[i] = withLiveName(m) end
+            for _, m in ipairs(scope.mats) do mats[#mats + 1] = withLiveName(m) end
+            local pieceRange = pieceIdx and { e.p.pieces[pieceIdx] } or e.p.pieces
+            local blocks = {}
+            for _, pc in ipairs(pieceRange) do
+                if pc.kind == "study" and not pc.completedAt then
+                    local desc = VWB.RecipeSources.Describe(pc.recipeID)
+                    if desc and #desc.lines > 0 then
+                        blocks[#blocks + 1] = { pc = pc, lines = desc.lines }
+                    end
+                end
+            end
+            if #blocks > 0 then
+                if #mats > 0 then
+                    table.insert(mats, 1, { kind = "hdr", label = "Materials" })
+                    mats[#mats + 1] = { kind = "hdr", label = "Sources" }
+                end
+                for _, b in ipairs(blocks) do
+                    if #blocks > 1 then
+                        mats[#mats + 1] = { kind = "hdr", label = liveName(b.pc.itemID, b.pc.name) }
+                    end
+                    for _, ln in ipairs(b.lines) do
+                        mats[#mats + 1] = { kind = "src", line = ln }
+                    end
+                end
+            end
         end
         matsList:SetData(mats)
 
