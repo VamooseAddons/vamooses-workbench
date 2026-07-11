@@ -44,6 +44,7 @@ Modules\RecipeHarvest.lua
 Modules\KnownRecipes.lua
 Modules\RecipeQuery.lua
 Modules\RecipeSources.lua
+Modules\NpcCoords.lua
 Modules\ProfAchievements.lua
 Modules\Graph.lua
 Modules\AHScan.lua

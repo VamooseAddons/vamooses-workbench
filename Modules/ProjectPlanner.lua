@@ -181,7 +181,8 @@ function P:DerivePiecePlan(piece)
             for _, s in ipairs(desc.sources) do
                 plan.steps[#plan.steps + 1] = { kind = "LEARN",
                     name = s.kind .. (s.detail and (": " .. s.detail) or ""),
-                    zone = s.zone, cost = s.cost, faction = s.faction }
+                    zone = s.zone, cost = s.cost, faction = s.faction,
+                    recipeID = piece.recipeID } -- the waypoint bridge keys on the recipe
             end
         end
         plan.total, plan.done = 1, 0

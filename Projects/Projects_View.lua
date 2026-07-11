@@ -301,6 +301,9 @@ local function stepRowTemplate(frame)
         elseif st.kind == "BLOCKED" then
             local sent, info = VWB.GuildCrafters:WhisperCrafter(st.recipeID)
             VWB.Log:Print(sent and ("Asked " .. info) or info)
+        elseif st.kind == "LEARN" then
+            local pin = VWB.NpcCoords.ForRecipe(st.recipeID)
+            if pin then VWB.NpcCoords.Waypoint(pin, st.name) end -- exception(nullable): button only shows when the pin resolved
         end
     end)
 
@@ -351,7 +354,11 @@ local function paintStepRow(row, st)
         if st.kind == "LEARN" then -- a source, not a quantity
             row.name:SetText(st.name)
             row.who:SetText(st.zone or "")
-            row.action:SetShown(false)
+            -- ATT bridge: waypoint the vendor when ATT knows the pin (owner
+            -- ruling: bridge-only -- absence renders as no button, honestly)
+            local pin = VWB.NpcCoords.ForRecipe(st.recipeID)
+            row.action:SetText("Map")
+            row.action:SetShown(pin ~= nil)
             row.name:SetTextColor(1, 1, 1)
             return
         end
@@ -804,7 +811,9 @@ function Projects.buildView(container)
                         return
                     end
                     paintStepRow(row, r)
-                    if not r._canWork then row.action:SetShown(false) end -- ruling 6A: execution is Active-only
+                    -- ruling 6A gates EXECUTION only -- waypointing a LEARN
+                    -- source is research and stays live on Backlog commissions
+                    if not r._canWork and r.kind ~= "LEARN" then row.action:SetShown(false) end
                     row:SetAlpha(r._dim and 0.45 or 1)
                 end,
                 onRowClick = function(r)
