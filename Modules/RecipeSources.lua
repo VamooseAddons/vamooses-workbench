@@ -157,7 +157,11 @@ end
 local function pendingIDs()
     local ids = {}
     for recipeID in pairs(VWB.Database:GetAllRecipes()) do
-        if not VWB.KnownRecipes:IsKnown(recipeID) and not sources:hasKey(recipeID) then
+        -- TEMP(debug-dump 2026-07-11): known-skip disabled so the dump covers
+        -- the FULL corpus, not just unlearned. Restore the IsKnown filter
+        -- when the dump reverts (the view is unaffected either way -- the
+        -- model re-filters learned recipes at entry build).
+        if not sources:hasKey(recipeID) then
             ids[#ids + 1] = recipeID
         end
     end
