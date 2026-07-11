@@ -25,32 +25,41 @@ local function singleLine(fs)
     return fs
 end
 
--- Recipe criteria (type 34, assetID = recipe spellID) become commission
--- pieces; the criteria text carries the recipe name so pieces render even
--- when the recipe isn't harvested. Piece-level achievementID: ticks in ANY
--- commission (v3 multi-achievement ruling).
-local function buildCriteriaPieces(rec)
+-- PLANNABLE criteria become commission pieces: know-recipe (type 34,
+-- assetID = recipe spellID) and craft-item (type 29, assetID = itemID --
+-- "craft each of the following..." maps back to the harvested recipe).
+-- The criteria text carries the display name so pieces render even when
+-- the recipe is cold. Piece-level achievementID: ticks in ANY commission
+-- (v3 multi-achievement ruling). Skill/slay/count criteria stay
+-- non-plannable -- the disabled button's tooltip is the explanation.
+local function criteriaPiece(rec, ci, c)
     local AC = VWB.Constants.Achievements
+    if not c.assetID or c.assetID <= 0 then return nil end -- exception(boundary): progress-bar criteria carry assetID 0
+    if c.ctype == AC.CRITERIA_KNOW_RECIPE then
+        local r = VWB.Database:GetRecipe(c.assetID)
+        return { recipeID = c.assetID, itemID = r and r.itemID, name = c.text,
+            kind = "achievement", achievementID = rec.id, criteriaIndex = ci }
+    end
+    if c.ctype == AC.CRITERIA_CRAFT_ITEM then
+        local recipeID = VWB.Database:GetRecipeByItemID(c.assetID, true) -- exception(nullable): item not craftable/harvested -> not plannable
+        if recipeID then
+            return { recipeID = recipeID, itemID = c.assetID, name = c.text,
+                kind = "achievement", achievementID = rec.id, criteriaIndex = ci }
+        end
+    end
+    return nil
+end
+
+local function buildCriteriaPieces(rec)
     local pieces = {}
     for ci, c in ipairs(rec.criteria) do
-        if c.ctype == AC.CRITERIA_KNOW_RECIPE and c.assetID and c.assetID > 0 then
-            local r = VWB.Database:GetRecipe(c.assetID)
-            pieces[#pieces + 1] = { recipeID = c.assetID, itemID = r and r.itemID,
-                name = c.text, kind = "achievement",
-                achievementID = rec.id, criteriaIndex = ci }
+        local pc = criteriaPiece(rec, ci, c)
+        if pc then
+            pieces[#pieces + 1] = pc
             if #pieces >= VWB.Constants.Projects.MAX_PIECES then break end
         end
     end
     return pieces
-end
-
-local function countRecipeCriteria(rec)
-    local AC = VWB.Constants.Achievements
-    local n = 0
-    for _, c in ipairs(rec.criteria) do
-        if c.ctype == AC.CRITERIA_KNOW_RECIPE and c.assetID and c.assetID > 0 then n = n + 1 end
-    end
-    return n
 end
 
 local function listRowTemplate(frame)
@@ -64,7 +73,7 @@ local function listRowTemplate(frame)
             local rec = frame.data
             if not rec then return nil end -- exception(boundary): SetupMenu pre-generates at row-template creation, before any data row is bound
             return {
-                name = rec.name, count = countRecipeCriteria(rec),
+                name = rec.name, count = #buildCriteriaPieces(rec),
                 defaultStatus = "backlog", -- an import is an intention; promote when ready
                 source = { type = "achievement", id = rec.id },
                 pieces = function() return buildCriteriaPieces(rec) end,
@@ -189,7 +198,7 @@ function Achieve.buildView(container)
                     row.data = rec
                     row.icon:SetTexture(rec.icon)
                     row.track:SetShown(not rec.completed)
-                    row.track:SetEnabled(countRecipeCriteria(rec) > 0)
+                    row.track:SetEnabled(#buildCriteriaPieces(rec) > 0)
                     local name = rec.name
                     if rec.completed then name = ns.UI:ColorCode("green") .. name .. "|r" end
                     row.name:SetText(name)
