@@ -272,10 +272,12 @@ end
 -- Chip taxonomy (knowledge-domain ruling 2026-07-11): position 1 is ALWAYS
 -- the recipe-state chip -- exactly one of Ready / short N (known by the
 -- scoped character) | alt (known elsewhere on the account) | unlearned
--- (known by nobody scanned) -- then item-knowledge signals (uncollected /
--- new mog) fill to CHIP_MAX. "Ready"/"short N" gate on IsKnownBy (the scoped
--- character), never the blanket IsKnown -- an alt-only recipe must show
--- "alt", never a green Ready tick.
+-- (known by nobody scanned). Position 2 for alt/unlearned rows is the
+-- short-N HOLDINGS signal (planning ahead: learn the recipe, gather the
+-- mats -- owner ruling). Item-knowledge signals (uncollected / new mog)
+-- fill to CHIP_MAX after that. "Ready"/"short N-as-state" gate on IsKnownBy
+-- (the scoped character), never the blanket IsKnown -- an alt-only recipe
+-- must show "alt", never a green Ready tick.
 local function ComputeRecipeChips(item, c, currentCharKey)
     local specs = {}
     local recipeID, itemID = item.recipeID, item.itemID
@@ -304,8 +306,20 @@ local function ComputeRecipeChips(item, c, currentCharKey)
         specs[#specs + 1] = { label = "unlearned", r = c.accent.r, g = c.accent.g, b = c.accent.b }
     end
 
+    -- Holdings signal for PLANNING (owner ruling 2026-07-11: show short mats
+    -- even when the recipe is not known here -- "I may be planning to learn
+    -- the recipe and get the mats"). Known-here rows already carry it in the
+    -- state chip above; alt/unlearned rows get it as the second chip, ahead
+    -- of the item signals.
+    if not knownHere then
+        local shortCount = ns.Graph:CountShortMaterials(recipeID)
+        if shortCount > 0 then
+            specs[#specs + 1] = { label = "short " .. shortCount, r = c.warning.r, g = c.warning.g, b = c.warning.b }
+        end
+    end
+
     -- ITEM-knowledge signals (cross-domain "why craft this"); the cap keeps
-    -- the recipe-state chip plus the highest-priority item signal.
+    -- the recipe-state chip plus the highest-priority signal after it.
     if itemID and ns.DecorOwnership:IsUncollected(itemID) == true then
         specs[#specs + 1] = { label = "uncollected", r = c.accent.r, g = c.accent.g, b = c.accent.b }
     end
