@@ -86,11 +86,12 @@ end
 
 -- Craft steps from the Graph walk, deepest-first (= craft order). A recipe
 -- nobody on the account knows becomes a BLOCKED step (the Ask affordance).
-local function appendCraftSteps(project, graphSteps, out)
+-- pins is the owning PIECE's pin map (v2).
+local function appendCraftSteps(pins, graphSteps, out)
     table.sort(graphSteps, function(a, b) return a.depth > b.depth end)
     for _, s in ipairs(graphSteps) do
         local stepKey = tostring(s.recipeID)
-        local pin = project.pins and project.pins[stepKey]
+        local pin = pins and pins[stepKey]
         local who = pin or knowerKeys(s.recipeID)[1]
         if not who then
             -- Only when something is actually demanded: a "0x" blocked step
@@ -158,28 +159,31 @@ local function planProgress(plan, mats, crafts)
 end
 
 -- ============================================================================
--- DerivePlan(project) -> plan
+-- DerivePiecePlan(piece) -> piecePlan  (the v1 per-item plan, per PIECE)
 --   { status = "active"|"dormant"|"complete", steps = {stepKind rows...},
 --     mats = shoppingList, done, total, matsShort, buyCost,
 --     level/par (stock), unresolved (no recipe on file) }
+-- Completed pieces short-circuit BEFORE the Graph walk (perf ruling: a
+-- 20-piece achievement project in steady state must not re-walk done work).
 -- ============================================================================
 
-function P:DerivePlan(project)
+function P:DerivePiecePlan(piece)
     local plan = { steps = {}, mats = {}, matsShort = 0, buyCost = 0, done = 0, total = 0 }
+    if piece.completedAt then plan.status = "complete"; return plan end
 
     local qty
-    if project.kind == "stock" then
-        plan.level = self:StockLevel(project.itemID)
-        plan.par = project.par or 1
+    if piece.kind == "stock" then
+        plan.level = self:StockLevel(piece.itemID)
+        plan.par = piece.par or 1
         plan.status = plan.level >= plan.par and "dormant" or "active"
         qty = math.max(0, plan.par - plan.level)
     else
-        local collected = project.completedAt ~= nil or self:IsCollected(project.itemID) == true
+        local collected = self:IsCollected(piece.itemID) == true
         plan.status = collected and "complete" or "active"
         qty = 1
     end
 
-    local recipeID = project.recipeID or VWB.Database:GetRecipeByItemID(project.itemID, true)
+    local recipeID = piece.recipeID or VWB.Database:GetRecipeByItemID(piece.itemID, true)
     if not recipeID then
         plan.unresolved = true -- exception(nullable): recipe not harvested yet; plan is goal-only
         return plan
@@ -190,7 +194,7 @@ function P:DerivePlan(project)
     plan.mats = VWB.Graph:CalculateTotalMats(graphSteps)
 
     local crafts = {}
-    appendCraftSteps(project, graphSteps, crafts)
+    appendCraftSteps(piece.pins, graphSteps, crafts)
     appendMatSteps(plan, plan.mats, plan.steps)
     appendStageStep(plan.mats, crafts[#crafts] and crafts[#crafts].charKey, plan.steps)
     for _, s in ipairs(crafts) do plan.steps[#plan.steps + 1] = s end
@@ -200,23 +204,80 @@ function P:DerivePlan(project)
 end
 
 -- ============================================================================
+-- DerivePlan(project) -> project plan (v2: aggregates over piece plans)
+--   { status = "active"|"complete", pieces = { piecePlan... },
+--     done/total = PIECE counts, matsShort, buyCost, mats = merged list }
+-- Aggregate mats sum required/missing per item across pieces. KNOWN
+-- LIMITATION: each piece plan reads live owned counts independently, so two
+-- pieces sharing a reagent both claim the same stock (aggregate missing
+-- UNDER-counts). Self-corrects as crafts consume; per-piece plans (the
+-- queueing surface) are always honest.
+-- ============================================================================
+
+function P:DerivePlan(project)
+    local agg = { pieces = {}, mats = {}, matsShort = 0, buyCost = 0,
+        done = 0, total = #project.pieces }
+    local matsByItem, matOrder = {}, {}
+    for i, piece in ipairs(project.pieces) do
+        local pp = self:DerivePiecePlan(piece)
+        agg.pieces[i] = pp
+        if pp.status == "complete" then agg.done = agg.done + 1 end
+        agg.matsShort = agg.matsShort + pp.matsShort
+        agg.buyCost = agg.buyCost + pp.buyCost
+        for _, m in ipairs(pp.mats) do
+            local a = matsByItem[m.itemID]
+            if not a then
+                a = { itemID = m.itemID, name = m.name, required = 0, missing = 0, owned = m.owned }
+                matsByItem[m.itemID] = a
+                matOrder[#matOrder + 1] = a
+            end
+            a.required = a.required + m.required
+            a.missing = a.missing + m.missing
+        end
+    end
+    agg.mats = matOrder
+    agg.status = (project.completedAt or (agg.total > 0 and agg.done == agg.total)) and "complete" or "active"
+    return agg
+end
+
+-- ============================================================================
 -- Watchers: collect auto-complete + stock refill detection
 -- ============================================================================
 
-local prevBelowPar = {} -- [projectId] = true while a stock project sits below par
+local prevBelowPar = {} -- ["projectId:pieceIndex"] = true while a stock piece sits below par
 
--- B3: cheap early-return when there are no active projects of the relevant kind,
--- skipping the per-project IsCollected/GetItemCount API calls and any dispatches.
+-- Collection events sweep incomplete collect PIECES; a collected piece gets
+-- COMPLETE_PIECE, and a project whose every piece is now stamped gets
+-- COMPLETE_PROJECT (boundary-handler-driven promotion -- the R2/R3 ruling:
+-- never from a computed/effect). Stock pieces never stamp completedAt --
+-- they are perpetual par-keepers, so a project holding one stays active by
+-- design. B3 early-return keeps the no-collect-projects case free.
 local function sweepCollectCompletions()
     local items = VWB.Store:GetState().projects.items
     local hasActive = false
-    for _, p in ipairs(items) do
-        if p.kind == "collect" and not p.completedAt then hasActive = true; break end
+    for _, prj in ipairs(items) do
+        if not prj.completedAt then
+            for _, pc in ipairs(prj.pieces) do
+                if pc.kind == "collect" and not pc.completedAt then hasActive = true; break end
+            end
+        end
+        if hasActive then break end
     end
     if not hasActive then return end
-    for _, p in ipairs(items) do
-        if p.kind == "collect" and not p.completedAt and P:IsCollected(p.itemID) == true then
-            VWB.Store:Dispatch("COMPLETE_PROJECT", { id = p.id })
+    for _, prj in ipairs(items) do
+        if not prj.completedAt then
+            for i, pc in ipairs(prj.pieces) do
+                if pc.kind == "collect" and not pc.completedAt and P:IsCollected(pc.itemID) == true then
+                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
+                end
+            end
+            local allDone = #prj.pieces > 0
+            for _, pc in ipairs(prj.pieces) do
+                if not pc.completedAt then allDone = false; break end
+            end
+            if allDone then
+                VWB.Store:Dispatch("COMPLETE_PROJECT", { id = prj.id })
+            end
         end
     end
 end
@@ -224,17 +285,23 @@ end
 local function sweepStockRefills()
     local items = VWB.Store:GetState().projects.items
     local hasStock = false
-    for _, p in ipairs(items) do
-        if p.kind == "stock" then hasStock = true; break end
+    for _, prj in ipairs(items) do
+        for _, pc in ipairs(prj.pieces) do
+            if pc.kind == "stock" then hasStock = true; break end
+        end
+        if hasStock then break end
     end
     if not hasStock then return end
-    for _, p in ipairs(items) do
-        if p.kind == "stock" then
-            local below = P:StockLevel(p.itemID) < (p.par or 1)
-            if prevBelowPar[p.id] and not below then
-                VWB.Store:Dispatch("PROJECT_REFILLED", { id = p.id })
+    for _, prj in ipairs(items) do
+        for i, pc in ipairs(prj.pieces) do
+            if pc.kind == "stock" then
+                local key = prj.id .. ":" .. i
+                local below = P:StockLevel(pc.itemID) < (pc.par or 1)
+                if prevBelowPar[key] and not below then
+                    VWB.Store:Dispatch("PROJECT_REFILLED", { id = prj.id, pieceIndex = i })
+                end
+                prevBelowPar[key] = below or nil
             end
-            prevBelowPar[p.id] = below or nil
         end
     end
 end
