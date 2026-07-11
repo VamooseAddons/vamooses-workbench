@@ -57,7 +57,11 @@ local COVERAGE_PROFESSIONS = {
 }
 local COVERAGE_EXCLUDED = { Fishing = true, Runeforging = true }
 
-local PROF_COL_W, EXP_COL_W, TOTAL_COL_W = 74, 28, 36
+-- Sized for the fixed 1340px shell (grid spans ~920 of ~1100 usable): full
+-- profession names ("Leatherworking"), 5-digit totals, and abbr headers all
+-- fit -- the old 74/28/36 packing truncated all three with the panel mostly
+-- empty (owner report 2026-07-11).
+local PROF_COL_W, EXP_COL_W, TOTAL_COL_W = 130, 60, 70
 local GRID_ROW_H = 18
 local HIST_ROW_H = 18
 local HIST_ICON_SIZE, HIST_ICON_INSET = 14, 20
@@ -214,7 +218,7 @@ local function buildCoverageExpHeader(parent)
         fs:SetPoint("LEFT", PROF_COL_W + (i - 1) * EXP_COL_W, 0)
         fs:SetSize(EXP_COL_W, GRID_ROW_H - 2)
         fs:SetJustifyH("CENTER")
-        fs:SetText(exp.short)
+        fs:SetText(exp.abbr) -- room for "WotLK"/"Legion" now; `short` existed for the 28px packing
         fs:SetTextColor(exp.color.r, exp.color.g, exp.color.b)
     end
 
