@@ -30,6 +30,7 @@ Reactor\Reactor_Core.lua
 Reactor\Reactor_Resource.lua
 Reactor\Reactor_Bind.lua
 Reactor\Reactor_WoW.lua
+Core\VWB_ItemData.lua
 Core\VWB_Nav.lua
 
 # --- Data layer (signals Store shim + ported VPC modules) ---

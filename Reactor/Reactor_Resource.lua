@@ -26,8 +26,17 @@ local PENDING = setmetatable({}, { __tostring = function() return "<pending>" en
 Reactor.PENDING = PENDING
 function Reactor.isPending(v) return v == PENDING end
 
-local eventSubscribe = nil -- fn(event, handler) -> unsubscribe
+---@type fun(event:string, handler:function):function
+local eventSubscribe = nil -- fn(event, handler) -> unsubscribe; set by the host bridge
 function Reactor.setEventSource(fn) eventSubscribe = fn end
+
+-- Public boundary subscription through the injected event source (WoW frame
+-- in production, mock in tests). Handlers are Constitution R2 boundary
+-- handlers: they latch and return. Calling before the host installs an event
+-- source is a wiring bug -- let it error loud.
+function Reactor.subscribeEvent(event, handler)
+    return eventSubscribe(event, handler)
+end
 
 -- resource(opts) -> get(key). opts:
 --   read(key)      -> value | nil     synchronous best-effort read; nil = not

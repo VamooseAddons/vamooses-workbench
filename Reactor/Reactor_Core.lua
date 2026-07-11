@@ -194,6 +194,8 @@ end
 ---@field untrack fun(fn:function):any
 ---@field flush fun()
 ---@field resource fun(opts:table):any
+---@field latchMap fun(name?:string):table
+---@field subscribeEvent fun(event:string, handler:function):function
 ---@field PENDING any
 ---@field isPending fun(v:any):boolean
 ---@field bindText fun(fs:any, fn:function):function

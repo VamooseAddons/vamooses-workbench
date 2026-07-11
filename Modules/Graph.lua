@@ -16,12 +16,15 @@ local RNG_BULK_CATEGORY = {
 -- server answers success=false) would otherwise be re-requested on EVERY walk,
 -- and downstream load-settle listeners re-derive per answer -- a self-
 -- sustaining request loop (observed live 2026-07-11).
-local nameLoadRequested = {}
-local function requestNameOnce(itemID)
-    if not nameLoadRequested[itemID] then
-        nameLoadRequested[itemID] = true
-        C_Item.RequestLoadItemDataByID(itemID)
-    end
+-- Name resolution rides the ItemData broker (Constitution migration step 2:
+-- ONE requester addon-wide; latch-at-callback). Returns a display string
+-- always -- the broker's PENDING renders as "Loading...", terminal
+-- no-data/dead as "item:<id>", and views repaint via their own broker
+-- subscriptions when a pending name latches.
+local function displayName(itemID)
+    local n = VWB.ItemData.nameFor(itemID)
+    if n == VWB.Reactor.PENDING then return "Loading..." end
+    return n
 end
 
 -- A recipe is CYCLIC if expanding its reagents can loop back to itself --
@@ -117,18 +120,7 @@ function VWB.Graph:GetDirectMaterials(recipeID, qty)
             local owned = (VWB.Inventory and VWB.Inventory:GetItemCountWithVariants(slot.itemID)) or 0
             local missing = math.max(0, reqQty - owned)
 
-            -- Cold probe via IsItemDataCachedByID, not bare GetItemInfo (which
-            -- fires an implicit request per call); requestNameOnce is the ONE
-            -- requester, latched. Stale queue slots with dead ids re-probed on
-            -- every rebuild otherwise.
-            local name = slot.name
-            if not name and C_Item.IsItemDataCachedByID(slot.itemID) then -- exception(boundary): cold item cache
-                name = C_Item.GetItemInfo(slot.itemID)
-            end
-            if not name then
-                requestNameOnce(slot.itemID)
-                name = "Loading..."
-            end
+            local name = slot.name or displayName(slot.itemID)
 
             local source = VWB.Database:GetReagent(slot.itemID) or "Unknown"
 
@@ -204,11 +196,7 @@ function VWB.Graph:CalculateTotalMats(input)
         local owned = (VWB.Inventory and VWB.Inventory:GetItemCountWithVariants(itemID)) or 0
         local missing = math.max(0, reqQty - owned)
 
-        local name = C_Item.IsItemDataCachedByID(itemID) and C_Item.GetItemInfo(itemID) or nil -- exception(boundary): cold item cache; gated probe, requestNameOnce is the one requester
-        if not name then
-            requestNameOnce(itemID)
-            name = "Loading..."
-        end
+        local name = displayName(itemID)
 
         local source = VWB.Database:GetReagent(itemID) or "Unknown"
 

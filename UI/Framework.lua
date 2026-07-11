@@ -39,29 +39,16 @@ end
 
 function VWB.UI:GetScheme() return GetScheme() end
 
--- Shared item-name resource: ONE addon-wide cache for async name resolution
--- (Recipes and Projects each carried an identical private copy -- a cold name
--- resolved in one view stayed cold in the other). Lazy: Framework loads before
--- Reactor in the TOC, so the resource is created on first use (post-init).
+-- Shared item-name reader: a veneer over the ItemData broker (Constitution
+-- migration step 2 -- the broker is THE one requester; latch-at-callback
+-- means names can never depend on client cache retention). Same callable
+-- (key) -> name | PENDING contract the views already use; terminal
+-- no-data/dead keys resolve to the honest "item:<id>" fallback so
+-- "Loading..." states always end.
 local itemNameRes
 function VWB.UI:ItemNameResource()
     if not itemNameRes then
-        itemNameRes = VWB.Reactor.resource({
-            -- Cold probe via IsItemDataCachedByID, NOT bare GetItemInfo: the
-            -- bare nil-probe fires an implicit server request every call, and
-            -- the resource re-reads a key on each of its load results -- for a
-            -- DEAD id (success=false, never caches) that ping-ponged
-            -- request->fail->re-read->request at server latency forever
-            -- (2026-07-11 evening loop). Gated, a dead key just stays pending
-            -- quietly after its one explicit request.
-            read = function(itemID)
-                if not C_Item.IsItemDataCachedByID(itemID) then return nil end -- exception(boundary): cold/dead item cache -> pending, no probe request
-                return C_Item.GetItemInfo(itemID)
-            end,
-            request = function(itemID) C_Item.RequestLoadItemDataByID(itemID) end,
-            event = "ITEM_DATA_LOAD_RESULT", -- fires (itemID, success); keyOf routes O(1)
-            keyOf = function(itemID) return itemID end,
-        })
+        itemNameRes = function(itemID) return VWB.ItemData.nameFor(itemID) end
     end
     return itemNameRes
 end
@@ -91,33 +78,16 @@ end
 --   VWB.UI:HideUnusedRows(content)
 -- ============================================================================
 
--- Async item-name resolution: ItemEventListener + RequestLoad (BOTH calls are
--- required -- AddCallback only subscribes, RequestLoad initiates the stream).
--- Callback receives the loaded name; pooled-row callers must repaint behind a
--- token check because rows get reused before names arrive.
--- D5: deduplicate by itemID -- multiple calls for the same item before the
--- event fires would register N closures on ItemEventListener. Instead: first
--- call registers ONE shared closure; subsequent calls add their fn to the
--- fan-out list. All pending fns are called when the item data arrives.
-local _resolveItemPendingFns = {}  -- [itemID] = {fn, ...} or nil
+-- Async one-shot item-name resolution, broker-backed (Constitution migration
+-- step 2 -- the old direct ItemEventListener wiring here double-requested:
+-- AddCallback itself issues the accessor call, verified in Blizzard's
+-- AsyncCallbackSystem.lua). fn(name) fires exactly once when the name
+-- latches; a terminal no-data/dead id never fires fn -- callers record
+-- nothing rather than "Unknown Item".
 function VWB.UI.ResolveItemName(itemID, fn)
-    if _resolveItemPendingFns[itemID] then
-        -- Registration already in flight; queue this fn into the fan-out.
-        local list = _resolveItemPendingFns[itemID]
-        list[#list + 1] = fn
-        C_Item.RequestLoadItemDataByID(itemID) -- exception(boundary): idempotent; re-arm in case prior request timed out
-        return
-    end
-    _resolveItemPendingFns[itemID] = { fn }
-    ItemEventListener:AddCallback(itemID, function()
-        local name = C_Item.GetItemInfo(itemID) -- exception(boundary): Blizzard async; nil if cache missed again
-        local list = _resolveItemPendingFns[itemID]
-        _resolveItemPendingFns[itemID] = nil
-        if list then
-            for i = 1, #list do list[i](name) end
-        end
+    VWB.ItemData.onReady(itemID, function(rec)
+        if rec then fn(rec.name) end
     end)
-    C_Item.RequestLoadItemDataByID(itemID)
 end
 
 function VWB.UI:ResetRows(content)
