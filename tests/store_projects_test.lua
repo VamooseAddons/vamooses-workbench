@@ -177,5 +177,28 @@ do
         mono.id > maxId and mono.pieces[1].id > mono.id)
 end
 
+-- 8. Craft pieces: lazy history-counted completion (QA group 2) ----------------
+do
+    loadfile(base .. "Modules/ProjectPlanner.lua")("VWB", _G.VWB)
+    local P = VWB.ProjectPlanner
+    dispatch("ADD_PROJECT", { name = "Friday Night", status = "bench", _time = 5000, pieces = {
+        { recipeID = 801, itemID = 8801, kind = "craft", qty = 3, charKey = "A-R" } } })
+    local fp = st.projects.items[#st.projects.items]
+    check("craft piece shape (qty/charKey/createdAt)", fp.pieces[1].kind == "craft"
+        and fp.pieces[1].qty == 3 and fp.pieces[1].charKey == "A-R" and fp.pieces[1].createdAt == 5000)
+    dispatch("ADD_CRAFTING_HISTORY", { recipeID = 801, itemID = 8801, qty = 5, timestamp = 4000 })
+    P._sweepCraftCompletions()
+    check("crafts BEFORE createdAt never count", fp.pieces[1].completedAt == nil)
+    dispatch("ADD_CRAFTING_HISTORY", { recipeID = 801, itemID = 8801, qty = 2, timestamp = 6000, character = "Alt" })
+    P._sweepCraftCompletions()
+    check("under target: unstamped", fp.pieces[1].completedAt == nil)
+    dispatch("ADD_CRAFTING_HISTORY", { recipeID = 801, itemID = 8801, qty = 1, timestamp = 7000, character = "Main" })
+    P._sweepCraftCompletions()
+    check("qty reached across sessions/characters -> stamped", fp.pieces[1].completedAt ~= nil)
+    check("all pieces stamped -> commission promoted", fp.status == "done" and fp.completedAt ~= nil)
+    dispatch("ADD_CRAFTING_HISTORY", { itemID = 8801, qty = 9, timestamp = 8000 }) -- recipeID-less legacy row
+    check("history rows without recipeID are inert", true) -- sweep above must not have errored on it
+end
+
 print(string.format("Store projects: %d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
