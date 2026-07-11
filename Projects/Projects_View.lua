@@ -88,7 +88,7 @@ local function cardMenu(card)
                 VWB.Store:Dispatch("SET_PROJECT_STATUS", { id = e.p.id, status = status })
             end)
             if e.p.status == status then btn:SetEnabled(false) end
-            if status == "done" and e.plan.done < e.plan.total then btn:SetEnabled(false) end
+            if status == "done" and (e.plan.total == 0 or e.plan.done < e.plan.total) then btn:SetEnabled(false) end
         end
         root:CreateDivider()
         root:CreateButton("Remove...", function()
@@ -182,7 +182,7 @@ local function paintProjectCard(card, entry, isSelected)
         card.sub:SetTextColor(s.success.r, s.success.g, s.success.b)
     elseif plan.total == 0 then
         card.bar:SetProgress(0, 1)
-        card.sub:SetText("no pieces yet -- add one from the plan panel")
+        card.sub:SetText("no pieces yet -- use Add piece... in the plan panel")
         card.sub:SetTextColor(s.text.r, s.text.g, s.text.b)
     else
         card.bar:SetProgress(plan.done, plan.total)
@@ -483,15 +483,20 @@ function Projects.buildView(container)
         VWB.Theme:Register(nsPanel, "Panel")
 
         local search = VWB.UI:CreateSearchBox(nsPanel, {
-            width = 300, height = 22, placeholder = "Search a craftable consumable...",
+            width = 300, height = 22, placeholder = "Search craftable items...",
             onChange = function(text) stockSearch(text or "") end,
         })
         search:SetPoint("TOP", 0, -8)
 
         local hint = nsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         hint:SetPoint("BOTTOM", 0, 6)
-        hint:SetText("Click a recipe to track it (par 20, adjust on the card)")
         VWB.Theme:Register(hint, "DimLabel")
+        -- The picker serves TWO flows: new stock project (header button) and
+        -- add-piece-to-commission (the pieces list row) -- the hint names which
+        R.bindText(hint, function()
+            if addPieceTarget() then return "Click a recipe to add it as a piece" end
+            return "Click a recipe to track it (par 20, adjust on the card)"
+        end)
 
         local listHost = CreateFrame("Frame", nil, nsPanel)
         listHost:SetPoint("TOPLEFT", 10, -36); listHost:SetPoint("BOTTOMRIGHT", -10, 22)
@@ -511,8 +516,11 @@ function Projects.buildView(container)
             onRowClick = function(r)
                 local target = R.untrack(addPieceTarget)
                 if target then -- "+ Add piece" opened the picker for an existing commission
+                    -- collect, NOT stock: a commission piece is a one-shot goal
+                    -- (a stock piece never stamps completedAt and would block
+                    -- the commission from ever completing -- UX review M1)
                     VWB.Store:Dispatch("ADD_PIECE", { projectId = target,
-                        piece = { itemID = r.itemID, recipeID = r.recipeID, kind = "stock" } })
+                        piece = { itemID = r.itemID, recipeID = r.recipeID, kind = "collect" } })
                     VWB.Log:Print("Added piece: " .. r.name)
                 else
                     VWB.Store:Dispatch("ADD_PROJECT", {
@@ -661,12 +669,23 @@ function Projects.buildView(container)
 
     emptyCard = VWB.UI:CreateEmptyStateCard(viewRoot, {
         title = "Plan your collection",
-        body = "Start a commission from the Showroom (pin an item), the Achieve tab (Track a profession achievement), or Study (commission a vendor's recipes). Mats, prices, and which alt crafts each step appear here.",
-        buttonText = "Browse the Showroom",
+        body = "Start a commission from the Showroom (pin an item), the Achieve tab (profession achievements), or Study (a vendor's recipes). Mats, prices, and which alt crafts each step appear here.",
+        buttonText = "Showroom",
         onClick = function() ns.Nav.Go("showroom") end,
         width = 420, height = 170,
     })
     emptyCard:SetPoint("CENTER", viewRoot, "CENTER", 0, 10)
+    -- all three importers get a quick action (UX review M3: the flagship
+    -- Achieve importer was invisible from the board's own onboarding)
+    emptyCard.button:SetWidth(110)
+    emptyCard.button:ClearAllPoints()
+    emptyCard.button:SetPoint("BOTTOMLEFT", 52, 14)
+    local achQuick = VWB.UI:CreateButton(emptyCard, "Achievements", 110, 24)
+    achQuick:SetPoint("LEFT", emptyCard.button, "RIGHT", 8, 0)
+    achQuick:SetScript("OnClick", function() ns.Nav.Go("achieve") end)
+    local studyQuick = VWB.UI:CreateButton(emptyCard, "Study", 80, 24)
+    studyQuick:SetPoint("LEFT", achQuick, "RIGHT", 8, 0)
+    studyQuick:SetScript("OnClick", function() ns.Nav.Go("study") end)
 
     -- The Plan/Materials scope follows the drill state: State B = the piece's
     -- own plan; State A = the commission aggregate.
@@ -737,7 +756,7 @@ function Projects.buildView(container)
     -- is a value no-op)
     R.effect(function()
         selectedId()
-        if selectedPiece() ~= nil then selectedPiece(nil) end
+        if R.untrack(selectedPiece) ~= nil then selectedPiece(nil) end -- untracked: subscribing our own write costs a redundant second flush
     end, "projects:pieceReset")
 
     -- cross-view select handoff (Showroom's Start Project -> Nav.Go("projects", {select=id})).

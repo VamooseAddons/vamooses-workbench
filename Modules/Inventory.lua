@@ -56,8 +56,10 @@ local function CollectTrackedCounts()
     -- 2026-07-11). Dormant (stocked) projects stay tracked -- dropping below
     -- par is exactly the transition the sweep exists to catch.
     for _, p in ipairs(state.projects.items) do
-        if p.kind == "stock" and p.itemID and counts[p.itemID] == nil then
-            counts[p.itemID] = VWB.Inventory:GetItemCountWithVariants(p.itemID)
+        for _, pc in ipairs(p.pieces) do -- v2: stock lives on PIECES (code review F1: the v1 read starved every stock gauge of inventory events)
+            if pc.kind == "stock" and pc.itemID and counts[pc.itemID] == nil then
+                counts[pc.itemID] = VWB.Inventory:GetItemCountWithVariants(pc.itemID)
+            end
         end
     end
     return counts

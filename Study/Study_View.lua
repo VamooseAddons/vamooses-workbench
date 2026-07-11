@@ -263,7 +263,7 @@ function Study.buildView(container)
             if not r.known and not seen[r.item.recipeID] then
                 seen[r.item.recipeID] = true
                 pieces[#pieces + 1] = { recipeID = r.item.recipeID, itemID = r.item.itemID,
-                    name = r.item.name, kind = "collect" }
+                    name = r.item.name, kind = "study" } -- completes when the RECIPE is learned (code review F3: collect-kind pieces waited on item collection forever)
                 if #pieces >= VWB.Constants.Projects.MAX_PIECES then break end
             end
         end

@@ -429,6 +429,7 @@ function Showroom.buildView(container)
                 })
                 -- nextId was bumped by the reducer; the new project's id = nextId - 1.
                 local newId = ns.Store:GetState().projects.nextId - 1
+                VWB.Log:Print((item.name or "Item") .. " added to the bench") -- UX review M2: the view switches; say what happened
                 ns.Nav.Go("projects", { select = newId })
             end)
             startProjectBtn:Hide()

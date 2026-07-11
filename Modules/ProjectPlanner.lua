@@ -248,6 +248,16 @@ end
 
 local prevBelowPar = {} -- ["projectId:pieceIndex"] = true while a stock piece sits below par
 
+-- The ONE promotion rule, shared by every completion sweep: a project with
+-- pieces, all stamped, becomes Done. Zero-piece projects never auto-complete.
+local function promoteIfAllDone(prj)
+    if #prj.pieces == 0 then return end
+    for _, pc in ipairs(prj.pieces) do
+        if not pc.completedAt then return end
+    end
+    VWB.Store:Dispatch("COMPLETE_PROJECT", { id = prj.id })
+end
+
 -- Collection events sweep incomplete collect PIECES; a collected piece gets
 -- COMPLETE_PIECE, and a project whose every piece is now stamped gets
 -- COMPLETE_PROJECT (boundary-handler-driven promotion -- the R2/R3 ruling:
@@ -273,13 +283,25 @@ local function sweepCollectCompletions()
                     VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
                 end
             end
-            local allDone = #prj.pieces > 0
-            for _, pc in ipairs(prj.pieces) do
-                if not pc.completedAt then allDone = false; break end
+            promoteIfAllDone(prj)
+        end
+    end
+end
+
+-- Study-sourced pieces complete when the RECIPE is learned -- their goal is
+-- knowledge, not collection (code review F3). Swept on the profession-scan
+-- event, which is exactly when the known set can change.
+local function sweepStudyLearns()
+    for _, prj in ipairs(VWB.Store:GetState().projects.items) do
+        if not prj.completedAt then
+            local touched = false
+            for i, pc in ipairs(prj.pieces) do
+                if pc.kind == "study" and not pc.completedAt and VWB.KnownRecipes:IsKnown(pc.recipeID) then
+                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
+                    touched = true
+                end
             end
-            if allDone then
-                VWB.Store:Dispatch("COMPLETE_PROJECT", { id = prj.id })
-            end
+            if touched then promoteIfAllDone(prj) end
         end
     end
 end
@@ -317,7 +339,6 @@ local achSettle = nil
 local function sweepAchievementCriteria()
     for _, prj in ipairs(VWB.Store:GetState().projects.items) do
         if not prj.completedAt and prj.source and prj.source.type == "achievement" then
-            local allDone = #prj.pieces > 0
             for i, pc in ipairs(prj.pieces) do
                 if not pc.completedAt and pc.criteriaIndex then
                     local _, _, done = GetAchievementCriteriaInfo(prj.source.id, pc.criteriaIndex)
@@ -325,25 +346,25 @@ local function sweepAchievementCriteria()
                         VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
                     end
                 end
-                if not pc.completedAt then allDone = false end
             end
-            if allDone then
-                VWB.Store:Dispatch("COMPLETE_PROJECT", { id = prj.id })
-            end
+            promoteIfAllDone(prj)
         end
     end
 end
 
+-- Stamps CRITERIA pieces only (code review F2: a piece added manually to an
+-- achievement commission is extra work the earn does not vouch for);
+-- promotion then follows the one shared rule.
 local function onAchievementEarned(achievementID)
     for _, prj in ipairs(VWB.Store:GetState().projects.items) do
         if prj.source and prj.source.type == "achievement" and prj.source.id == achievementID
             and not prj.completedAt then
             for i, pc in ipairs(prj.pieces) do
-                if not pc.completedAt then
+                if not pc.completedAt and pc.criteriaIndex then
                     VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
                 end
             end
-            VWB.Store:Dispatch("COMPLETE_PROJECT", { id = prj.id })
+            promoteIfAllDone(prj)
         end
     end
 end
@@ -356,6 +377,7 @@ function P:Initialize()
     -- so one registration covers the full collect domain with no duplicate sweeps.
     VWB.Collectibles:RegisterCollectionListener(sweepCollectCompletions)
     VWB.EventBus:Register("VWB_INVENTORY_UPDATE", sweepStockRefills)
+    VWB.EventBus:Register("VWB_RECIPES_SCANNED", sweepStudyLearns)
     VWB.Reactor.subscribeEvent("ACHIEVEMENT_EARNED", function(achievementID)
         if achievementID then onAchievementEarned(achievementID) end
     end)
