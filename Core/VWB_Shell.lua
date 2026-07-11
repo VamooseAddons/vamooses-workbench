@@ -47,7 +47,7 @@ local VIEWS = {
           ns.Store:Version("projects")
           local n = 0
           for _, p in ipairs(ns.Store:GetState().projects.items) do
-              if not p.completedAt then n = n + 1 end
+              if p.status == "bench" then n = n + 1 end -- Commissions v2: the badge is what you're WORKING ON, not the backlog
           end
           return n
       end },

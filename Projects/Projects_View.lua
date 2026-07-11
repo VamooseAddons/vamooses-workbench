@@ -20,7 +20,9 @@ ns.Projects = Projects
 local FLAT = VWB.UI.BACKDROP_FLAT -- exception(false-positive): indirection loses type; value is backdropInfo
 local ICON_FALLBACK = 134400 -- INV_Misc_QuestionMark; exception(boundary): GetItemIconByID nil on cold item data
 
-local CARD_W, CARD_H, CARD_GAP = 210, 64, 6 -- rail cards (vertical scroll, left of Plan)
+local CARD_W, CARD_H, CARD_GAP = 260, 64, 6 -- rail cards (vertical scroll, left of Plan)
+local HDR_H = 18 -- status group divider rows (Backlog / On the Bench / Done)
+local STATUS_LABEL = { backlog = "BACKLOG", bench = "ON THE BENCH", done = "DONE" }
 
 StaticPopupDialogs["VWB_REMOVE_PROJECT"] = {
     text = "Remove project '%s'?",
@@ -33,29 +35,66 @@ StaticPopupDialogs["VWB_REMOVE_PROJECT"] = {
 -- Project card (pooled via VWB.UI:AcquireRow on the horizontal strip)
 -- ============================================================================
 
+-- Par steppers act on the ONE stock piece of a single-piece card (multi-piece
+-- projects edit par per piece in the drill-in).
 local function bumpPar(card, delta)
     local e = card.entry
     local step = IsShiftKeyDown() and 5 or 1
-    VWB.Store:Dispatch("SET_PROJECT_PAR", { id = e.p.id, par = math.max(1, (e.p.par or 1) + delta * step) })
+    local piece = e.p.pieces[1]
+    VWB.Store:Dispatch("SET_PIECE_PAR", { id = e.p.id, pieceIndex = 1,
+        par = math.max(1, (piece.par or 1) + delta * step) })
 end
+
+local TOOLTIP_PIECE_CAP = 8
 
 local function cardTooltip(card)
     local e = card.entry
     local T = VWB.UI.Tooltip
     T:Begin(card, "RIGHT")
     T:AddTitle(e.p.name)
-    if e.p.kind == "stock" then
-        T:AddLine(string.format("Stock project -- keep %d on hand (%d now)", e.plan.par, e.plan.level))
-        if (e.p.refills or 0) > 0 then T:AddLine("Refilled " .. e.p.refills .. "x") end
-    elseif e.plan.status == "complete" then
+    if e.p.completedAt then
         T:AddLine("Completed " .. VWB.UI:FormatScannedAgo(e.p.completedAt, time()))
     else
-        T:AddLine(string.format("Collect project -- %d of %d steps covered", e.plan.done, e.plan.total))
+        T:AddLine(string.format("Commission -- %d piece(s), %d done", e.plan.total, e.plan.done))
     end
-    if e.plan.unresolved then T:AddLine("Recipe not on file yet -- scan a profession") end
+    for i = 1, math.min(#e.p.pieces, TOOLTIP_PIECE_CAP) do
+        local pc, pp = e.p.pieces[i], e.plan.pieces[i]
+        local name = pc.itemID and (C_Item.GetItemInfo(pc.itemID)) or ("piece " .. i) -- exception(boundary): cold item name; tooltip re-opens warm
+        if pp.status == "complete" then
+            T:AddLine(name .. "  --  done")
+        elseif pc.kind == "stock" then
+            T:AddLine(string.format("%s  --  par %d (%d on hand)", name, pp.par or pc.par, pp.level or 0))
+        else
+            T:AddLine(string.format("%s  --  %d/%d steps", name, pp.done, pp.total))
+        end
+    end
+    if #e.p.pieces > TOOLTIP_PIECE_CAP then
+        T:AddLine("... and " .. (#e.p.pieces - TOOLTIP_PIECE_CAP) .. " more")
+    end
     if e.plan.buyCost > 0 then T:AddLine("Missing mats on the AH: " .. VWB.UI:FormatMoney(e.plan.buyCost)) end
-    T:AddLine("Right-click to remove")
+    T:AddLine("Right-click: move / remove")
     T:Show()
+end
+
+-- Right-click board menu: status moves + remove. "Move to Done" is a real
+-- move (stamps completion) -- greyed when pieces remain, per the ui ruling.
+local function cardMenu(card)
+    local e = card.entry
+    MenuUtil.CreateContextMenu(card, function(_, root)
+        root:CreateTitle(e.p.name)
+        for _, status in ipairs({ "backlog", "bench", "done" }) do
+            local label = ({ backlog = "Move to Backlog", bench = "Move to the Bench", done = "Move to Done" })[status]
+            local btn = root:CreateButton(label, function()
+                VWB.Store:Dispatch("SET_PROJECT_STATUS", { id = e.p.id, status = status })
+            end)
+            if e.p.status == status then btn:SetEnabled(false) end
+            if status == "done" and e.plan.done < e.plan.total then btn:SetEnabled(false) end
+        end
+        root:CreateDivider()
+        root:CreateButton("Remove...", function()
+            StaticPopup_Show("VWB_REMOVE_PROJECT", e.p.name, nil, e.p.id)
+        end)
+    end)
 end
 
 local function createProjectCard(p, onSelect)
@@ -94,7 +133,7 @@ local function createProjectCard(p, onSelect)
 
     card:SetScript("OnClick", function(self, button)
         if button == "RightButton" then
-            StaticPopup_Show("VWB_REMOVE_PROJECT", self.entry.p.name, nil, self.entry.p.id)
+            cardMenu(self)
         else
             onSelect(self.entry.p.id)
         end
@@ -109,7 +148,8 @@ local function paintProjectCard(card, entry, isSelected)
     local p, plan = entry.p, entry.plan
     card.entry = entry
 
-    card.icon:SetTexture(C_Item.GetItemIconByID(p.itemID) or ICON_FALLBACK)
+    local iconPiece = p.pieces[1]
+    card.icon:SetTexture(p.icon or (iconPiece and iconPiece.itemID and C_Item.GetItemIconByID(iconPiece.itemID)) or ICON_FALLBACK)
     card.name:SetText(p.name)
     local d = VWB.Constants:GetDerivedColors(s)
     card:SetBackdropColor(s.panel.r, s.panel.g, s.panel.b, s.panel.a)
@@ -119,35 +159,38 @@ local function paintProjectCard(card, entry, isSelected)
         card:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, s.border.a)
     end
 
-    local showSteppers = p.kind == "stock" and plan.status ~= "complete"
-    card.minus:SetShown(showSteppers)
-    card.plus:SetShown(showSteppers)
+    -- Single-stock-piece cards keep the v1 par steppers; anything bigger
+    -- edits par inside the piece drill-in.
+    local solo = #p.pieces == 1 and p.pieces[1]
+    local soloPlan = solo and plan.pieces[1]
+    local showSteppers = solo and solo.kind == "stock" and p.status ~= "done"
+    card.minus:SetShown(showSteppers or false)
+    card.plus:SetShown(showSteppers or false)
 
-    if p.kind == "stock" then
-        card.bar:SetProgress(plan.level, plan.par)
-        if plan.status == "dormant" then
-            card.sub:SetText(string.format("par %d -- stocked", plan.par))
+    if solo and solo.kind == "stock" and soloPlan.status ~= "complete" then
+        card.bar:SetProgress(soloPlan.level or 0, soloPlan.par or 1)
+        if soloPlan.status == "dormant" then
+            card.sub:SetText(string.format("par %d -- stocked", soloPlan.par))
             card.sub:SetTextColor(s.success.r, s.success.g, s.success.b)
         else
-            card.sub:SetText(string.format("par %d -- %d on hand", plan.par, plan.level))
+            card.sub:SetText(string.format("par %d -- %d on hand", soloPlan.par, soloPlan.level))
             card.sub:SetTextColor(s.warning.r, s.warning.g, s.warning.b)
         end
-    elseif plan.status == "complete" then
+    elseif p.status == "done" or (plan.total > 0 and plan.done == plan.total) then
         card.bar:SetProgress(1, 1)
-        card.sub:SetText("collected " .. VWB.UI:FormatScannedAgo(p.completedAt, time()))
+        card.sub:SetText(p.completedAt and ("done " .. VWB.UI:FormatScannedAgo(p.completedAt, time())) or "all pieces done")
         card.sub:SetTextColor(s.success.r, s.success.g, s.success.b)
-    elseif plan.unresolved then
+    elseif plan.total == 0 then
         card.bar:SetProgress(0, 1)
-        card.sub:SetText("recipe not scanned yet")
+        card.sub:SetText("no pieces yet -- add one from the plan panel")
         card.sub:SetTextColor(s.text.r, s.text.g, s.text.b)
     else
         card.bar:SetProgress(plan.done, plan.total)
-        card.sub:SetText(string.format("%d/%d steps", plan.done, plan.total))
+        card.sub:SetText(string.format("%d pcs  --  %d/%d done", plan.total, plan.done, plan.total))
         card.sub:SetTextColor(s.text.r, s.text.g, s.text.b)
     end
 
-    local dim = plan.status ~= "active"
-    card:SetAlpha(dim and 0.5 or 1)
+    card:SetAlpha(p.status == "done" and 0.5 or 1)
 end
 
 -- ============================================================================
@@ -304,10 +347,13 @@ end
 -- BUILD
 -- ============================================================================
 
-local function sortRank(e) -- below-par stock floats, collect by progress, dormant sinks
-    if e.plan.status == "active" and e.p.kind == "stock" then return 1 end
-    if e.plan.status == "active" then return 2 end
-    return 3
+-- Bench ordering: projects with a below-par stock piece float (actionable
+-- now), then by piece progress; everything else by id (stable).
+local function benchRank(e)
+    for _, pp in ipairs(e.plan.pieces) do
+        if pp.status == "active" and pp.par then return 1 end
+    end
+    return 2
 end
 
 function Projects.buildView(container)
@@ -347,17 +393,19 @@ function Projects.buildView(container)
         return copy
     end
 
-    -- goal list -> derived plans, split active/shelf, board-sorted
+    -- goal list -> derived plans, grouped by board status (Commissions v2:
+    -- Backlog / On the Bench / Done in ONE rail, dividers not columns)
     local plans = R.named("projects:plans", function()
         ns.Store:Version("projects"); ns.Store:Version("corpus"); ns.Store:Version("characters")
         invEpoch()
-        local active, shelf = {}, {}
+        local groups = { backlog = {}, bench = {}, done = {} }
         for _, p in ipairs(ns.Store:GetState().projects.items) do
             local e = { p = p, plan = VWB.ProjectPlanner:DerivePlan(p) }
-            if e.plan.status == "complete" then shelf[#shelf + 1] = e else active[#active + 1] = e end
+            local g = groups[p.status]
+            g[#g + 1] = e
         end
-        table.sort(active, function(a, b)
-            local ra, rb = sortRank(a), sortRank(b)
+        table.sort(groups.bench, function(a, b)
+            local ra, rb = benchRank(a), benchRank(b)
             if ra ~= rb then return ra < rb end
             if a.plan.total ~= 0 and b.plan.total ~= 0 then
                 local pa, pb = a.plan.done / a.plan.total, b.plan.done / b.plan.total
@@ -365,18 +413,33 @@ function Projects.buildView(container)
             end
             return a.p.id < b.p.id
         end)
-        table.sort(shelf, function(a, b) return (a.p.completedAt or 0) > (b.p.completedAt or 0) end)
-        return { active = active, shelf = shelf }
+        table.sort(groups.backlog, function(a, b) return a.p.id < b.p.id end)
+        table.sort(groups.done, function(a, b) return (a.p.completedAt or 0) > (b.p.completedAt or 0) end)
+        return groups
     end)
 
     local selectedEntry = R.named("projects:selected", function()
         local id = selectedId()
         if id == nil then return nil end -- exception(nullable): nothing selected yet
         local ps = plans()
-        for _, e in ipairs(ps.active) do if e.p.id == id then return e end end
-        for _, e in ipairs(ps.shelf) do if e.p.id == id then return e end end
+        for _, group in pairs(ps) do
+            for _, e in ipairs(group) do if e.p.id == id then return e end end
+        end
         return nil -- exception(nullable): selection outlived its project (removed)
     end)
+
+    -- Piece drill-in (Commissions v2): the Plan panel is two states -- A =
+    -- the selected project's PIECES list, B = one piece's step list. A
+    -- single-piece project locks to State B (v1 behavior preserved).
+    local selectedPiece = R.signal(nil) -- 1-based piece index, nil = State A
+    local function effectivePiece(e)
+        if not e then return nil end
+        if #e.p.pieces == 1 then return 1 end
+        local i = selectedPiece()
+        if i and e.p.pieces[i] then return i end
+        return nil
+    end
+    local addPieceTarget = R.signal(nil) -- projectId the picker adds pieces to (nil = picker creates new stock projects)
 
     -- consumables matching the new-stock search (name match over the harvested corpus)
     local stockMatches = R.named("projects:stockMatches", function()
@@ -396,10 +459,10 @@ function Projects.buildView(container)
 
     -- Board skeleton lives in LayoutConfig_Projects (2026-07-11 -- was hand-
     -- rolled in here, Roster-style, behind a single prjBody leaf). makeFrame
-    -- below supplies only the LEAVES: rail scroll host, the two lists, the
+    -- below supplies only the LEAVES: rail scroll host, the lists, the
     -- three buttons. Overlays (empty card, new-stock picker) anchor over the
     -- container -- the only genuinely view-managed chrome left.
-    local stripScroll, stripContent, emptyCard, stepsList, matsList, nsPanel
+    local stripScroll, stripContent, emptyCard, stepsList, piecesList, matsList, nsPanel
 
     -- compact picker: search the harvested corpus, click = track at par 20.
     -- Overlay anchored over the container, above the board panels.
@@ -441,12 +504,20 @@ function Projects.buildView(container)
                 row.prof:SetText(r.profession or "")
             end,
             onRowClick = function(r)
-                VWB.Store:Dispatch("ADD_PROJECT", {
-                    name = r.name, itemID = r.itemID, recipeID = r.recipeID, kind = "stock", par = 20,
-                })
+                local target = R.untrack(addPieceTarget)
+                if target then -- "+ Add piece" opened the picker for an existing commission
+                    VWB.Store:Dispatch("ADD_PIECE", { projectId = target,
+                        piece = { itemID = r.itemID, recipeID = r.recipeID, kind = "stock" } })
+                    VWB.Log:Print("Added piece: " .. r.name)
+                else
+                    VWB.Store:Dispatch("ADD_PROJECT", {
+                        name = r.name, source = { type = "manual" },
+                        pieces = { { itemID = r.itemID, recipeID = r.recipeID, kind = "stock", par = 20 } },
+                    })
+                    selectedId(ns.Store:GetState().projects.nextId - 1) -- the id ADD_PROJECT just assigned
+                    VWB.Log:Print("Tracking stock: " .. r.name .. " (par 20)")
+                end
                 newStockOpen(false)
-                selectedId(ns.Store:GetState().projects.nextId - 1) -- the id ADD_PROJECT just assigned
-                VWB.Log:Print("Tracking stock: " .. r.name .. " (par 20)")
             end,
         })
         R.effect(function() list:SetData(stockMatches()) end, "projects:stockMatches")
@@ -456,7 +527,10 @@ function Projects.buildView(container)
     local function makeFrame(node, parent)
         if node.id == "prjNewStock" then
             local btn = VWB.UI:CreateButton(parent, "New Stock Project", 150, 22)
-            btn:SetScript("OnClick", function() newStockOpen(not R.untrack(newStockOpen)) end)
+            btn:SetScript("OnClick", function()
+                addPieceTarget(nil) -- header button always creates a NEW commission
+                newStockOpen(not R.untrack(newStockOpen))
+            end)
             return btn
         elseif node.id == "prjRail" then
             -- Vertical card rail (2026-07-11: was a horizontal strip across
@@ -476,11 +550,15 @@ function Projects.buildView(container)
             btn:SetScript("OnClick", function()
                 local e = R.untrack(selectedEntry)
                 if not e then return end -- exception(nullable): click raced a removal
+                local i = effectivePiece(e)
+                local piecePlans = i and { e.plan.pieces[i] } or e.plan.pieces
                 local current, n = VWB.CharacterData:GetCharacterKey(), 0
-                for _, st in ipairs(e.plan.steps) do
-                    if st.kind == "CRAFT" and st.ready and st.charKey == current then
-                        VWB.Store:Dispatch("ADD_TO_QUEUE", { recipeID = st.recipeID, qty = st.need, charKey = current })
-                        n = n + 1
+                for _, pp in ipairs(piecePlans) do
+                    for _, st in ipairs(pp.steps) do
+                        if st.kind == "CRAFT" and st.ready and st.charKey == current then
+                            VWB.Store:Dispatch("ADD_TO_QUEUE", { recipeID = st.recipeID, qty = st.need, charKey = current })
+                            n = n + 1
+                        end
                     end
                 end
                 VWB.Log:Print(n > 0 and ("Queued " .. n .. " ready step(s)") or "No steps are ready for this character")
@@ -491,9 +569,13 @@ function Projects.buildView(container)
             btn:SetScript("OnClick", function()
                 local e = R.untrack(selectedEntry)
                 if not e then return end -- exception(nullable): click raced a removal
+                local i = effectivePiece(e)
+                local piecePlans = i and { e.plan.pieces[i] } or e.plan.pieces
                 local rows = {}
-                for _, st in ipairs(e.plan.steps) do
-                    if st.kind == "BUY" then rows[#rows + 1] = { itemID = st.itemID, missing = st.need } end
+                for _, pp in ipairs(piecePlans) do
+                    for _, st in ipairs(pp.steps) do
+                        if st.kind == "BUY" then rows[#rows + 1] = { itemID = st.itemID, missing = st.need } end
+                    end
                 end
                 VWB.AuctionatorBridge:SendShortfall(rows)
             end)
@@ -502,6 +584,58 @@ function Projects.buildView(container)
             local host = CreateFrame("Frame", nil, parent)
             stepsList = VWB.UI:CreateVirtualizedList(host, {
                 rowHeight = 26, rowTemplate = stepRowTemplate, updateRow = paintStepRow, onRowEnter = onStepRowEnter,
+            })
+            -- State A list: the selected commission's pieces (own list widget
+            -- over the same host; the detail effect shows exactly one).
+            piecesList = VWB.UI:CreateVirtualizedList(host, {
+                rowHeight = 26,
+                rowTemplate = function(f)
+                    f.icon = f:CreateTexture(nil, "ARTWORK"); f.icon:SetSize(18, 18); f.icon:SetPoint("LEFT", 4, 0)
+                    f.status = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    f.status:SetPoint("RIGHT", -6, 0); f.status:SetWidth(150); f.status:SetJustifyH("RIGHT")
+                    f.status:SetWordWrap(false); f.status:SetMaxLines(1)
+                    f.name = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                    f.name:SetPoint("LEFT", f.icon, "RIGHT", 6, 0)
+                    f.name:SetPoint("RIGHT", f.status, "LEFT", -8, 0)
+                    f.name:SetJustifyH("LEFT"); f.name:SetWordWrap(false); f.name:SetMaxLines(1)
+                end,
+                updateRow = function(row, pr)
+                    local s = VWB.UI:GetScheme()
+                    if pr.addRow then
+                        row.icon:SetTexture("Interface\\Buttons\\UI-PlusButton-Up")
+                        row.name:SetText("Add piece...")
+                        row.name:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
+                        row.status:SetText("")
+                        return
+                    end
+                    row.icon:SetTexture((pr.piece.itemID and C_Item.GetItemIconByID(pr.piece.itemID)) or ICON_FALLBACK)
+                    row.name:SetText(pr.name)
+                    row.name:SetTextColor(1, 1, 1)
+                    local pp = pr.piecePlan
+                    if pp.status == "complete" then
+                        row.status:SetText("done")
+                        row.status:SetTextColor(s.success.r, s.success.g, s.success.b)
+                    elseif pr.piece.kind == "stock" then
+                        row.status:SetText(string.format("par %d -- %d on hand", pp.par or 1, pp.level or 0))
+                        row.status:SetTextColor((pp.status == "dormant" and s.success or s.warning).r,
+                            (pp.status == "dormant" and s.success or s.warning).g,
+                            (pp.status == "dormant" and s.success or s.warning).b)
+                    elseif pp.unresolved then
+                        row.status:SetText("recipe not scanned")
+                        row.status:SetTextColor(s.text.r, s.text.g, s.text.b)
+                    else
+                        row.status:SetText(string.format("%d/%d steps", pp.done, pp.total))
+                        row.status:SetTextColor(s.text.r, s.text.g, s.text.b)
+                    end
+                end,
+                onRowClick = function(pr)
+                    if pr.addRow then
+                        addPieceTarget(pr.projectId)
+                        newStockOpen(true)
+                    else
+                        selectedPiece(pr.index)
+                    end
+                end,
             })
             return host
         elseif node.id == "prjMats" then
@@ -526,28 +660,57 @@ function Projects.buildView(container)
     })
     emptyCard:SetPoint("CENTER", container, "CENTER", 0, 10)
 
-    handle.byId.prjPlanLabel.label:SetText("Plan")
-    R.bindText(handle.byId.prjMatsLabel.label, function()
+    -- The Plan/Materials scope follows the drill state: State B = the piece's
+    -- own plan; State A = the commission aggregate.
+    local function currentScope()
         local e = selectedEntry()
-        if not e then return "Materials" end -- exception(nullable): no selection
-        if e.plan.buyCost > 0 then
-            return string.format("Materials  (%d short, %s)", e.plan.matsShort, VWB.UI:FormatMoney(e.plan.buyCost))
-        end
-        return string.format("Materials  (%d short)", e.plan.matsShort)
+        if not e then return nil end
+        local i = effectivePiece(e)
+        return e, i, i and e.plan.pieces[i] or e.plan
+    end
+
+    -- Back link out of the piece drill (only meaningful on multi-piece
+    -- commissions; single-piece locks to State B, v1 behavior).
+    local backBtn = VWB.UI:CreateButton(container, "< Pieces", 70, 18)
+    backBtn:SetPoint("BOTTOMLEFT", handle.byId.prjPlanLabel, "BOTTOMLEFT", 0, 0)
+    backBtn:SetFrameLevel(handle.byId.prjPlanLabel:GetFrameLevel() + 5)
+    backBtn:SetScript("OnClick", function() selectedPiece(nil) end)
+    R.bindShown(backBtn, function()
+        local e = selectedEntry()
+        return (e and #e.p.pieces > 1 and effectivePiece(e) ~= nil) or false
     end)
 
-    -- title carries the board summary; the shelf lives at the end of the rail
+    R.bindText(handle.byId.prjPlanLabel.label, function()
+        local e, i = currentScope()
+        if not e then return "Plan" end -- exception(nullable): no selection
+        if i then
+            local pc = e.p.pieces[i]
+            local name = liveName(pc.itemID, nil)
+            if #e.p.pieces > 1 then return "        " .. name end -- indented past the back button
+            return name
+        end
+        return string.format("Pieces  (%d/%d done)", e.plan.done, e.plan.total)
+    end)
+
+    R.bindText(handle.byId.prjMatsLabel.label, function()
+        local e, _, scope = currentScope()
+        if not e then return "Materials" end -- exception(nullable): no selection
+        if scope.buyCost > 0 then
+            return string.format("Materials  (%d short, %s)", scope.matsShort, VWB.UI:FormatMoney(scope.buyCost))
+        end
+        return string.format("Materials  (%d short)", scope.matsShort)
+    end)
+
+    -- title carries the board summary
     R.bindText(handle.byId.prjTitle.label, function()
         local ps = plans()
-        if #ps.shelf > 0 then
-            return string.format("Projects  (%d active, %d done)", #ps.active, #ps.shelf)
-        end
-        return string.format("Projects  (%d active)", #ps.active)
+        return string.format("Projects  (%d on bench, %d backlog, %d done)",
+            #ps.bench, #ps.backlog, #ps.done)
     end)
 
     local function hasProjects()
         local ps = plans()
-        return (#ps.active + #ps.shelf) > 0
+        return (#ps.bench + #ps.backlog + #ps.done) > 0
     end
     R.bindShown(emptyCard, function() return not hasProjects() end)
     R.bindShown(handle.byId.prjBoard, hasProjects)
@@ -557,10 +720,17 @@ function Projects.buildView(container)
     R.effect(function()
         local ps = plans()
         if selectedEntry() == nil then
-            local first = ps.active[1] or ps.shelf[1]
+            local first = ps.bench[1] or ps.backlog[1] or ps.done[1]
             if first and selectedId() ~= first.p.id then selectedId(first.p.id) end
         end
     end, "projects:autoselect")
+
+    -- leaving a project resets the piece drill (converges: writing nil twice
+    -- is a value no-op)
+    R.effect(function()
+        selectedId()
+        if selectedPiece() ~= nil then selectedPiece(nil) end
+    end, "projects:pieceReset")
 
     -- cross-view select handoff (Showroom's Start Project -> Nav.Go("projects", {select=id})).
     -- pendingSelect is view-scoped {view, value}: only consume our own payloads.
@@ -572,40 +742,82 @@ function Projects.buildView(container)
         end
     end, "projects:pendingSelect")
 
-    -- the card rail: active board first, trophy shelf dimmed at the end
+    -- the card rail: ONE list, status-grouped by dim dividers (Backlog / On
+    -- the Bench / Done -- the kanban that fits 1340px; Done dimmed trophy
+    -- shelf at the bottom)
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled card rows on switch
         local ps = plans()
         local sel = selectedId()
         VWB.UI:ResetRows(stripContent)
-        local i = 0
-        local function place(e)
-            i = i + 1
-            local card = VWB.UI:AcquireRow(stripContent, "prjcard", function(p) return createProjectCard(p, selectedId) end)
-            card:SetPoint("TOPLEFT", stripContent, "TOPLEFT", 0, -(i - 1) * (CARD_H + CARD_GAP))
-            paintProjectCard(card, e, e.p.id == sel)
+        local y = 0
+        local function placeHeader(status, n)
+            local hdr = VWB.UI:AcquireRow(stripContent, "prjhdr", function(p)
+                local f = CreateFrame("Frame", nil, p)
+                f:SetSize(CARD_W, HDR_H)
+                f.label = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                f.label:SetPoint("BOTTOMLEFT", 2, 2)
+                VWB.Theme:Register(f.label, "DimLabel")
+                return f
+            end)
+            hdr:SetPoint("TOPLEFT", stripContent, "TOPLEFT", 0, -y)
+            hdr.label:SetText(STATUS_LABEL[status] .. "  (" .. n .. ")")
+            y = y + HDR_H + 2
         end
-        for _, e in ipairs(ps.active) do place(e) end
-        for _, e in ipairs(ps.shelf) do place(e) end
+        local function place(e)
+            local card = VWB.UI:AcquireRow(stripContent, "prjcard", function(p) return createProjectCard(p, selectedId) end)
+            card:SetPoint("TOPLEFT", stripContent, "TOPLEFT", 0, -y)
+            paintProjectCard(card, e, e.p.id == sel)
+            y = y + CARD_H + CARD_GAP
+        end
+        for _, status in ipairs({ "bench", "backlog", "done" }) do
+            local group = ps[status]
+            if #group > 0 then
+                placeHeader(status, #group)
+                for _, e in ipairs(group) do place(e) end
+            end
+        end
         VWB.UI:HideUnusedRows(stripContent)
-        stripContent:SetHeight(math.max(1, i * (CARD_H + CARD_GAP)))
+        stripContent:SetHeight(math.max(1, y))
         stripScroll:FullUpdate(ScrollBoxConstants.UpdateImmediately)
     end, "projects:strip")
 
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled step/mat rows on switch
         ns.Store:Version("crafting") -- queue edits repaint the "queued xN" step chips
-        local e = selectedEntry()
+        local e, pieceIdx, scope = currentScope()
         -- Names resolve through nameRes INSIDE this tracked effect: a cold row
         -- subscribes its key, and the load result re-runs the effect with the
         -- real name -- no manual re-derive plumbing.
-        local steps, mats = {}, {}
+        local mats = {}
         if e then
-            for i, st in ipairs(e.plan.steps) do steps[i] = withLiveName(st) end
-            for i, m in ipairs(e.plan.mats) do mats[i] = withLiveName(m) end
+            for i, m in ipairs(scope.mats) do mats[i] = withLiveName(m) end
         end
-        stepsList:SetData(steps)
         matsList:SetData(mats)
+
+        if e and pieceIdx then -- State B: one piece's step list
+            piecesList:Hide()
+            local steps = {}
+            for i, st in ipairs(scope.steps) do steps[i] = withLiveName(st) end
+            stepsList:SetData(steps)
+            stepsList:Show()
+        elseif e then -- State A: the commission's pieces
+            stepsList:Hide()
+            local rows = {}
+            for i, pc in ipairs(e.p.pieces) do
+                rows[i] = { index = i, piece = pc, piecePlan = e.plan.pieces[i],
+                    name = liveName(pc.itemID, nil) }
+            end
+            if #e.p.pieces < VWB.Constants.Projects.MAX_PIECES and e.p.status ~= "done" then
+                rows[#rows + 1] = { addRow = true, projectId = e.p.id }
+            end
+            piecesList:SetData(rows)
+            piecesList:Show()
+        else
+            stepsList:SetData({})
+            piecesList:Hide()
+            stepsList:Show()
+        end
     end, "projects:detail")
 
     return handle

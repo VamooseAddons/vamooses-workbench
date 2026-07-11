@@ -29,7 +29,7 @@ ns.LayoutConfig.projects = {
         -- size={w=380} column collapsed to its hug width -- fixed columns are
         -- the grid's job, same idiom as LayoutConfig_Recipes' body.
         { type = "grid", id = "prjBoard", grow = true, padding = 0, gap = 6,
-          columns = { 210, "flex", 380 }, rows = { "flex" },
+          columns = { 260, "flex", 380 }, rows = { "flex" }, -- rail 210->260 (Commissions cards carry pieces info; ui-designer pixel budget 2026-07-12)
           cells = {
             { at = { col = 1, row = 1 }, child = { type = "item", id = "prjRail" } }, -- vertical project-card rail
             { at = { col = 2, row = 1 }, child = {

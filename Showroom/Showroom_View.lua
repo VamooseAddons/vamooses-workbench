@@ -399,9 +399,10 @@ function Showroom.buildView(container)
                 ns.Store:Dispatch("ADD_PROJECT", {
                     name = item.name or ("item:" .. tostring(item.itemID)),
                     icon = icon,
-                    itemID = item.itemID,
-                    recipeID = item.recipeID,
-                    kind = "collect",
+                    source = { type = "showroom" },
+                    -- Showroom starts land ON THE BENCH (owner default: you
+                    -- just put it on the plan board, you're ready to work it)
+                    pieces = { { itemID = item.itemID, recipeID = item.recipeID, kind = "collect" } },
                 })
                 -- nextId was bumped by the reducer; the new project's id = nextId - 1.
                 local newId = ns.Store:GetState().projects.nextId - 1
