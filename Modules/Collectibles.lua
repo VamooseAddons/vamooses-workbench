@@ -275,7 +275,14 @@ function C:Initialize()
             beginWalk()
         end, "collectibles:recountCorpus")
         VWB.Reactor.effect(function()
-            collection.epoch()
+            -- The COMPOSITE + record latches, not the raw mount/pet store:
+            -- transmog flips and decor reconciles change answers, and so does
+            -- a broker record landing (a PENDING item classified false
+            -- becomes classifiable). Subscribing only collection.epoch()
+            -- froze the badge at whatever had resolved before the last
+            -- mid-warmup walk (live 2026-07-11 night: 1.4k vs true ~2.5k).
+            C.CollectionEpoch()
+            VWB.ItemData.changedEpoch()
             if walkRunning then walkDirty = true else beginWalk() end
         end, "collectibles:recountCollection")
     end)

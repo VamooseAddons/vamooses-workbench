@@ -81,12 +81,28 @@ local function ensureResources()
     -- One subscription covering every input that can flip a derived answer:
     -- broker records landing, mount/pet/transmog collection changes (the
     -- Collectibles store, incl. the batch transmog settle), decor ownership
-    -- reconciles. Values are meaningless; the SUM changes iff any input did.
-    local function compositeEpoch()
-        return VWB.ItemData.changedEpoch()
+    -- reconciles. THROTTLED: during item-data warmup a batch of records lands
+    -- every frame, and re-deriving filteredItems/nav/list per frame cost
+    -- ~70ms flushes for ~100 frames (live 2026-07-11 night). The throttle
+    -- effect owns the raw subscription and forwards it into uiEpoch at most
+    -- once per window; consumers subscribe uiEpoch. This is a RATE LIMITER on
+    -- a genuine change signal, not a changeless counter (R3): every bump has
+    -- at least one real underlying change behind it. Post-warmup a lone
+    -- change repaints within the window (0.4s).
+    local uiEpoch = ns.Reactor.signal(0)
+    local epochSettle = nil
+    ns.Reactor.effect(function()
+        local _ = VWB.ItemData.changedEpoch()
             + ns.Collectibles.CollectionEpoch()
             + ns.DecorOwnership.Epoch()
-    end
+        if epochSettle then return end
+        epochSettle = VWB.ReactorWoW.after(0.4, function()
+            epochSettle = nil
+            uiEpoch(uiEpoch() + 1) -- boundary write: timer callback latches the coalesced change
+        end)
+    end, "showroom:epochThrottle")
+
+    local function compositeEpoch() return uiEpoch() end
 
     kindRes = { peek = deriveKind, epoch = compositeEpoch }
     collectedRes = { peek = deriveCollected, epoch = compositeEpoch }
