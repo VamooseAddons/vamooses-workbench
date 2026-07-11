@@ -246,8 +246,10 @@ function Study.buildView(container)
 
     -- "Commission this pick": visible on a leaf nav pick only -- turns the
     -- visible UNLEARNED recipes into a Backlog commission (count-confirmed;
-    -- owner ruling: Study imports are research, not bench work).
-    local commissionBtn = ns.UI:CreateButton(container, "Commission this pick", 150, 16)
+    -- owner ruling: Study imports are research, not bench work). Parented
+    -- INSIDE the view tree -- an overlay parented to the shared shell
+    -- container renders (and clicks!) across every tab (live bug 2026-07-12).
+    local commissionBtn = ns.UI:CreateButton(breadcrumbFS:GetParent(), "Commission this pick", 150, 16)
     commissionBtn:SetPoint("RIGHT", breadcrumbFS, "RIGHT", -4, 0)
     commissionBtn:SetFrameLevel(breadcrumbFS:GetParent():GetFrameLevel() + 5)
     commissionBtn:SetScript("OnClick", function()

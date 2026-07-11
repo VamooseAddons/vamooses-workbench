@@ -654,16 +654,19 @@ function Projects.buildView(container)
 
     local handle = ns.Layout.build(container, ns.LayoutConfig.projects, { makeFrame = makeFrame, measure = Kit.measure })
 
-    buildNewStockPanel(container)
+    -- Overlays live INSIDE the view tree (the shared shell container renders
+    -- across tabs -- same leak class as Study's commission button, 2026-07-12)
+    local viewRoot = handle.byId.prjBoard:GetParent()
+    buildNewStockPanel(viewRoot)
 
-    emptyCard = VWB.UI:CreateEmptyStateCard(container, {
+    emptyCard = VWB.UI:CreateEmptyStateCard(viewRoot, {
         title = "Plan your collection",
         body = "Start a commission from the Showroom (pin an item), the Achieve tab (Track a profession achievement), or Study (commission a vendor's recipes). Mats, prices, and which alt crafts each step appear here.",
         buttonText = "Browse the Showroom",
         onClick = function() ns.Nav.Go("showroom") end,
         width = 420, height = 170,
     })
-    emptyCard:SetPoint("CENTER", container, "CENTER", 0, 10)
+    emptyCard:SetPoint("CENTER", viewRoot, "CENTER", 0, 10)
 
     -- The Plan/Materials scope follows the drill state: State B = the piece's
     -- own plan; State A = the commission aggregate.
@@ -676,7 +679,7 @@ function Projects.buildView(container)
 
     -- Back link out of the piece drill (only meaningful on multi-piece
     -- commissions; single-piece locks to State B, v1 behavior).
-    local backBtn = VWB.UI:CreateButton(container, "< Pieces", 70, 18)
+    local backBtn = VWB.UI:CreateButton(handle.byId.prjPlanLabel:GetParent(), "< Pieces", 70, 18) -- inside the view tree, never the shared container (cross-tab leak)
     backBtn:SetPoint("BOTTOMLEFT", handle.byId.prjPlanLabel, "BOTTOMLEFT", 0, 0)
     backBtn:SetFrameLevel(handle.byId.prjPlanLabel:GetFrameLevel() + 5)
     backBtn:SetScript("OnClick", function() selectedPiece(nil) end)

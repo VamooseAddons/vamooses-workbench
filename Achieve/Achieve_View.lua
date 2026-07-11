@@ -12,6 +12,12 @@ local _, ns = ...
 local Achieve = ns.Achieve or {}
 ns.Achieve = Achieve
 
+StaticPopupDialogs["VWB_COMMISSION_ACHIEVE"] = {
+    text = "%s", button1 = "Create", button2 = "Cancel",
+    OnAccept = function(self, data) data.fn() end,
+    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
+
 local ROW_H = 36
 local RIGHT_W, PTS_W = 110, 44
 local TOOLTIP_CRITERIA_CAP = 15 -- "know each of..." lists run long; tooltip stays a summary
@@ -24,8 +30,9 @@ end
 
 -- Recipe criteria (type 34, assetID = recipe spellID) become commission
 -- pieces; the criteria text carries the recipe name so pieces render even
--- when the recipe isn't harvested. Backlog by default (owner ruling: a
--- 20-piece import is an intention, promote to the Bench when ready).
+-- when the recipe isn't harvested. Count-CONFIRMED (owner 2026-07-12: the
+-- first cut created silently on click), Backlog by default (a 20-piece
+-- import is an intention; promote to the Bench when ready).
 local function startCommission(rec)
     local AC = VWB.Constants.Achievements
     local pieces = {}
@@ -38,9 +45,12 @@ local function startCommission(rec)
         end
     end
     if #pieces == 0 then return end
-    VWB.Store:Dispatch("ADD_PROJECT", { name = rec.name, icon = rec.icon, status = "backlog",
-        source = { type = "achievement", id = rec.id }, pieces = pieces })
-    VWB.Log:Print(string.format("Commission started: %s (%d pieces, in the Backlog)", rec.name, #pieces))
+    local msg = string.format("Create a commission for '%s'?\n%d recipe criteria become pieces; it completes itself as the achievement progresses.", rec.name, #pieces)
+    StaticPopup_Show("VWB_COMMISSION_ACHIEVE", msg, nil, { fn = function()
+        VWB.Store:Dispatch("ADD_PROJECT", { name = rec.name, icon = rec.icon, status = "backlog",
+            source = { type = "achievement", id = rec.id }, pieces = pieces })
+        VWB.Log:Print(string.format("Commission started: %s (%d pieces, in the Backlog)", rec.name, #pieces))
+    end })
 end
 
 local function hasRecipeCriteria(rec)
@@ -54,7 +64,7 @@ end
 local function listRowTemplate(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(28, 28); icon:SetPoint("LEFT", 4, 0)
     frame.icon = icon
-    frame.track = VWB.UI:CreateButton(frame, "Track", 52, 18)
+    frame.track = VWB.UI:CreateButton(frame, "Commission", 84, 18) -- "Track" read as Blizzard's watch-list, not the importer
     frame.track:SetPoint("RIGHT", -6, 0)
     frame.track:SetScript("OnClick", function(self) startCommission(self:GetParent().data) end)
     local right = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
