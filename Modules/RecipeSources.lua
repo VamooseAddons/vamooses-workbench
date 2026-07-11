@@ -28,37 +28,61 @@ local walking = false
 local stats = { walked = 0, none = 0 }
 
 -- Walked-but-no-data marker (server has no acquisition text for the recipe).
--- Shared ref so a re-latch is an equality no-op. The label doubles as the
--- nav group name -- Study_Model pins it last in the section sort.
-local UNSPECIFIED = { kindLabel = "Unspecified", lines = {} }
+-- Shared ref so a re-latch is an equality no-op. Study_Model maps the empty
+-- sources array to its "Unspecified" pseudo-source, pinned last in the nav.
+local UNSPECIFIED = { lines = {}, sources = {} }
 
 local function stripCodes(s)
     return (s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|cn[^:]+:", ""):gsub("|r", ""))
 end
 
--- Parse one sourceText into { kindLabel, detail, zone, lines }. kindLabel/
--- detail come from the FIRST "Label: value" line ("Vendor: Provisioner
--- Mukra"); zone from the first "Zone:" line. Labels are LOCALIZED -- they
--- still group correctly per-locale, but the "Zone" match (and the export's
--- zone field) only lands on English clients. lines keeps the raw colored
--- strings for tooltip display.
+-- Split one source line's remainder into detail / zone / cost. Vendor lines
+-- pack the sub-fields INLINE -- "Vendor: Aaron Hollman Zone: Shattrath City
+-- Cost: 4<goldicon>" is ONE line that only LOOKS multi-line in a wrapping
+-- tooltip (live discovery 2026-07-11: the v1 line-based parser filed 2185 of
+-- 2193 vendor recipes under "(no zone)"). "Zone"/"Cost" are LOCALIZED
+-- literals: on non-English clients the whole remainder stays in detail --
+-- grouping by kind still works per-locale, zone buckets degrade. Cost keeps
+-- its |T..|t money textures; a FontString renders them (colons inside |T..|t
+-- can't false-match, the labels anchor the patterns).
+local function splitFields(remainder)
+    local detail, zone, cost = remainder, nil, nil
+    local pre, z = detail:match("^(.-)%s*Zone:%s*(.+)$")
+    if pre then detail, zone = pre, z end
+    local host = zone or detail
+    local p2, c = host:match("^(.-)%s*Cost:%s*(.+)$")
+    if p2 then
+        if zone then zone = p2 else detail = p2 end
+        cost = c
+    end
+    if detail == "" then detail = nil end
+    return detail, zone, cost
+end
+
+-- Parse one sourceText into { lines, sources }. ONE SOURCE PER LINE ("Label:
+-- value ..."), sub-fields split inline; a bare "Zone:"/"Cost:" line (the
+-- drop shape: "Drop: Heavy Trunk\nZone: Delves") attaches to the source
+-- above it. lines keeps the raw colored strings for tooltip display.
 function VWB.RecipeSources.Parse(text)
-    local rec = { lines = {} }
+    local rec = { lines = {}, sources = {} }
     for line in text:gmatch("[^\n]+") do
         rec.lines[#rec.lines + 1] = line
         local plain = stripCodes(line)
-        local label, value = plain:match("^%s*(.-):%s*(.+)$")
-        if label and value then
-            if not rec.kindLabel then
-                rec.kindLabel, rec.detail = label, value
-            elseif label == "Zone" and not rec.zone then
-                rec.zone = value
-            end
-        elseif not rec.kindLabel and plain ~= "" then
-            rec.kindLabel, rec.detail = "Other", plain -- unlabeled first line ("Discovered via...")
+        local label, remainder = plain:match("^%s*(.-):%s*(.+)$")
+        local prev = rec.sources[#rec.sources]
+        if label == "Zone" and prev and not prev.zone then
+            local z, c = remainder:match("^(.-)%s*Cost:%s*(.+)$")
+            prev.zone = z or remainder
+            if c and not prev.cost then prev.cost = c end
+        elseif label == "Cost" and prev and not prev.cost then
+            prev.cost = remainder
+        elseif label and remainder then
+            local detail, zone, cost = splitFields(remainder)
+            rec.sources[#rec.sources + 1] = { kind = label, detail = detail, zone = zone, cost = cost }
+        elseif plain ~= "" then
+            rec.sources[#rec.sources + 1] = { kind = "Other", detail = plain } -- unlabeled line ("Discovered via...")
         end
     end
-    rec.kindLabel = rec.kindLabel or "Unspecified"
     return rec
 end
 
@@ -75,14 +99,15 @@ local function pendingIDs()
     return ids
 end
 
--- Offline-pipeline export row: first sighting of a source name wins (the
+-- Offline-pipeline export rows: first sighting of a source name wins (the
 -- name->zone pair is what the coords resolver keys on; duplicates carry no
--- new information).
+-- new information). Cost is display-only, not exported.
 local function exportEntry(rec)
-    if not rec.detail then return end
     local index = VWB_DB.recipeSourceIndex
-    if index[rec.detail] == nil then
-        index[rec.detail] = { kind = rec.kindLabel, zone = rec.zone }
+    for _, s in ipairs(rec.sources) do
+        if s.detail and index[s.detail] == nil then
+            index[s.detail] = { kind = s.kind, zone = s.zone }
+        end
     end
 end
 
@@ -91,6 +116,12 @@ local function walk()
     local ids = pendingIDs()
     if #ids == 0 then return end
     walking = true
+    -- v2: the v1 parser baked "Name Zone: X Cost: Y" blobs into the export
+    -- keys; a version bump rebuilds the index clean on the next full walk
+    -- (the latchMap is session-local, so every session IS a full walk).
+    if VWB_DB.recipeSourceIndexV ~= 2 then
+        VWB_DB.recipeSourceIndex, VWB_DB.recipeSourceIndexV = {}, 2
+    end
     VWB_DB.recipeSourceIndex = VWB_DB.recipeSourceIndex or {}
     local total, idx = #ids, 1
     local HC = VWB.Constants.Harvest

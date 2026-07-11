@@ -27,18 +27,27 @@ local universe = ns.Reactor.named("study:universe", function()
     return out
 end)
 
--- A themed recipe row: icon | name | zone (right, dim). -----------------------
+-- A themed SOURCE row: icon | recipe name | kind: detail | zone | cost.
+-- Continuation rows (same recipe as the row above) blank the icon + name.
+local NAME_W, ZONE_W, COST_W = 250, 150, 90
+
 local function listRowTemplate(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 3, 0)
     frame.icon = icon
+    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetWidth(NAME_W); text:SetJustifyH("LEFT")
+    frame.text = text
+    local cost = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    cost:SetPoint("RIGHT", -6, 0); cost:SetWidth(COST_W); cost:SetJustifyH("RIGHT")
+    frame.cost = cost
     local zone = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    zone:SetPoint("RIGHT", -6, 0); zone:SetJustifyH("RIGHT")
+    zone:SetPoint("RIGHT", cost, "LEFT", -8, 0); zone:SetWidth(ZONE_W); zone:SetJustifyH("RIGHT")
     frame.zone = zone
     VWB.Theme:Register(zone, "DimLabel")
-    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetPoint("RIGHT", zone, "LEFT", -8, 0)
-    text:SetJustifyH("LEFT")
-    frame.text = text
+    local detail = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    detail:SetPoint("LEFT", text, "RIGHT", 8, 0); detail:SetPoint("RIGHT", zone, "LEFT", -8, 0)
+    detail:SetJustifyH("LEFT")
+    frame.detail = detail
 end
 
 function Study.buildView(container)
@@ -84,7 +93,7 @@ function Study.buildView(container)
         end
         tip:AddLine(" ")
         tip:AddLine(ns.UI:ColorCode("cyan") .. "Recipe: unlearned on this account|r")
-        for _, line in ipairs(e.source.lines) do tip:AddLine(line) end
+        for _, line in ipairs(e.lines) do tip:AddLine(line) end
         tip:Show()
     end
 
@@ -126,11 +135,21 @@ function Study.buildView(container)
                 updateRow = function(row, e)
                     row.data = e
                     local item = e.item
-                    local icon = item.itemID and C_Item.GetItemIconByID(item.itemID) -- exception(boundary): icon can lag a cold item; profession icon stands in
-                    row.icon:SetTexture(icon or VWB.Constants.ProfessionIcons[item.profession]
-                        or "Interface\\Icons\\INV_Misc_QuestionMark")
-                    row.text:SetText(item.name or ("recipe:" .. tostring(item.recipeID)))
-                    row.zone:SetText(e.source.zone or "")
+                    if e.continuation then -- ledger style: the name painted on the run's first row
+                        row.icon:Hide()
+                        row.text:SetText("")
+                    else
+                        row.icon:Show()
+                        local icon = item.itemID and C_Item.GetItemIconByID(item.itemID) -- exception(boundary): icon can lag a cold item; profession icon stands in
+                        row.icon:SetTexture(icon or VWB.Constants.ProfessionIcons[item.profession]
+                            or "Interface\\Icons\\INV_Misc_QuestionMark")
+                        row.text:SetText(item.name or ("recipe:" .. tostring(item.recipeID)))
+                    end
+                    local s = e.source
+                    row.detail:SetText(ns.UI:ColorCode("base01") .. s.kind
+                        .. (s.detail and (":|r " .. s.detail) or "|r"))
+                    row.zone:SetText(s.zone or "")
+                    row.cost:SetText(s.cost or "")
                 end,
                 onRowEnter = onRowEnter,
                 onRowLeave = function(_, rowFrame) ns.UI.Tooltip:Hide(rowFrame) end,
@@ -176,8 +195,8 @@ function Study.buildView(container)
     R.effect(function() VWB.Theme.epoch(); navTree:SetData(model.sections()) end, "study:nav")
 
     R.effect(function()
-        breadcrumbFS:SetText(string.format("%d recipes to learn  |  %d shown",
-            #model.unlearned(), #model.rows()))
+        breadcrumbFS:SetText(string.format("%d recipes to learn  |  %d sources shown",
+            model.entries().recipeCount or 0, #model.rows()))
     end, "study:breadcrumb")
 
     handle.model = model

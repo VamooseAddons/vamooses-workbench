@@ -1,14 +1,14 @@
 -- ============================================================================
 -- VWB Study - reactive MODEL (headless-testable)
 -- ============================================================================
--- The acquisition browser's brain: the unlearned universe joined to parsed
--- recipe sources, grouped by acquisition kind -> zone for the nav, narrowed
--- by the nav pick for the list. Injectable deps, same discipline as
--- Showroom_Model:
+-- The acquisition browser's brain. The row unit is the SOURCE, not the
+-- recipe (owner layout ruling 2026-07-11): a recipe sold by two vendors is
+-- two rows, ledger-style -- the name paints on the first row of a run and
+-- blanks on continuations. Injectable deps, same discipline as Showroom_Model:
 --   universe = () -> array of { recipeID, itemID?, name, profession, expansion }
---   source   = { peek(recipeID) -> parsed|nil, epoch() }     (RecipeSources shape)
+--   source   = { peek(recipeID) -> { lines, sources }|nil, epoch() }  (RecipeSources)
 --   known    = { version = fn (subscribing read), isKnown = fn(recipeID) plain }
---   filters  = { search, profession, navKey, collapsed }     (Reactor signals)
+--   filters  = { search, profession, navKey, collapsed }              (Reactor signals)
 -- navKey grammar: nil = everything | "Kind::*" = one kind, all zones |
 -- "Kind::Zone" = one kind in one zone. (Item keys always carry "::" so they
 -- can never collide with the section header keys the NavTree also tracks.)
@@ -19,7 +19,11 @@ local R = ns.Reactor
 local Study = ns.Study or {}
 ns.Study = Study
 
-Study.NO_ZONE = "(no zone)" -- bucket label for sources without a Zone line
+Study.NO_ZONE = "(no zone)" -- bucket label for sources without a Zone field
+
+-- Pseudo-source for walked recipes the server has no acquisition text for
+-- (RecipeSources latches an empty sources array). Pinned last in the nav.
+local UNSPEC_SOURCE = { kind = "Unspecified" }
 
 function Study.buildModel(deps)
     local u, src, known, f = deps.universe, deps.source, deps.known, deps.filters
@@ -31,51 +35,75 @@ function Study.buildModel(deps)
         return true
     end
 
-    -- Unlearned+parsed universe under search/profession -- NOT the nav pick
-    -- (sections must keep counting siblings of the current selection; the
-    -- Showroom rule). A recipe appears when its source latch lands (src.epoch
-    -- dep); learning one drops it on the next known-version bump. isKnown is
-    -- a plain cache read on purpose -- known.version() is its reactive edge.
-    local unlearned = R.named("study:unlearned", function()
+    -- SOURCE-level entries: the unlearned universe under search/profession
+    -- (NOT the nav pick -- sections must keep counting siblings of the
+    -- current selection, the Showroom rule), flattened one entry per parsed
+    -- source. A recipe appears when its latch lands (src.epoch dep); learning
+    -- one drops its entries on the next known-version bump. recipeCount rides
+    -- the array for the breadcrumb's "N recipes | M sources" split.
+    local entries = R.named("study:entries", function()
         known.version(); src.epoch()
-        local out = {}
+        local out, recipes = {}, 0
         for _, item in ipairs(u()) do
             if not known.isKnown(item.recipeID) and passes(item) then
                 local rec = src.peek(item.recipeID)
-                if rec then out[#out + 1] = { item = item, source = rec } end
+                if rec then
+                    recipes = recipes + 1
+                    if #rec.sources == 0 then
+                        out[#out + 1] = { item = item, source = UNSPEC_SOURCE, lines = rec.lines }
+                    else
+                        for _, s in ipairs(rec.sources) do
+                            out[#out + 1] = { item = item, source = s, lines = rec.lines }
+                        end
+                    end
+                end
             end
         end
+        out.recipeCount = recipes
         return out
     end)
 
-    -- The list: unlearned narrowed to the nav pick, name-sorted (fresh table;
-    -- never sort the shared computed value in place).
+    -- The list: entries narrowed to the nav pick, sorted name-then-detail,
+    -- ledger continuation flags computed over the FINAL adjacency (a zone
+    -- filter that isolates one source of a pair must carry the name again).
+    -- Rows are fresh wrappers: entries are shared across recomputes and must
+    -- never be mutated from inside a computed.
     local rows = R.named("study:rows", function()
         local kind, zone
         local sel = f.navKey()
         if sel then
             kind, zone = sel:match("^(.+)::(.+)$")
+            if not kind then kind = sel end
             if zone == "*" then zone = nil end
         end
         local out = {}
-        for _, e in ipairs(unlearned()) do
-            if not kind or (e.source.kindLabel == kind
-                and (not zone or (e.source.zone or Study.NO_ZONE) == zone)) then
-                out[#out + 1] = e
+        for _, e in ipairs(entries()) do
+            local s = e.source
+            if not kind or (s.kind == kind and (not zone or (s.zone or Study.NO_ZONE) == zone)) then
+                out[#out + 1] = { item = e.item, source = s, lines = e.lines }
             end
         end
-        table.sort(out, function(a, b) return (a.item.name or "") < (b.item.name or "") end)
+        table.sort(out, function(a, b)
+            local an, bn = a.item.name or "", b.item.name or ""
+            if an ~= bn then return an < bn end
+            return (a.source.detail or "") < (b.source.detail or "")
+        end)
+        local prevID
+        for _, row in ipairs(out) do
+            row.continuation = row.item.recipeID == prevID
+            prevID = row.item.recipeID
+        end
         return out
     end)
 
-    -- Nav sections: acquisition kind -> zones with counts, busiest kind first,
-    -- "Unspecified" (RecipeSources' no-data label) pinned last. Each section
-    -- leads with an "All" item (key "Kind::*") so a whole kind is selectable.
+    -- Nav sections: acquisition kind -> zones with SOURCE counts, busiest
+    -- kind first, "Unspecified" pinned last. Each section leads with an
+    -- "All" item (key "Kind::*") so a whole kind is selectable.
     local sections = R.named("study:sections", function()
         local collapsed = f.collapsed()
         local byKind = {}
-        for _, e in ipairs(unlearned()) do
-            local k = e.source.kindLabel
+        for _, e in ipairs(entries()) do
+            local k = e.source.kind
             local rec = byKind[k]
             if not rec then rec = { total = 0, zones = {} }; byKind[k] = rec end
             rec.total = rec.total + 1
@@ -103,7 +131,7 @@ function Study.buildModel(deps)
         return out
     end)
 
-    return { unlearned = unlearned, rows = rows, sections = sections }
+    return { entries = entries, rows = rows, sections = sections }
 end
 
 return Study
