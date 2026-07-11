@@ -156,7 +156,7 @@ function Study.buildView(container)
     R.effect(function()
         VWB.Theme.epoch()
         local rows = model.rows()
-        listWidget:SetItems(rows)
+        listWidget:SetData(rows)
         if #rows > 0 then
             listWidget.emptyText:Hide()
             return
