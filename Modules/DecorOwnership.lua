@@ -23,7 +23,7 @@ VWB.DecorOwnership = {}
 -- writes are illegal; the latchMap below is written ONLY from boundary
 -- handlers and carries the reactive epoch).
 local cache = {} -- [itemID] = true (owned) / false (unowned); nil answers never cached
-local latch = nil -- Reactor latchMap "decor"; created in Initialize (Reactor loads first)
+local latch = VWB.Reactor.latchMap("decor") -- boundary-written; Epoch() reads it (TOC loads Reactor first)
 local catalogWarm = false -- true once ANY catalog read has ever succeeded this session
 
 local function ownedFromInfo(info)
@@ -36,7 +36,9 @@ function VWB.DecorOwnership:IsUncollected(itemID)
     local cached = cache[itemID]
     if cached ~= nil then return not cached end
 
-    local info = C_HousingCatalog.GetCatalogEntryInfoByItem(itemID, true) -- exception(boundary): nil for non-decor items AND until catalog warm
+    -- 12.0.5: the old tryGetOwnedInfo second param was REMOVED (wow-api MCP
+    -- gotcha); ownership fields come back by default.
+    local info = C_HousingCatalog.GetCatalogEntryInfoByItem(itemID) -- exception(boundary): nil for non-decor items AND until catalog warm
     if not info then return nil end
     catalogWarm = true
 
@@ -87,14 +89,23 @@ local function reconcileEntry(entryID)
 end
 
 function VWB.DecorOwnership:Initialize()
-    latch = VWB.Reactor.latchMap("decor")
     local eventFrame = CreateFrame("Frame")
     eventFrame:RegisterEvent("HOUSING_STORAGE_ENTRY_UPDATED")
     eventFrame:SetScript("OnEvent", function(_, _, entryID)
-        if entryID == nil then -- exception(boundary): documented payload absent; fall back to the old full invalidation rather than miss an ownership change
-            cache = {}
-            latch:forceBump()
-            VWB.EventBus:Trigger("VWB_DECOR_OWNERSHIP_UPDATE", {})
+        if entryID == nil then -- exception(boundary): documented payload absent; eager bulk sweep so no ownership change is missed (never lazy-wipe)
+            local changed = false
+            for itemID in pairs(cache) do
+                local info = C_HousingCatalog.GetCatalogEntryInfoByItem(itemID)
+                if info then
+                    local owned = ownedFromInfo(info)
+                    if cache[itemID] ~= owned then
+                        cache[itemID] = owned
+                        latch:latch(itemID, owned)
+                        changed = true
+                    end
+                end
+            end
+            if changed then VWB.EventBus:Trigger("VWB_DECOR_OWNERSHIP_UPDATE", {}) end
             return
         end
         reconcileEntry(entryID)

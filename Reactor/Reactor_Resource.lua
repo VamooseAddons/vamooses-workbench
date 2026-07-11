@@ -182,11 +182,11 @@ function Reactor.latchMap(name)
     function store:hasKey(key) return has[key] == true end
     store.epoch = function() return epoch() end
 
-    -- MIGRATION SCAFFOLDING (constitution migration steps 1-5; DELETE with
-    -- step 5): batch boundary events whose per-key latches don't exist yet
-    -- bump the aggregate directly. This is the banned counter pattern kept
-    -- alive briefly so each migration step lands green on its own; nothing
-    -- new may call this.
+    -- HUMAN escape hatch ONLY (Constitution R5: retry is a human act). The
+    -- one legitimate caller class is an explicit user refresh action
+    -- (Settings' "Refresh Transmog Cache") that wants walkers to re-derive
+    -- from latches. MACHINE paths may never call this -- an event handler
+    -- bumping it is the banned changeless-counter pattern (R3).
     function store:forceBump()
         epoch(epoch() + 1)
     end

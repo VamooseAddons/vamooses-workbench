@@ -19,6 +19,11 @@ VWB.Transmog = {}
 -- collected-status refreshed EAGERLY (latch-forward) by the SOURCE_ADDED
 -- settle below. Bounded by the item corpus (~5k).
 local cache = {}
+-- Per-key collected-flip latch (Constitution step 5): the settle latches each
+-- item whose collected-status actually FLIPPED; the epoch is the reactive
+-- "transmog collection changed" signal (composed into Collectibles.
+-- CollectionEpoch). No flips = no epoch movement = downstream silence.
+local flips = VWB.Reactor.latchMap("transmogCollected")
 local loadSettle = nil -- trailing-edge coalescer for SOURCE_ADDED bursts
 local stats = { srcAdded = 0, fires = 0, derived = 0, flips = 0 }
 
@@ -35,18 +40,39 @@ local function armSettle()
     if loadSettle then loadSettle:Cancel() end
     loadSettle = VWB.ReactorWoW.after(0.3, function()
         loadSettle = nil
+        local changed = 0
         for itemID, st in pairs(cache) do
             if st.hasAppearance and not st.isCollected then
                 local rec = VWB.ItemData.peek(itemID) -- hasAppearance=true implies a ready record latched it
                 if C_TransmogCollection.PlayerHasTransmogByItemInfo(rec.link) then
                     cache[itemID] = { hasAppearance = true, isCollected = true }
-                    stats.flips = stats.flips + 1
+                    flips:latch(itemID, true)
+                    changed = changed + 1
                 end
             end
         end
         stats.fires = stats.fires + 1
-        VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {})
+        -- Equality-gated fan-out (step 5): a wardrobe burst that flipped
+        -- nothing we track is TOTAL silence -- no event, no epoch movement.
+        if changed > 0 then
+            stats.flips = stats.flips + changed
+            VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", { flipped = changed })
+        end
     end)
+end
+
+-- Reactive "a tracked item's transmog collected-status flipped" aggregate.
+function VWB.Transmog.CollectedEpoch()
+    return flips.epoch()
+end
+
+-- Human escape hatch (Constitution R5: retry is a human act -- the Settings
+-- "Refresh Transmog Cache" button). Drops every derived status and nudges
+-- the epoch so walkers re-derive from latches. Machine paths may not call.
+function VWB.Transmog:RefreshAll()
+    cache = {}
+    flips:forceBump()
+    VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", { manual = true })
 end
 
 -- Debug-tab counters. Broker-sourced: the request/latch numbers live in

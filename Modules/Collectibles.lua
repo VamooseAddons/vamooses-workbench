@@ -129,14 +129,18 @@ function C:IsUncollectedCollectible(itemID)
     return false
 end
 
--- Collection-change latch store (Constitution R3, migration step 1): the
--- scoped events (NEW_MOUNT_ADDED / NEW_PET_ADDED carry ids) latch per key,
--- so a duplicate fire dedups to silence; the BATCH events (transmog settle,
--- decor update) still ride forceBump scaffolding until migration steps 3/5
--- latch those domains per key. CollectionEpoch() keeps its signature --
--- consumers are unchanged.
+-- Collection-change reactivity (Constitution steps 1+5): mounts/pets latch
+-- per key HERE (scoped events carry ids); transmog collected-flips latch in
+-- Transmog's own store; decor ownership latches in DecorOwnership's.
+-- CollectionEpoch() is the COMPOSITE -- one subscription that moves iff any
+-- collection domain actually changed. The forceBump scaffolding era is over:
+-- every domain is per-key latched and equality-gated.
 local collection = VWB.Reactor.latchMap("collection")
-function C.CollectionEpoch() return collection.epoch() end
+function C.CollectionEpoch()
+    return collection.epoch()
+        + VWB.Transmog.CollectedEpoch()
+        + VWB.DecorOwnership.Epoch()
+end
 
 -- Perf B1 (2026-07-11): the walk used to run synchronously inside this
 -- computed on every collect event / harvest batch -- during cache warmup
@@ -228,11 +232,12 @@ local function onScopedCollect(_, event, id)
     end
 end
 
--- Batch path (transmog settle / decor update): no per-key payload YET --
--- rides the forceBump scaffolding until migration steps 3/5 latch those
--- domains per key, at which point this function and forceBump are deleted.
+-- Batch path (transmog settle / decor update): both events are now fired
+-- ONLY on real change and their domains latch per key at their own
+-- boundaries (Transmog flips store / DecorOwnership reconcile) -- reactive
+-- consumers ride the composite CollectionEpoch. This handler only runs the
+-- imperative listener fan-out (Recipes row refresh, ProjectPlanner sweeps).
 function onBatchCollectionChanged()
-    collection:forceBump()
     for i = 1, #listeners do listeners[i]() end
 end
 

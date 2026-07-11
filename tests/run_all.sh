@@ -24,10 +24,10 @@ done
 # RecipeHarvest one is a NormalizeExpansion annotation gap. Gate on a COUNT
 # BASELINE -- fail only when the count RISES (a new warning = candidate real bug).
 # Soft-skip when the binary isn't built.
-# Baseline 5 (2026-07-11 evening): -1 from 6; the button unification deleted
-# the pill-atlas SegmentedToggle branch that carried one warning. Lower as
-# warnings clear.
-WLL_BASELINE=5
+# Baseline 4 (2026-07-11 night): -1 from 5; dropping the removed-in-12.0.5
+# tryGetOwnedInfo arg cleared the DecorOwnership redundant-parameter warning.
+# Lower as warnings clear.
+WLL_BASELINE=4
 WLL="$DIR/../wowlua-ls/target/release/wowlua_ls"
 wll_fail=0
 echo "=== wowlua-ls (WoW-API type tier -- count baseline $WLL_BASELINE) ==="

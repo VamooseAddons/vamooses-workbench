@@ -262,13 +262,9 @@ function Settings.buildView(container)
         elseif node.id == "setRefreshTransmogBtn" then
             local btn = VWB.UI:CreateButton(parent, "Refresh Transmog Cache", (node.size and node.size.w) or 170, (node.size and node.size.h) or 22)
             btn:SetScript("OnClick", function()
-                VWB.Transmog:ClearCache()
-                -- Same event Transmog.lua's own TRANSMOG_COLLECTION_SOURCE_ADDED
-                -- handler fires after invalidating entries -- no subscriber
-                -- exists yet (a fresh port), so this is inert today, same
-                -- "wired for whenever a consumer lands" contract as Ambient
-                -- Item Tooltips above.
-                VWB.EventBus:Trigger("VWB_TRANSMOG_UPDATED", {})
+                -- Constitution R5 human escape hatch: drops derived statuses
+                -- and nudges the epoch so every walker re-derives from latches.
+                VWB.Transmog:RefreshAll()
                 VWB.Log:Print("Transmog cache cleared.")
             end)
             return btn

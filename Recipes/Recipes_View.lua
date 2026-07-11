@@ -954,17 +954,12 @@ function Recipes.buildView(container)
     end, "recipes:profbar")
 
     -- Recipe chips (ComputeRecipeChips) read live collection status --
-    -- Transmog:GetStatus / DecorOwnership:IsUncollected -- which live OUTSIDE the
-    -- Store, so recipeList's slice subscriptions never see a collect. Repaint the
-    -- visible rows when a collection event fires (the tick-only path Showroom's
-    -- collectionTick uses), else a "new mog"/"uncollected" chip stays stale until
-    -- an unrelated re-render.
-    VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", function() listWidget:Refresh() end)
-    VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", function() listWidget:Refresh() end)
-    -- Mount/pet collection: Collectibles.lua now owns the raw events + epoch bump.
-    -- Register a listener to repaint visible chips when a mount/pet is collected
-    -- (the "new mog"/"uncollected" chip check runs on collection state that lives
-    -- outside the Store and won't auto-repaint without this nudge).
+    -- Transmog:GetStatus / DecorOwnership:IsUncollected -- which live OUTSIDE
+    -- the Store, so recipeList's slice subscriptions never see a collect.
+    -- ONE listener repaints visible rows: Collectibles' fan-out already fires
+    -- for every collection source (mounts/pets raw events + the transmog and
+    -- decor change-gated events) -- the direct per-event registrations that
+    -- sat here doubled every repaint (step 5 cleanup).
     VWB.Collectibles:RegisterCollectionListener(function() listWidget:Refresh() end)
 
     R.effect(function()
