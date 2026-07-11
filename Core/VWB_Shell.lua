@@ -147,6 +147,34 @@ function Shell.openWindow()
     local close = CreateFrame("Button", nil, win, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
 
+    -- HDG launcher (tester request, reganart test1): top right, next to the
+    -- close button. Gated on the companion addon being installed AND loaded
+    -- -- the logo texture lives in HDG's own folder, so no HDG = no file =
+    -- no icon; the button is simply never built.
+    if C_AddOns.IsAddOnLoaded("HousingDecorGuide") then -- exception(boundary): optional companion addon
+        local hdgBtn = CreateFrame("Button", nil, win)
+        hdgBtn:SetSize(20, 20)
+        hdgBtn:SetPoint("RIGHT", close, "LEFT", -2, 0)
+        local logo = hdgBtn:CreateTexture(nil, "ARTWORK")
+        logo:SetAllPoints()
+        logo:SetTexture("Interface\\AddOns\\HousingDecorGuide\\textures\\Vamoose_HDG_400_trans")
+        logo:SetAlpha(0.75)
+        hdgBtn:SetScript("OnClick", function()
+            _G.HDG:ToggleMainWindow() -- exception(boundary): cross-addon global; existence guaranteed by the gate above
+        end)
+        hdgBtn:SetScript("OnEnter", function(self)
+            logo:SetAlpha(1)
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+            GameTooltip:SetText("Housing Decor Guide")
+            GameTooltip:Show()
+        end)
+        hdgBtn:SetScript("OnLeave", function()
+            logo:SetAlpha(0.75)
+            GameTooltip:Hide()
+        end)
+        win.hdgBtn = hdgBtn
+    end
+
     local content = CreateFrame("Frame", nil, win)
     content:SetPoint("TOPLEFT", 10, -34); content:SetSize(1320, 700)
 
