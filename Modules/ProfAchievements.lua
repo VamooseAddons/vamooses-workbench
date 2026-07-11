@@ -78,6 +78,12 @@ local function walkCategories()
         end
     end
     table.sort(categories, function(a, b) return a.name < b.name end)
+    -- The root category can hold DIRECT achievements too (cross-profession
+    -- metas live on the parent, not a subcat) -- walk it like a child, first
+    -- in the nav. The nav auto-hides it if Blizzard keeps it empty.
+    local rootName = GetCategoryInfo(root)
+    table.insert(categories, 1, { id = root, name = rootName,
+        total = (GetCategoryNumAchievements(root)) })
 end
 
 local function walk()
