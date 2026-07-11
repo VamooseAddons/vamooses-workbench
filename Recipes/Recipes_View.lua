@@ -691,6 +691,16 @@ function Recipes.buildView(container)
                         tip:AddLine(ns.UI:ColorCode("base01") .. "Recipe known by: " .. table.concat(knownBy, ", ") .. "|r")
                     else
                         tip:AddLine(ns.UI:ColorCode("cyan") .. "Recipe: unlearned on this account|r")
+                        -- Acquisition source, same string the prof book's "Recipe
+                        -- Unlearned" hover shows. Undocumented API; verified live
+                        -- 2026-07-11 to answer COLD (no tradeskill session), with
+                        -- Blizzard's own label colors embedded per line.
+                        local src = C_TradeSkillUI.GetRecipeSourceText(item.recipeID) -- exception(boundary): nil when the server has no acquisition data for this recipe
+                        if src then
+                            for line in src:gmatch("[^\n]+") do
+                                tip:AddLine(line)
+                            end
+                        end
                     end
 
                     local mog = ns.Transmog:GetStatus(item.itemID)

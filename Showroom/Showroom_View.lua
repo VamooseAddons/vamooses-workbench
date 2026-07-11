@@ -586,6 +586,15 @@ function Showroom.buildView(container)
             details[#details + 1] = dim .. "Recipe known by: |r" .. table.concat(knownBy, ", ")
         else
             details[#details + 1] = dim .. "Recipe: |r" .. ns.UI:ColorCode("cyan") .. "unlearned on this account|r"
+            -- Acquisition source (prof book's "Recipe Unlearned" hover text);
+            -- answers cold, embedded label colors per line. Undocumented API,
+            -- verified live 2026-07-11.
+            local src = C_TradeSkillUI.GetRecipeSourceText(item.recipeID) -- exception(boundary): nil when the server has no acquisition data for this recipe
+            if src then
+                for line in src:gmatch("[^\n]+") do
+                    details[#details + 1] = line
+                end
+            end
         end
 
         if kind == "mount" or kind == "pet" then
