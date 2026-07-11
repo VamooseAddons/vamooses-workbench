@@ -38,9 +38,12 @@ function Study.buildModel(deps)
     -- SOURCE-level entries: the unlearned universe under search/profession
     -- (NOT the nav pick -- sections must keep counting siblings of the
     -- current selection, the Showroom rule), flattened one entry per parsed
-    -- source. A recipe appears when its latch lands (src.epoch dep); learning
-    -- one drops its entries on the next known-version bump. recipeCount rides
-    -- the array for the breadcrumb's "N recipes | M sources" split.
+    -- source PER ZONE -- a vendor standing in two zones is two acquisition
+    -- opportunities (e.zone carries the entry's zone; source tables are
+    -- shared and never mutated). A recipe appears when its latch lands
+    -- (src.epoch dep); learning one drops its entries on the next known-
+    -- version bump. recipeCount rides the array for the breadcrumb's
+    -- "N recipes | M sources" split.
     local entries = R.named("study:entries", function()
         known.version(); src.epoch()
         local out, recipes = {}, 0
@@ -53,7 +56,13 @@ function Study.buildModel(deps)
                         out[#out + 1] = { item = item, source = UNSPEC_SOURCE, lines = rec.lines }
                     else
                         for _, s in ipairs(rec.sources) do
-                            out[#out + 1] = { item = item, source = s, lines = rec.lines }
+                            if s.zones and #s.zones > 0 then
+                                for _, z in ipairs(s.zones) do
+                                    out[#out + 1] = { item = item, source = s, zone = z, lines = rec.lines }
+                                end
+                            else
+                                out[#out + 1] = { item = item, source = s, lines = rec.lines }
+                            end
                         end
                     end
                 end
@@ -79,14 +88,16 @@ function Study.buildModel(deps)
         local out = {}
         for _, e in ipairs(entries()) do
             local s = e.source
-            if not kind or (s.kind == kind and (not zone or (s.zone or Study.NO_ZONE) == zone)) then
-                out[#out + 1] = { item = e.item, source = s, lines = e.lines }
+            if not kind or (s.kind == kind and (not zone or (e.zone or Study.NO_ZONE) == zone)) then
+                out[#out + 1] = { item = e.item, source = s, zone = e.zone, lines = e.lines }
             end
         end
         table.sort(out, function(a, b)
             local an, bn = a.item.name or "", b.item.name or ""
             if an ~= bn then return an < bn end
-            return (a.source.detail or "") < (b.source.detail or "")
+            local ad, bd = a.source.detail or "", b.source.detail or ""
+            if ad ~= bd then return ad < bd end
+            return (a.zone or "") < (b.zone or "")
         end)
         local prevID
         for _, row in ipairs(out) do
@@ -107,7 +118,7 @@ function Study.buildModel(deps)
             local rec = byKind[k]
             if not rec then rec = { total = 0, zones = {} }; byKind[k] = rec end
             rec.total = rec.total + 1
-            local z = e.source.zone or Study.NO_ZONE
+            local z = e.zone or Study.NO_ZONE
             rec.zones[z] = (rec.zones[z] or 0) + 1
         end
         local out = {}

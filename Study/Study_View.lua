@@ -31,20 +31,31 @@ end)
 -- Continuation rows (same recipe as the row above) blank the icon + name.
 local NAME_W, ZONE_W, COST_W = 250, 150, 90
 
+-- Every cell is a SINGLE line (wrap off + one max line): source strings can
+-- be arbitrarily long and a fixed-width wrapping FontString overflows the
+-- 22px row into its neighbors (live 2026-07-11: cost cells rendering whole
+-- multi-source blobs down the scrollbar). Truncation is fine -- the tooltip
+-- carries the complete text.
+local function singleLine(fs)
+    fs:SetWordWrap(false)
+    fs:SetMaxLines(1)
+    return fs
+end
+
 local function listRowTemplate(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 3, 0)
     frame.icon = icon
-    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local text = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
     text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetWidth(NAME_W); text:SetJustifyH("LEFT")
     frame.text = text
-    local cost = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local cost = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
     cost:SetPoint("RIGHT", -6, 0); cost:SetWidth(COST_W); cost:SetJustifyH("RIGHT")
     frame.cost = cost
-    local zone = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local zone = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"))
     zone:SetPoint("RIGHT", cost, "LEFT", -8, 0); zone:SetWidth(ZONE_W); zone:SetJustifyH("RIGHT")
     frame.zone = zone
     VWB.Theme:Register(zone, "DimLabel")
-    local detail = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local detail = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
     detail:SetPoint("LEFT", text, "RIGHT", 8, 0); detail:SetPoint("RIGHT", zone, "LEFT", -8, 0)
     detail:SetJustifyH("LEFT")
     frame.detail = detail
@@ -148,7 +159,7 @@ function Study.buildView(container)
                     local s = e.source
                     row.detail:SetText(ns.UI:ColorCode("base01") .. s.kind
                         .. (s.detail and (":|r " .. s.detail) or "|r"))
-                    row.zone:SetText(s.zone or "")
+                    row.zone:SetText(e.zone or "")
                     row.cost:SetText(s.cost or "")
                 end,
                 onRowEnter = onRowEnter,

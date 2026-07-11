@@ -36,51 +36,101 @@ local function stripCodes(s)
     return (s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|cn[^:]+:", ""):gsub("|r", ""))
 end
 
--- Split one source line's remainder into detail / zone / cost. Vendor lines
--- pack the sub-fields INLINE -- "Vendor: Aaron Hollman Zone: Shattrath City
--- Cost: 4<goldicon>" is ONE line that only LOOKS multi-line in a wrapping
--- tooltip (live discovery 2026-07-11: the v1 line-based parser filed 2185 of
--- 2193 vendor recipes under "(no zone)"). "Zone"/"Cost" are LOCALIZED
--- literals: on non-English clients the whole remainder stays in detail --
--- grouping by kind still works per-locale, zone buckets degrade. Cost keeps
--- its |T..|t money textures; a FontString renders them (colons inside |T..|t
--- can't false-match, the labels anchor the patterns).
-local function splitFields(remainder)
-    local detail, zone, cost = remainder, nil, nil
-    local pre, z = detail:match("^(.-)%s*Zone:%s*(.+)$")
-    if pre then detail, zone = pre, z end
-    local host = zone or detail
-    local p2, c = host:match("^(.-)%s*Cost:%s*(.+)$")
-    if p2 then
-        if zone then zone = p2 else detail = p2 end
-        cost = c
+-- ============================================================================
+-- Parse v3: label tokenizer. Live discoveries that killed v1/v2 (screenshots
+-- 2026-07-11): sub-fields pack INLINE on one line ("Vendor: Name Zone: City
+-- Cost: 4<gold>"), MULTIPLE sources can share ONE line ("... Cost: 4 Vendor:
+-- Arras Zone: ..."), one vendor can carry TWO Zone fields, and Faction is a
+-- fourth field. So: scan each line for known "Label:" markers (word-frontier
+-- anchored, longest-first so "Profession Trainer" masks "Profession"),
+-- values run marker-to-marker; SOURCE labels open a new source, FIELD labels
+-- attach to the current one. Labels are LOCALIZED English literals -- on
+-- other locales lines fall through to one "Other" source per line (kind
+-- grouping degrades, tooltip stays complete). Unknown line-START labels
+-- still open a source generically; unknown MID-line labels stay inside the
+-- current value (truncated in the row, complete in the tooltip).
+-- ============================================================================
+
+local SOURCE_LABELS = { "Profession Trainer", "World Quest", "Vendor", "Trainer",
+    "Profession", "Drop", "Discovery", "Quest", "Specialization", "Recipe" }
+local FIELD_LABELS = { Zone = "zone", Cost = "cost", Faction = "faction", Requires = "requires" }
+
+local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+
+-- All "Label:" hits in a stripped line, position-sorted, overlaps masked
+-- (a "Trainer:" hit inside "Profession Trainer:" is dropped).
+local function findMarkers(plain)
+    local hits = {}
+    local function scan(label)
+        local init = 1
+        while true do
+            local s, e = plain:find(label .. "%s*:", init, false)
+            if not s then break end
+            local before = s > 1 and plain:sub(s - 1, s - 1) or ""
+            if before == "" or not before:match("%a") then -- word frontier: "Icon:" inside |T..|t paths can't hit a label this way either
+                hits[#hits + 1] = { s = s, e = e, label = label }
+            end
+            init = e + 1
+        end
     end
-    if detail == "" then detail = nil end
-    return detail, zone, cost
+    for _, l in ipairs(SOURCE_LABELS) do scan(l) end
+    for f in pairs(FIELD_LABELS) do scan(f) end
+    table.sort(hits, function(a, b)
+        if a.s ~= b.s then return a.s < b.s end
+        return a.e > b.e
+    end)
+    local out, lastEnd = {}, 0
+    for _, h in ipairs(hits) do
+        if h.s > lastEnd then out[#out + 1] = h; lastEnd = h.e end
+    end
+    return out
 end
 
--- Parse one sourceText into { lines, sources }. ONE SOURCE PER LINE ("Label:
--- value ..."), sub-fields split inline; a bare "Zone:"/"Cost:" line (the
--- drop shape: "Drop: Heavy Trunk\nZone: Delves") attaches to the source
--- above it. lines keeps the raw colored strings for tooltip display.
+-- Parse one sourceText into { lines, sources }. Each source:
+-- { kind, detail?, zone?, zones?, cost?, faction?, requires? } -- zones is
+-- the FULL list (a vendor can stand in two zones; Study flattens one row per
+-- zone), zone is its first entry (export + fallback convenience). lines
+-- keeps the raw colored strings for tooltip display.
 function VWB.RecipeSources.Parse(text)
     local rec = { lines = {}, sources = {} }
+    local current
+    local function startSource(kind, detail)
+        current = { kind = kind, detail = detail ~= "" and detail or nil }
+        rec.sources[#rec.sources + 1] = current
+    end
+    local function attach(label, value)
+        if value == "" then return end
+        if not current then startSource(label, value) return end -- field label with no source above (rare)
+        local field = FIELD_LABELS[label]
+        if field == "zone" then
+            current.zones = current.zones or {}
+            current.zones[#current.zones + 1] = value
+            current.zone = current.zone or value
+        elseif current[field] == nil then
+            current[field] = value
+        end
+    end
+
     for line in text:gmatch("[^\n]+") do
         rec.lines[#rec.lines + 1] = line
         local plain = stripCodes(line)
-        local label, remainder = plain:match("^%s*(.-):%s*(.+)$")
-        local prev = rec.sources[#rec.sources]
-        if label == "Zone" and prev and not prev.zone then
-            local z, c = remainder:match("^(.-)%s*Cost:%s*(.+)$")
-            prev.zone = z or remainder
-            if c and not prev.cost then prev.cost = c end
-        elseif label == "Cost" and prev and not prev.cost then
-            prev.cost = remainder
-        elseif label and remainder then
-            local detail, zone, cost = splitFields(remainder)
-            rec.sources[#rec.sources + 1] = { kind = label, detail = detail, zone = zone, cost = cost }
-        elseif plain ~= "" then
-            rec.sources[#rec.sources + 1] = { kind = "Other", detail = plain } -- unlabeled line ("Discovered via...")
+        local hits = findMarkers(plain)
+        -- Head of line before the first known marker: a generic "Label: value"
+        -- opens a source (future kinds we haven't seen); bare text is "Other".
+        local firstStart = hits[1] and hits[1].s or (#plain + 1)
+        local head = trim(plain:sub(1, firstStart - 1))
+        if head ~= "" then
+            local hl, hv = head:match("^([%u][%a' ]-)%s*:%s*(.*)$")
+            if hl then startSource(hl, trim(hv)) else startSource("Other", head) end
+        end
+        for i, h in ipairs(hits) do
+            local valueEnd = hits[i + 1] and hits[i + 1].s - 1 or #plain
+            local value = trim(plain:sub(h.e + 1, valueEnd))
+            if FIELD_LABELS[h.label] then
+                attach(h.label, value)
+            else
+                startSource(h.label, value)
+            end
         end
     end
     return rec
