@@ -92,6 +92,12 @@ end
 -- zone), zone is its first entry (export + fallback convenience). lines
 -- keeps the raw colored strings for tooltip display.
 function VWB.RecipeSources.Parse(text)
+    -- THE separator is "|n" -- WoW's escape, which FontStrings RENDER as a
+    -- newline but which a \n split never sees (live 2026-07-11: 2184 of 2193
+    -- vendors parsed zoneless because "...Mynx|nZone:" reads as the word
+    -- "nZone"). Normalize it; blank runs (|n|n between vendor blocks) become
+    -- a " " spacer line so the tooltip keeps its visual grouping.
+    text = text:gsub("|n", "\n")
     local rec = { lines = {}, sources = {} }
     local current
     local function startSource(kind, detail)
@@ -111,7 +117,7 @@ function VWB.RecipeSources.Parse(text)
         end
     end
 
-    for line in text:gmatch("[^\n]+") do
+    local function parseLine(line)
         rec.lines[#rec.lines + 1] = line
         local plain = stripCodes(line)
         local hits = findMarkers(plain)
@@ -133,6 +139,15 @@ function VWB.RecipeSources.Parse(text)
             end
         end
     end
+
+    for line in (text .. "\n"):gmatch("(.-)\n") do
+        if line ~= "" then
+            parseLine(line)
+        elseif rec.lines[#rec.lines] and rec.lines[#rec.lines] ~= " " then
+            rec.lines[#rec.lines + 1] = " " -- block spacer for the tooltip
+        end
+    end
+    if rec.lines[#rec.lines] == " " then rec.lines[#rec.lines] = nil end -- no trailing spacer
     return rec
 end
 

@@ -19,8 +19,6 @@ local R = ns.Reactor
 local Study = ns.Study or {}
 ns.Study = Study
 
-Study.NO_ZONE = "(no zone)" -- bucket label for sources without a Zone field
-
 -- Pseudo-source for walked recipes the server has no acquisition text for
 -- (RecipeSources latches an empty sources array). Pinned last in the nav.
 local UNSPEC_SOURCE = { kind = "Unspecified" }
@@ -88,7 +86,7 @@ function Study.buildModel(deps)
         local out = {}
         for _, e in ipairs(entries()) do
             local s = e.source
-            if not kind or (s.kind == kind and (not zone or (e.zone or Study.NO_ZONE) == zone)) then
+            if not kind or (s.kind == kind and (not zone or e.zone == zone)) then
                 out[#out + 1] = { item = e.item, source = s, zone = e.zone, lines = e.lines }
             end
         end
@@ -109,7 +107,10 @@ function Study.buildModel(deps)
 
     -- Nav sections: acquisition kind -> zones with SOURCE counts, busiest
     -- kind first, "Unspecified" pinned last. Each section leads with an
-    -- "All" item (key "Kind::*") so a whole kind is selectable.
+    -- "All" item (key "Kind::*") so a whole kind is selectable. Zoneless
+    -- entries live under All only -- a "(no zone)" bucket is either a
+    -- duplicate of All (zoneless kinds) or a nothing-pick (owner ruling
+    -- 2026-07-11).
     local sections = R.named("study:sections", function()
         local collapsed = f.collapsed()
         local byKind = {}
@@ -118,8 +119,7 @@ function Study.buildModel(deps)
             local rec = byKind[k]
             if not rec then rec = { total = 0, zones = {} }; byKind[k] = rec end
             rec.total = rec.total + 1
-            local z = e.zone or Study.NO_ZONE
-            rec.zones[z] = (rec.zones[z] or 0) + 1
+            if e.zone then rec.zones[e.zone] = (rec.zones[e.zone] or 0) + 1 end
         end
         local out = {}
         for k, rec in pairs(byKind) do

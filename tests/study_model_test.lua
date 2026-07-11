@@ -74,6 +74,20 @@ do
     check("raw lines kept for tooltip", #two.lines == 2)
 end
 
+-- 5b. THE live separator is |n (WoW escape, renders as newline but never
+-- matches a \n split -- the 2184-zoneless regression). |n|n between vendor
+-- blocks becomes a " " spacer line for the tooltip.
+do
+    local p = P("|cffffd200Vendor:|r Daggle Ironshaper|n|cffffd200Zone:|r Shadowmoon Valley|n|cffffd200Cost:|r 6|n|n|cffffd200Vendor:|r Mixie Farshot|n|cffffd200Zone:|r Hellfire Peninsula|n|cffffd200Cost:|r 6")
+    check("|n split -> two sources", #p.sources == 2)
+    check("|n zones extracted", p.sources[1].zone == "Shadowmoon Valley" and p.sources[2].zone == "Hellfire Peninsula")
+    check("|n costs per source", p.sources[1].cost == "6" and p.sources[2].cost == "6")
+    check("|n|n -> spacer line kept for tooltip", (function()
+        for _, l in ipairs(p.lines) do if l == " " then return true end end
+    end)())
+    check("no trailing spacer", p.lines[#p.lines] ~= " ")
+end
+
 -- Shared model fixture --------------------------------------------------------
 local recipes = {
     { recipeID = 1, itemID = 11, name = "Copper Rod",         profession = "Enchanting",    expansion = "Classic" },
