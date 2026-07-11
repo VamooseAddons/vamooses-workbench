@@ -186,7 +186,8 @@ local function paintProjectCard(card, entry, isSelected)
         card.sub:SetTextColor(s.text.r, s.text.g, s.text.b)
     else
         card.bar:SetProgress(plan.done, plan.total)
-        card.sub:SetText(string.format("%d pcs  --  %d/%d done", plan.total, plan.done, plan.total))
+        card.sub:SetText(string.format("%d %s  --  %d/%d done",
+            plan.total, plan.total == 1 and "piece" or "pieces", plan.done, plan.total))
         card.sub:SetTextColor(s.text.r, s.text.g, s.text.b)
     end
 
@@ -322,11 +323,15 @@ end
 
 local function matRowTemplate(frame)
     frame.name = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    frame.name:SetPoint("LEFT", 4, 0); frame.name:SetWidth(190); frame.name:SetJustifyH("LEFT"); frame.name:SetWordWrap(false)
+    frame.name:SetPoint("LEFT", 4, 0); frame.name:SetWidth(170); frame.name:SetJustifyH("LEFT"); frame.name:SetWordWrap(false)
     frame.count = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     frame.count:SetPoint("LEFT", frame.name, "RIGHT", 6, 0); frame.count:SetWidth(70); frame.count:SetJustifyH("RIGHT")
+    -- price is CLAMPED between count and the right edge (a five-digit gold
+    -- value was overflowing left OVER the count column -- live 2026-07-12)
     frame.price = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    frame.price:SetPoint("RIGHT", -4, 0); frame.price:SetJustifyH("RIGHT")
+    frame.price:SetPoint("LEFT", frame.count, "RIGHT", 4, 0)
+    frame.price:SetPoint("RIGHT", -4, 0)
+    frame.price:SetJustifyH("RIGHT"); frame.price:SetWordWrap(false); frame.price:SetMaxLines(1)
 end
 
 local function paintMatRow(row, m)
