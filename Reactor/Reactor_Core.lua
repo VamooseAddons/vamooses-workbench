@@ -15,6 +15,31 @@
 -- Constraints kept modest on purpose for a first cut: correctness over the
 -- no-alloc/no-recursion micro-optimisations alien-signals uses. Those are a
 -- later tuning pass, guarded by the same tests.
+--
+-- THE CONSTITUTION (2026-07-11; full prose in the host repo's docs/) --------
+-- Six rules every Reactor host must follow. They are Lattice's observer
+-- discipline (cookbook ch06/ch18) restated for signals; violating them
+-- produced self-sustaining boundary loops in production.
+-- R1 Computeds make no async-requesting external calls. Synchronous,
+--    never-request reads are legal ONLY alongside a boundary-latched shadow
+--    version signal read in the same computed.
+-- R2 The world enters only through boundary handlers, which ONLY latch
+--    values into signals. The causal chain from any completion event to any
+--    new request -- however long, however deferred -- must pass through a
+--    human action.
+-- R3 Change is value inequality. Hand-bumped counter epochs are banned;
+--    aggregate change signals are engine-maintained inside value writes
+--    (latchMap). Epochs are domain-scoped. Schedulers MUST coalesce to at
+--    most one flush per frame.
+-- R4 Requests happen at key acquisition, once -- no code path from
+--    completion back to request, direct or timer-deferred.
+-- R5 Retry is a human act (refetch). One exception: a success-reported
+--    completion whose synchronous in-callback read yields nil may self-retry
+--    <= 3 times before latching terminal no-data.
+-- R6 All pipeline work defers to a feature-use wake (window open / consumer
+--    surface trigger). Login registers handlers only. Capture of
+--    irreversible events (craft results, collects) may latch any time --
+--    capture yes, derivation no.
 -- ============================================================================
 
 local _, ns = ...

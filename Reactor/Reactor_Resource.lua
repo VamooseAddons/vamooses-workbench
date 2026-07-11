@@ -172,4 +172,59 @@ function Reactor.resource(opts)
     return setmetatable(api, { __call = function(_, key) return get(key) end })
 end
 
+-- ============================================================================
+-- latchMap (sync keyed latch store) -- Constitution R3's engine half
+-- ============================================================================
+-- The latch-forward store for BOUNDARY handlers (Constitution R2/R3, see the
+-- header of Reactor_Core.lua): an event handler computes a value at the
+-- moment of truth and latches it per key. Equality dedup makes an unchanged
+-- value produce ZERO propagation, and the aggregate epoch bumps ONLY inside
+-- a real change -- "something happened" is inexpressible here, only
+-- "something changed" is. Consumers either get(key) (fine-grained edge) or
+-- subscribe epoch() and walk via peek() (aggregate consumers, one edge).
+-- Portable: no WoW API, no async. Pairs with resource() (async acquisition);
+-- addon-layer brokers compose both.
+function Reactor.latchMap(name)
+    local values = {}  -- key -> last latched value (authoritative, incl. false)
+    local has = {}     -- key -> true once latched (false-vs-never distinction)
+    local perKey = {}  -- key -> signal, created on first tracked get()
+    local epoch = Reactor.signal(0)
+    local store = { name = name or "latchMap" }
+
+    -- Boundary-side write. Returns true when the value actually changed.
+    function store:latch(key, value)
+        if has[key] and values[key] == value then return false end
+        has[key] = true
+        values[key] = value
+        local sig = perKey[key]
+        if sig then sig(value) end
+        epoch(epoch() + 1) -- engine-owned aggregate: bumps ONLY on real change
+        return true
+    end
+
+    function store:get(key) -- tracked per-key read
+        local sig = perKey[key]
+        if not sig then
+            sig = Reactor.signal(values[key])
+            perKey[key] = sig
+        end
+        return sig()
+    end
+
+    function store:peek(key) return values[key] end
+    function store:hasKey(key) return has[key] == true end
+    store.epoch = function() return epoch() end
+
+    -- MIGRATION SCAFFOLDING (constitution migration steps 1-5; DELETE with
+    -- step 5): batch boundary events whose per-key latches don't exist yet
+    -- bump the aggregate directly. This is the banned counter pattern kept
+    -- alive briefly so each migration step lands green on its own; nothing
+    -- new may call this.
+    function store:forceBump()
+        epoch(epoch() + 1)
+    end
+
+    return store
+end
+
 Reactor.RESOURCE_VERSION = 1

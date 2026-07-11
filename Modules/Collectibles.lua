@@ -129,14 +129,14 @@ function C:IsUncollectedCollectible(itemID)
     return false
 end
 
--- Global uncollected count over the harvested corpus, deduped by output item
--- (rank variants share one itemID). Filter-INDEPENDENT -- this is the nav
--- badge's number, live from window open without mounting the Showroom, and it
--- recomputes only on corpus growth or a collection event (lazy computed).
-local collectionEpoch = VWB.Reactor.signal(0)
-function C:BumpCollectionEpoch()
-    VWB.Reactor.untrack(function() collectionEpoch(collectionEpoch() + 1) end)
-end
+-- Collection-change latch store (Constitution R3, migration step 1): the
+-- scoped events (NEW_MOUNT_ADDED / NEW_PET_ADDED carry ids) latch per key,
+-- so a duplicate fire dedups to silence; the BATCH events (transmog settle,
+-- decor update) still ride forceBump scaffolding until migration steps 3/5
+-- latch those domains per key. CollectionEpoch() keeps its signature --
+-- consumers are unchanged.
+local collection = VWB.Reactor.latchMap("collection")
+function C.CollectionEpoch() return collection.epoch() end
 
 -- Perf B1 (2026-07-11): the walk used to run synchronously inside this
 -- computed on every collect event / harvest batch -- during cache warmup
@@ -214,25 +214,37 @@ function C:RegisterCollectionListener(fn)
     listeners[#listeners + 1] = fn
 end
 
--- Reactive read of the collection epoch (subscribes the calling computed/effect).
-function C.CollectionEpoch()
-    return collectionEpoch()
+-- Scoped path: mount/pet events carry an id, so they latch per key -- a
+-- duplicate event for an already-latched collect dedups to TOTAL silence
+-- (no epoch bump, no listener fan-out). Value is true = "collected now";
+-- journals are additive within a session.
+local onBatchCollectionChanged -- fwd: nil-payload fallback below
+
+local function onScopedCollect(_, event, id)
+    if id == nil then onBatchCollectionChanged(); return end -- exception(boundary): documented payloads (mountID/battlePetGUID) missing -> never dedup a real collect to silence
+    local key = (event == "NEW_MOUNT_ADDED" and "mount:" or "pet:") .. tostring(id)
+    if collection:latch(key, true) then
+        for i = 1, #listeners do listeners[i]() end
+    end
 end
 
-local function onCollectionChanged()
-    C:BumpCollectionEpoch()
+-- Batch path (transmog settle / decor update): no per-key payload YET --
+-- rides the forceBump scaffolding until migration steps 3/5 latch those
+-- domains per key, at which point this function and forceBump are deleted.
+function onBatchCollectionChanged()
+    collection:forceBump()
     for i = 1, #listeners do listeners[i]() end
 end
 
 -- Registration only (no scanning): the same collection events the Showroom's
--- resources and ProjectPlanner watch, bumping the count's epoch + fan-out.
+-- resources and ProjectPlanner watch, latching the store + fan-out.
 function C:Initialize()
     local f = CreateFrame("Frame")
     f:RegisterEvent("NEW_MOUNT_ADDED")
     f:RegisterEvent("NEW_PET_ADDED")
-    f:SetScript("OnEvent", onCollectionChanged)
-    VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", onCollectionChanged)
-    VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", onCollectionChanged)
+    f:SetScript("OnEvent", onScopedCollect)
+    VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", onBatchCollectionChanged)
+    VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", onBatchCollectionChanged)
     -- Recount triggers, SPLIT by restart semantics: corpus changes restart
     -- the walk (fresh next() iteration); collection events let the running
     -- walk finish and rerun behind it. The effects only ARM ticks (no signal
@@ -243,7 +255,7 @@ function C:Initialize()
         beginWalk()
     end, "collectibles:recountCorpus")
     VWB.Reactor.effect(function()
-        collectionEpoch()
+        collection.epoch()
         if walkRunning then walkDirty = true else beginWalk() end
     end, "collectibles:recountCollection")
 end
