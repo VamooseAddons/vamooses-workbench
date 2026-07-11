@@ -100,14 +100,45 @@ function VWB.RecipeSources.Parse(text)
     text = text:gsub("|n", "\n")
     local rec = { lines = {}, sources = {} }
     local current
+
+    -- Block-context folding (full-corpus audit 2026-07-11): a second string
+    -- style is LOCATION-FIRST -- "Zone: Dalaran|nNPC: Nomi|nDiscovery: Nomi's
+    -- Test Kitchen" is ONE acquisition path, not three. DESCRIPTOR kinds are
+    -- context that a following source label PROMOTES over (detail folds into
+    -- `via`); VIA labels arriving AFTER a real source attach as `via`
+    -- ("Profession: ...|nTrainer: Mai the Jade Shaper"). A REPEATED label
+    -- (second "Vendor:") and a blank line both mean a genuinely new source.
+    local DESCRIPTOR_KINDS = { Zone = true, NPC = true, ["Quest Giver"] = true }
+    local VIA_LABELS = { Trainer = true, NPC = true, ["Quest Giver"] = true }
+
     local function startSource(kind, detail)
-        current = { kind = kind, detail = detail ~= "" and detail or nil }
+        detail = detail ~= "" and detail or nil
+        if current and kind ~= current.kind then
+            if DESCRIPTOR_KINDS[current.kind] then -- promote: context becomes this source's descriptor
+                if current.detail then current.via = current.detail end
+                current.kind, current.detail = kind, detail
+                return
+            end
+            if VIA_LABELS[kind] and current.via == nil then -- who/where the current path goes through
+                current.via = detail
+                return
+            end
+        end
+        current = { kind = kind, detail = detail }
         rec.sources[#rec.sources + 1] = current
     end
     local function attach(label, value)
         if value == "" then return end
-        if not current then startSource(label, value) return end -- field label with no source above (rare)
         local field = FIELD_LABELS[label]
+        if not current then -- field label opens the line: the location-first style
+            if field == "zone" then
+                current = { kind = "Zone", zones = { value }, zone = value }
+                rec.sources[#rec.sources + 1] = current
+            else
+                startSource(label, value)
+            end
+            return
+        end
         if field == "zone" then
             current.zones = current.zones or {}
             current.zones[#current.zones + 1] = value
@@ -143,8 +174,11 @@ function VWB.RecipeSources.Parse(text)
     for line in (text .. "\n"):gmatch("(.-)\n") do
         if line ~= "" then
             parseLine(line)
-        elseif rec.lines[#rec.lines] and rec.lines[#rec.lines] ~= " " then
-            rec.lines[#rec.lines + 1] = " " -- block spacer for the tooltip
+        else
+            current = nil -- blank line closes the block: no folding across it
+            if rec.lines[#rec.lines] and rec.lines[#rec.lines] ~= " " then
+                rec.lines[#rec.lines + 1] = " " -- block spacer for the tooltip
+            end
         end
     end
     if rec.lines[#rec.lines] == " " then rec.lines[#rec.lines] = nil end -- no trailing spacer
@@ -157,11 +191,7 @@ end
 local function pendingIDs()
     local ids = {}
     for recipeID in pairs(VWB.Database:GetAllRecipes()) do
-        -- TEMP(debug-dump 2026-07-11): known-skip disabled so the dump covers
-        -- the FULL corpus, not just unlearned. Restore the IsKnown filter
-        -- when the dump reverts (the view is unaffected either way -- the
-        -- model re-filters learned recipes at entry build).
-        if not sources:hasKey(recipeID) then
+        if not VWB.KnownRecipes:IsKnown(recipeID) and not sources:hasKey(recipeID) then
             ids[#ids + 1] = recipeID
         end
     end
@@ -193,6 +223,7 @@ local function walk()
     if VWB_DB.recipeSourceIndexV ~= 3 then
         VWB_DB.recipeSourceIndex, VWB_DB.recipeSourceIndexV = {}, 3
     end
+    VWB_DB.debugSourceDump = nil -- one-shot cleanup: the 2026-07-11 TEMP corpus dump (preserved offline in docs/)
     local total, idx = #ids, 1
     local HC = VWB.Constants.Harvest
 
@@ -202,16 +233,11 @@ local function walk()
         while idx <= total do
             local recipeID = ids[idx]
             idx = idx + 1
-            local text = C_TradeSkillUI.GetRecipeSourceText(recipeID) -- exception(boundary): nil when the server has no acquisition data
+            local text = C_TradeSkillUI.GetRecipeSourceText(recipeID) -- exception(boundary): nil OR "" when the server has no acquisition data (528 of 10.6k are empty-string; "" is Lua-truthy)
             local rec = UNSPECIFIED
-            if text then
+            if text and text ~= "" then
                 rec = VWB.RecipeSources.Parse(text)
                 exportEntry(rec)
-                -- TEMP(debug-dump 2026-07-11): raw sourceText corpus for the
-                -- offline parser/layout audit -- REVERT once reviewed. ~7.6k
-                -- strings, well under the SV constants trap threshold.
-                VWB_DB.debugSourceDump = VWB_DB.debugSourceDump or {}
-                VWB_DB.debugSourceDump[recipeID] = text
             else
                 stats.none = stats.none + 1
             end

@@ -88,6 +88,31 @@ do
     check("no trailing spacer", p.lines[#p.lines] ~= " ")
 end
 
+-- 5c. Block-context folding: location-first blocks are ONE path -------------
+do
+    local nomi = P("|cFFFFD200Zone:|r Dalaran|n|cFFFFD200NPC:|r Nomi|n|cFFFFD200Discovery:|r Nomi's Test Kitchen")
+    check("Zone/NPC/Discovery fold to one source", #nomi.sources == 1)
+    check("last real label wins the kind", nomi.sources[1].kind == "Discovery" and nomi.sources[1].detail == "Nomi's Test Kitchen")
+    check("intermediary folds into via", nomi.sources[1].via == "Nomi")
+    check("leading zone carried", nomi.sources[1].zone == "Dalaran")
+
+    local quest = P("|cFFFFD200Zone:|r Blackrock Depths|n|cFFFFD200Quest:|r A Binding Contract|n")
+    check("Zone/Quest fold", #quest.sources == 1 and quest.sources[1].kind == "Quest"
+        and quest.sources[1].zone == "Blackrock Depths")
+
+    local prof = P("Profession: Pandaria Jewelcrafting (25)|nTrainer: Mai the Jade Shaper|nZone: The Jade Forest")
+    check("Trainer after a source attaches as via", #prof.sources == 1
+        and prof.sources[1].kind == "Profession" and prof.sources[1].via == "Mai the Jade Shaper"
+        and prof.sources[1].zone == "The Jade Forest")
+
+    local lone = P("Trainer: Deirdre|nZone: Ironforge")
+    check("lone Trainer is still its own kind", #lone.sources == 1 and lone.sources[1].kind == "Trainer")
+
+    local blocks = P("Vendor: A|nZone: X|n|nZone: Y|nTreasure: Chest")
+    check("blank line closes the block (no folding across)", #blocks.sources == 2
+        and blocks.sources[2].kind == "Treasure" and blocks.sources[2].zone == "Y")
+end
+
 -- Shared model fixture --------------------------------------------------------
 local recipes = {
     { recipeID = 1, itemID = 11, name = "Copper Rod",         profession = "Enchanting",    expansion = "Classic" },

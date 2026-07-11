@@ -157,8 +157,11 @@ function Study.buildView(container)
                         row.text:SetText(item.name or ("recipe:" .. tostring(item.recipeID)))
                     end
                     local s = e.source
-                    row.detail:SetText(ns.UI:ColorCode("base01") .. s.kind
-                        .. (s.detail and (":|r " .. s.detail) or "|r"))
+                    local dim = ns.UI:ColorCode("base01")
+                    local d = dim .. s.kind .. (s.detail and (":|r " .. s.detail) or "|r")
+                    if s.via then d = d .. dim .. " - " .. s.via .. "|r" end
+                    if s.faction then d = d .. dim .. " [" .. s.faction .. "]|r" end
+                    row.detail:SetText(d)
                     row.zone:SetText(e.zone or "")
                     row.cost:SetText(s.cost or "")
                 end,
