@@ -99,18 +99,3 @@ function VWB.Database:GetRecipeByItemID(itemID, craftedOnly)
     end
     return nil, nil
 end
-
--- Get all recipes that produce this itemID. DIAGNOSTIC-ONLY (perf E7): full
--- corpus walk with no index -- sole caller is /vwb classify. Route any future
--- render/event-path consumer through GetRecipeByItemID's itemIDIndex instead.
-function VWB.Database:GetAllRecipesForItem(itemID)
-    if not itemID then return {} end
-
-    local recipes = {}
-    for recipeID, recipe in pairs(self:GetAllRecipes()) do
-        if recipe.itemID == itemID then
-            table.insert(recipes, recipeID)
-        end
-    end
-    return recipes
-end

@@ -14,41 +14,6 @@ local function GetED()
 end
 
 -- ============================================================================
--- CLASSIFICATION ENGINE
--- ============================================================================
-
--- Classify a category name into a high-level classification
-function VWB.RecipeQuery:ClassifyCategory(categoryName, profession)
-    if not categoryName or categoryName == "" then
-        if profession and VWB.Constants.ProfessionDefaults[profession] then
-            return VWB.Constants.ProfessionDefaults[profession]
-        end
-        return "Misc"
-    end
-    local lowerCat = categoryName:lower()
-    for _, classKey in ipairs(VWB.Constants.ClassificationOrder) do
-        local patterns = VWB.Constants.CategoryClassifications[classKey]
-        if patterns then
-            for _, pattern in ipairs(patterns) do
-                if lowerCat:find(pattern:lower()) then
-                    return classKey
-                end
-            end
-        end
-    end
-    if profession and VWB.Constants.ProfessionDefaults[profession] then
-        return VWB.Constants.ProfessionDefaults[profession]
-    end
-    return "Misc"
-end
-
--- Classify a full recipe record
-function VWB.RecipeQuery:ClassifyRecipe(recipe)
-    if not recipe then return "Misc" end
-    return self:ClassifyCategory(recipe.categoryName, recipe.profession)
-end
-
--- ============================================================================
 -- INVENTORY CHECK
 -- ============================================================================
 
@@ -147,109 +112,6 @@ function VWB.RecipeQuery:GetExpansions(profession)
 end
 
 -- ============================================================================
--- QUERY: CLASSIFICATIONS FOR PROFESSION
--- ============================================================================
-
-function VWB.RecipeQuery:GetClassifications(profession)
-    local classSet = {}
-    local all = VWB.Database:GetAllRecipes()
-    for _, r in pairs(all) do
-        if r.profession == profession then
-            local classification = self:ClassifyCategory(r.categoryName, r.profession)
-            classSet[classification] = true
-        end
-    end
-    local result = {{ key = "All", label = "All", icon = VWB.Constants.ClassificationIcons.All }}
-    for _, classKey in ipairs(VWB.Constants.ClassificationOrder) do
-        if classKey ~= "All" and classSet[classKey] then
-            table.insert(result, {
-                key = classKey,
-                label = classKey,
-                icon = VWB.Constants.ClassificationIcons[classKey],
-            })
-        end
-    end
-    return result
-end
-
--- ============================================================================
--- QUERY: SMART FOLDERS FOR CLASSIFICATION
--- ============================================================================
-
-function VWB.RecipeQuery:GetFolders(profession, classification)
-    if classification == "All" then return {} end
-
-    local all = VWB.Database:GetAllRecipes()
-    local categoryRecipeCounts = {}
-    for _, r in pairs(all) do
-        if r.profession == profession then
-            local recipeClass = self:ClassifyCategory(r.categoryName, profession)
-            if recipeClass == classification then
-                local catName = r.categoryName or "Uncategorized"
-                categoryRecipeCounts[catName] = (categoryRecipeCounts[catName] or 0) + 1
-            end
-        end
-    end
-
-    local profFolders = VWB.Constants.SmartFolders[profession] or {}
-    local categoryToFolder = {}
-    for folderName, categories in pairs(profFolders) do
-        for _, cat in ipairs(categories) do
-            categoryToFolder[cat] = folderName
-        end
-    end
-
-    local folderCounts = {}
-    local otherCount = 0
-    local otherCategories = {}
-    for catName, count in pairs(categoryRecipeCounts) do
-        local folder = categoryToFolder[catName]
-        if folder then
-            folderCounts[folder] = (folderCounts[folder] or 0) + count
-        else
-            otherCount = otherCount + count
-            otherCategories[catName] = true
-        end
-    end
-
-    local totalCount = 0
-    for _, count in pairs(categoryRecipeCounts) do
-        totalCount = totalCount + count
-    end
-    local result = {{ key = "All", label = "All", count = totalCount, categories = nil }}
-
-    local sorted = {}
-    for folderName, count in pairs(folderCounts) do
-        table.insert(sorted, { name = folderName, count = count })
-    end
-    table.sort(sorted, function(a, b) return a.count > b.count end)
-
-    for _, folder in ipairs(sorted) do
-        table.insert(result, {
-            key = folder.name,
-            label = folder.name,
-            count = folder.count,
-            categories = profFolders[folder.name],
-        })
-    end
-
-    if otherCount > 0 then
-        local otherCatList = {}
-        for cat in pairs(otherCategories) do
-            table.insert(otherCatList, cat)
-        end
-        table.insert(result, {
-            key = "Other",
-            label = "Other",
-            count = otherCount,
-            categories = otherCatList,
-        })
-    end
-
-    return result
-end
-
--- ============================================================================
 -- QUERY: FILTERED RECIPE LIST
 -- ============================================================================
 
@@ -283,8 +145,8 @@ local function CollapseRanks(results)
     return collapsed
 end
 
--- filters = { profession, expansion, search, canCraftOnly, skillUpOnly,
---             classification, category, folderCategories, collapseRanks }
+-- filters = { profession, expansion, search, categoryName, canCraftOnly,
+--             skillUpOnly, collapseRanks }
 -- Returns array of { recipeID, recipe }
 -- Collection-kind scoping (transmog/pet/mount/decor + missing) is NOT a
 -- GetFiltered concern: views post-filter via VWB.Collectibles:ClassifyKind /
@@ -329,24 +191,6 @@ function VWB.RecipeQuery:GetFiltered(filters)
                 local current = self:GetCurrentCharSkill(recipe.profession, recipe.expansion)
                 if not current or current >= cap then passes = false end
             end
-        end
-
-        -- Classification filter
-        if passes and filters.classification and filters.classification ~= "All" then
-            local recipeClass = self:ClassifyCategory(recipe.categoryName, recipe.profession)
-            if recipeClass ~= filters.classification then passes = false end
-        end
-
-        -- Category/folder filter
-        if passes and filters.category and filters.category ~= "All" and filters.folderCategories then
-            local inFolder = false
-            for _, cat in ipairs(filters.folderCategories) do
-                if recipe.categoryName == cat then
-                    inFolder = true
-                    break
-                end
-            end
-            if not inFolder then passes = false end
         end
 
         -- Direct category name filter (from nav tree)

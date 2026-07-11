@@ -183,12 +183,6 @@ function VWB.KnownRecipes:LoadFromStore()
     end
 end
 
--- Clear cache
-function VWB.KnownRecipes:ClearCache()
-    knownCache = {}
-    lastDispatchedScan = {}
-end
-
 -- Initialize event handling
 function VWB.KnownRecipes:Initialize()
     -- No TRADE_SKILL_SHOW handler (deleted 2026-07-11): the delayed SHOW scan

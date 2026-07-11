@@ -182,22 +182,6 @@ VWB.Theme.Skinners = {
         end
     end,
 
-    -- Title bar (Atlas-aware)
-    TitleBar = function(f, c)
-        if c.atlas and c.atlas.headerBar then
-            ApplyAtlasHeader(f, c.atlas.headerBar)
-            if f.SetBackdropColor then f:SetBackdropColor(0, 0, 0, 0) end
-        else
-            HideAtlasTextures(f)
-            if f.SetBackdropColor then
-                f:SetBackdropColor(c.accent.r, c.accent.g, c.accent.b, c.accent.a * 0.3)
-            end
-        end
-        if f.titleText then
-            f.titleText:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b, c.text_header.a)
-            ApplyFont(f.titleText, c, "header")
-        end
-    end,
 
     -- Button
     Button = function(b, c)
@@ -221,19 +205,6 @@ VWB.Theme.Skinners = {
         b._scheme = c
     end,
 
-    -- Active button (highlighted state)
-    ActiveButton = function(b, c)
-        if b.SetBackdropColor then
-            b:SetBackdropColor(c.button_active.r, c.button_active.g, c.button_active.b, c.button_active.a)
-            b:SetBackdropBorderColor(c.accent.r, c.accent.g, c.accent.b, 1)
-        end
-        local fs = b:GetFontString()
-        if fs then
-            fs:SetTextColor(c.button_text_norm.r, c.button_text_norm.g, c.button_text_norm.b, c.button_text_norm.a)
-            ApplyFont(fs, c)
-        end
-        b._scheme = c
-    end,
 
     -- Danger button (destructive actions -- Hard Reset etc.). Registered a
     -- second time over CreateButton's own "Button" role so the last-write-wins
@@ -252,36 +223,7 @@ VWB.Theme.Skinners = {
         b._scheme = c
     end,
 
-    -- Tab (inactive)
-    Tab = function(b, c)
-        if b.SetBackdropColor then
-            b:SetBackdropColor(c.button_inactive.r, c.button_inactive.g, c.button_inactive.b, c.button_inactive.a)
-            b:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a * 0.5)
-        end
-        local fs = b:GetFontString()
-        if fs then
-            fs:SetTextColor(c.button_text_dis.r, c.button_text_dis.g, c.button_text_dis.b, c.button_text_dis.a)
-            ApplyFont(fs, c)
-        end
-        b._scheme = c
-    end,
 
-    -- Active tab
-    ActiveTab = function(b, c)
-        if b.SetBackdropColor then
-            b:SetBackdropColor(c.accent.r, c.accent.g, c.accent.b, 0.3)
-            b:SetBackdropBorderColor(c.accent.r, c.accent.g, c.accent.b, 1)
-        end
-        local fs = b:GetFontString()
-        if fs then
-            fs:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b, c.text_header.a)
-            ApplyFont(fs, c)
-        end
-        if b.accent then
-            b.accent:SetVertexColor(c.accent.r, c.accent.g, c.accent.b, 1)
-        end
-        b._scheme = c
-    end,
 
     -- Text label (body)
     Label = function(fs, c)
@@ -344,63 +286,11 @@ VWB.Theme.Skinners = {
         end
     end,
 
-    -- Filter button row
-    FilterButtonRow = function(f, c)
-        if not f.buttons then return end
-        for _, btn in ipairs(f.buttons) do
-            local isActive = f.selectedKeys and f.selectedKeys[btn.key]
-            if isActive then
-                btn:SetBackdropColor(c.button_active.r, c.button_active.g, c.button_active.b, c.button_active.a)
-                if btn.text then btn.text:SetTextColor(c.button_text_norm.r, c.button_text_norm.g, c.button_text_norm.b, 1) end
-            else
-                btn:SetBackdropColor(c.button_inactive.r, c.button_inactive.g, c.button_inactive.b, c.button_inactive.a)
-                if btn.text then btn.text:SetTextColor(c.button_text_dis.r, c.button_text_dis.g, c.button_text_dis.b, 1) end
-            end
-            btn._scheme = c
-        end
-    end,
 
-    -- Icon filter button row (profession icons)
-    IconFilterButtonRow = function(f, c)
-        if not f.buttons then return end
-        for _, btn in ipairs(f.buttons) do
-            local isActive = f.selectedKeys and f.selectedKeys[btn.key]
-            if isActive then
-                btn:SetBackdropColor(c.button_active.r, c.button_active.g, c.button_active.b, c.button_active.a)
-                btn:SetBackdropBorderColor(c.accent.r, c.accent.g, c.accent.b, 1)
-                if btn.icon then btn.icon:SetDesaturated(false); btn.icon:SetAlpha(1) end
-            else
-                btn:SetBackdropColor(c.button_inactive.r, c.button_inactive.g, c.button_inactive.b, c.button_inactive.a * 0.5)
-                btn:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a * 0.5)
-                if btn.icon then btn.icon:SetDesaturated(true); btn.icon:SetAlpha(0.6) end
-            end
-            btn._scheme = c
-        end
-    end,
 
-    -- Recipe row
-    RecipeRow = function(f, c)
-        if f.text then f.text:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a) end
-        f._scheme = c
-    end,
 
-    -- Queue row
-    QueueRow = function(f, c)
-        if f.SetBackdropColor then f:SetBackdropColor(c.panel.r, c.panel.g, c.panel.b, c.panel.a) end
-        f._scheme = c
-    end,
 
-    -- Material row
-    MaterialRow = function(f, c)
-        if f.name then f.name:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a) end
-    end,
 
-    -- Category header (collapsible)
-    CategoryHeader = function(f, c)
-        if f.arrow then f.arrow:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a) end
-        if f.text then f.text:SetTextColor(c.accent.r, c.accent.g, c.accent.b, c.accent.a) end
-        if f.countText then f.countText:SetTextColor(c.text.r, c.text.g, c.text.b, c.text.a) end
-    end,
 
     -- Divider line
     Divider = function(f, c)
@@ -435,33 +325,8 @@ VWB.Theme.Skinners = {
         end
     end,
 
-    -- Craft-complete toast (window chrome; success-bordered card so it reads
-    -- distinct from ordinary panels across all 11 themes)
-    CraftToast = function(f, c)
-        local d = VWB.Constants:GetDerivedColors(c)
-        if f.SetBackdropColor then
-            f:SetBackdropColor(d.marble_tint.r, d.marble_tint.g, d.marble_tint.b, 0.95)
-            f:SetBackdropBorderColor(c.success.r, c.success.g, c.success.b, 1)
-        end
-        if f.text then f.text:SetTextColor(c.text.r, c.text.g, c.text.b) end
-    end,
 
-    -- Page button (inactive rail button)
-    PageButton = function(b, c)
-        b:SetBackdropColor(0, 0, 0, 0)
-        b:SetBackdropBorderColor(0, 0, 0, 0)
-        if b.icon then b.icon:SetDesaturated(true); b.icon:SetAlpha(0.5) end
-    end,
 
-    -- Active page button (highlighted rail button - golden amber glow)
-    ActivePageButton = function(b, c)
-        local d = VWB.Constants:GetDerivedColors(c)
-        b:SetBackdropColor(d.selected_fill.r, d.selected_fill.g, d.selected_fill.b, d.selected_fill.a)
-        b:SetBackdropBorderColor(d.border_glow.r, d.border_glow.g, d.border_glow.b, 1)
-        if b.icon then b.icon:SetDesaturated(false); b.icon:SetAlpha(1) end
-        if b.glow then b.glow:SetVertexColor(d.selected_glow.r, d.selected_glow.g, d.selected_glow.b, d.selected_glow.a); b.glow:Show() end
-        if b.selectedTex then b.selectedTex:SetVertexColor(d.selected_fill.r, d.selected_fill.g, d.selected_fill.b, d.selected_fill.a); b.selectedTex:Show() end
-    end,
 
     -- Nav header (expansion header in nav tree - marble bg + tooltip border)
     NavHeader = function(f, c)
@@ -486,37 +351,7 @@ VWB.Theme.Skinners = {
         end
     end,
 
-    -- Panel header (section header bar in panels)
-    PanelHeader = function(f, c)
-        if f.SetBackdropColor then
-            f:SetBackdropColor(c.panel.r * 0.7, c.panel.g * 0.7, c.panel.b * 0.7, 1)
-            f:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a)
-        end
-        if f.title then f.title:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b) end
-    end,
 
-    -- Recipe card (warm tinted card row)
-    RecipeCard = function(f, c)
-        local d = VWB.Constants:GetDerivedColors(c)
-        if f._isSelected then
-            if f.SetBackdropColor then
-                f:SetBackdropColor(d.selected_fill.r, d.selected_fill.g, d.selected_fill.b, d.selected_fill.a)
-                f:SetBackdropBorderColor(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 0.6)
-            end
-        else
-            if f.SetBackdropColor then
-                f:SetBackdropColor(d.marble_tint.r * 1.1, d.marble_tint.g, d.marble_tint.b * 0.85, d.marble_tint.a * 0.5)
-                f:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a * 0.4)
-            end
-        end
-        if f.text then
-            if f._isSelected then
-                f.text:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b)
-            else
-                f.text:SetTextColor(c.text.r, c.text.g, c.text.b)
-            end
-        end
-    end,
 
     -- Slider
     Slider = function(f, c)

@@ -17,12 +17,10 @@ VWB.AHScan = {}
 
 local SCAN_TIMEOUT = 60 -- seconds; a full browse scan pages in well under this
 
--- Session-local caches. sessionPrices[itemID] = min buyout copper;
--- sessionQty[itemID] = units currently listed. scanCompleted flips true once a
--- full scan finishes -- StartScan(force=false) becomes a no-op after that so we
--- do not re-dump the whole AH on every Ledger open.
+-- Session-local cache. sessionPrices[itemID] = min buyout copper. scanCompleted
+-- flips true once a full scan finishes -- StartScan(force=false) becomes a
+-- no-op after that so we do not re-dump the whole AH on every Ledger open.
 local sessionPrices = {}
-local sessionQty = {}
 local scanCompleted = false
 
 local scan = { active = false, pages = 0, timeoutTimer = nil }
@@ -46,11 +44,10 @@ end
 -- Session AH price / listed quantity for an item, or nil. GetPrice is the hook
 -- PriceIntegration's auto fallback chain calls -- market data only.
 function VWB.AHScan:GetPrice(itemID) return sessionPrices[itemID] end
-function VWB.AHScan:GetQty(itemID) return sessionQty[itemID] end
 
 -- Fold one page of browse results into the session table. Each result row is a
 -- per-itemKey aggregate (totalQuantity/minPrice already summarised), so we take
--- the min price across pages and overwrite the listed quantity.
+-- the min price across pages.
 local function processBatch(results)
     if not results then return end
     for _, info in ipairs(results) do
@@ -60,7 +57,6 @@ local function processBatch(results)
             if not existing or (info.minPrice and info.minPrice < existing) then
                 sessionPrices[itemID] = info.minPrice
             end
-            sessionQty[itemID] = info.totalQuantity
         end
     end
 end
@@ -119,7 +115,6 @@ function VWB.AHScan:StartScan(force)
     if scanCompleted and not force then return true end
     if force then
         sessionPrices = {}
-        sessionQty = {}
         scanCompleted = false
     end
 

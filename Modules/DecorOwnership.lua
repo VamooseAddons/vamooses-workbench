@@ -71,10 +71,6 @@ function VWB.DecorOwnership.Epoch()
     return latch.epoch()
 end
 
-function VWB.DecorOwnership:ClearCache()
-    cache = {}
-end
-
 -- Boundary reconcile (HDG ReconcileEntry shape): derive ONE entry's ownership
 -- at the moment of truth and latch it forward. Equality-gated fan-out.
 local function reconcileEntry(entryID)

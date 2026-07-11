@@ -223,9 +223,6 @@ end
 ---@field bindText fun(fs:any, fn:function):function
 ---@field bindShown fun(frame:any, fn:function):function
 ---@field bindColor fun(fs:any, fn:function):function
----@field bindTexture fun(tex:any, fn:function):function
----@field bindCall fun(obj:any, method:string, fn:function):function
----@field bindList fun(itemsFn:function, opts:table)
 ---@field setLogger fun(fn:function)
 ---@field setScheduler fun(deferFn:function)
 ---@field setInstrument fun(fn?:function)
@@ -416,7 +413,7 @@ function Reactor.scope(fn)
 end
 
 -- Register an arbitrary teardown with the current scope (for resources a
--- bind owns that aren't themselves effects -- e.g. bindList's pooled rows).
+-- bind owns that aren't themselves effects).
 function Reactor.onCleanup(fn)
     if currentScope then
         local d = currentScope.disposables

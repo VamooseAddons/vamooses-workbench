@@ -19,11 +19,10 @@
 --     multiplies its marble-tint alpha by config.bgOpacity on every Panel-
 --     registered widget across the whole addon. Transparency reuses that
 --     rather than adding a second, competing window:SetAlpha() mechanism.
---   * uiScale keeps VPC's name (Framework.lua:CreateMainFrame already reads
---     config.uiScale, though that constructor isn't in Shell.lua's actual
---     window-build path -- so UI Scale is applied directly to the live window
---     here: _G.VWB_Main, the global Shell.lua names its frame, guaranteed to
---     exist by the time Settings itself is visible inside it).
+--   * uiScale keeps VPC's name for SavedVars continuity. UI Scale is applied
+--     directly to the live window here: _G.VWB_Main, the global Shell.lua
+--     names its frame, guaranteed to exist by the time Settings itself is
+--     visible inside it.
 --   * autoExpand -- new key, no consumer yet (same "inert until wired"
 --     contract already established below for Ambient Item Tooltips).
 --
@@ -175,11 +174,10 @@ function Settings.buildView(container)
                 onChange = function(value)
                     value = math.floor(value * 10 + 0.5) / 10 -- clamp float drift from slider drag to one decimal
                     ns.Store:Dispatch("SET_CONFIG", { key = "uiScale", value = value })
-                    -- Shell.lua builds the window frame directly (not via
-                    -- Framework.lua:CreateMainFrame), naming it "VWB_Main" --
-                    -- that global is the only live handle to the window, and
-                    -- it's guaranteed to exist here (Settings is mounted
-                    -- inside its own content host).
+                    -- Shell.lua builds the window frame directly, naming it
+                    -- "VWB_Main" -- that global is the only live handle to
+                    -- the window, and it's guaranteed to exist here (Settings
+                    -- is mounted inside its own content host).
                     _G.VWB_Main:SetScale(value)
                 end,
             })

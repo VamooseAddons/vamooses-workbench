@@ -604,7 +604,7 @@ function Showroom.buildView(container)
             modelCreatureFrame:Hide()
             modelDressFrame:Hide()
             undressWidget:Hide()
-            local catInfo = C_HousingCatalog.GetCatalogEntryInfoByItem(item.itemID, true) -- exception(boundary): nil until the housing catalog UI has loaded once this session
+            local catInfo = C_HousingCatalog.GetCatalogEntryInfoByItem(item.itemID) -- exception(boundary): nil until the housing catalog UI has loaded once this session
             if catInfo and catInfo.asset then
                 modelSceneFrame:TransitionToModelSceneID(
                     catInfo.uiModelSceneID or DEFAULT_DECOR_SCENE_ID,

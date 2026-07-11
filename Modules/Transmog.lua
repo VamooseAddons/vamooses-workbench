@@ -169,19 +169,6 @@ function VWB.Transmog:IsUnknown(itemID)
     return status.hasAppearance and not status.isCollected
 end
 
--- Terminal authority: true when this id can never resolve (server refused it,
--- or the R5 retry budget exhausted on the lossy-cache anomaly). Consumers
--- (Showroom resources) resolve such keys instead of pending forever.
-function VWB.Transmog:IsDeadItem(itemID)
-    local v = VWB.ItemData.peek(itemID)
-    return v == VWB.ItemData.DEAD or v == VWB.ItemData.NODATA
-end
-
--- Clear the derived-status cache (re-derives from latches; zero requests).
-function VWB.Transmog:ClearCache()
-    cache = {}
-end
-
 -- Initialize: ONE boundary registration. ITEM_DATA_LOAD_RESULT belongs to
 -- the ItemData broker now; this module's only event is the wardrobe growing.
 function VWB.Transmog:Initialize()
