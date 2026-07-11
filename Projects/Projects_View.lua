@@ -653,7 +653,7 @@ function Projects.buildView(container)
 
     emptyCard = VWB.UI:CreateEmptyStateCard(container, {
         title = "Plan your collection",
-        body = "Pin an uncollected item from the Showroom and the plan appears here -- mats, prices, and which alt crafts each step. Track it to done.",
+        body = "Start a commission from the Showroom (pin an item), the Achieve tab (Track a profession achievement), or Study (commission a vendor's recipes). Mats, prices, and which alt crafts each step appear here.",
         buttonText = "Browse the Showroom",
         onClick = function() ns.Nav.Go("showroom") end,
         width = 420, height = 170,
@@ -685,7 +685,7 @@ function Projects.buildView(container)
         if not e then return "Plan" end -- exception(nullable): no selection
         if i then
             local pc = e.p.pieces[i]
-            local name = liveName(pc.itemID, nil)
+            local name = liveName(pc.itemID, pc.name)
             if #e.p.pieces > 1 then return "        " .. name end -- indented past the back button
             return name
         end
@@ -806,7 +806,7 @@ function Projects.buildView(container)
             local rows = {}
             for i, pc in ipairs(e.p.pieces) do
                 rows[i] = { index = i, piece = pc, piecePlan = e.plan.pieces[i],
-                    name = liveName(pc.itemID, nil) }
+                    name = liveName(pc.itemID, pc.name) }
             end
             if #e.p.pieces < VWB.Constants.Projects.MAX_PIECES and e.p.status ~= "done" then
                 rows[#rows + 1] = { addRow = true, projectId = e.p.id }

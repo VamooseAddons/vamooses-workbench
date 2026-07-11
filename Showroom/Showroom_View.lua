@@ -393,8 +393,31 @@ function Showroom.buildView(container)
             -- Item 4: Start Project button. Dispatches ADD_PROJECT for the selected item,
             -- then navigates to the Projects view with the new project selected.
             startProjectBtn = ns.UI:CreateButton(parent, "Start Project", 100, 22)
-            startProjectBtn:SetScript("OnClick", function()
+            startProjectBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            startProjectBtn:SetScript("OnClick", function(self, button)
                 local item = selected()
+                if button == "RightButton" then
+                    -- add THIS item as a piece of a bench commission
+                    local benches = {}
+                    for _, prj in ipairs(ns.Store:GetState().projects.items) do
+                        if prj.status == "bench" then benches[#benches + 1] = prj end
+                    end
+                    if #benches == 0 then
+                        VWB.Log:Print("Nothing on the bench -- left-click starts a new commission")
+                        return
+                    end
+                    MenuUtil.CreateContextMenu(self, function(_, root)
+                        root:CreateTitle("Add to commission")
+                        for _, prj in ipairs(benches) do
+                            root:CreateButton(prj.name, function()
+                                ns.Store:Dispatch("ADD_PIECE", { projectId = prj.id,
+                                    piece = { itemID = item.itemID, recipeID = item.recipeID, kind = "collect" } })
+                                VWB.Log:Print("Added " .. (item.name or "item") .. " to " .. prj.name)
+                            end)
+                        end
+                    end)
+                    return
+                end
                 local icon = C_Item.GetItemIconByID(item.itemID)
                 ns.Store:Dispatch("ADD_PROJECT", {
                     name = item.name or ("item:" .. tostring(item.itemID)),

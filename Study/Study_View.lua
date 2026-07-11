@@ -13,6 +13,12 @@ local _, ns = ...
 local Study = ns.Study or {}
 ns.Study = Study
 
+StaticPopupDialogs["VWB_COMMISSION_STUDY"] = {
+    text = "%s", button1 = "Create", button2 = "Cancel",
+    OnAccept = function(self, data) data.fn() end,
+    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
+
 -- Rank-collapsed corpus as light rows. Unlike Showroom, enchant recipes (no
 -- output item) STAY in -- Study browses RECIPES, and "where do I learn
 -- Enchant X" is exactly the question. Icons fall back to the profession's.
@@ -237,6 +243,43 @@ function Study.buildView(container)
     end
 
     local handle = ns.Layout.build(container, ns.LayoutConfig.study, { makeFrame = makeFrame, measure = VWB.ViewKit.measure })
+
+    -- "Commission this pick": visible on a leaf nav pick only -- turns the
+    -- visible UNLEARNED recipes into a Backlog commission (count-confirmed;
+    -- owner ruling: Study imports are research, not bench work).
+    local commissionBtn = ns.UI:CreateButton(container, "Commission this pick", 150, 16)
+    commissionBtn:SetPoint("RIGHT", breadcrumbFS, "RIGHT", -4, 0)
+    commissionBtn:SetFrameLevel(breadcrumbFS:GetParent():GetFrameLevel() + 5)
+    commissionBtn:SetScript("OnClick", function()
+        local sel = filters.navKey()
+        if not sel then return end -- exception(nullable): bindShown races the click
+        local kind, zone = sel:match("^(.+)::(.+)$")
+        if not kind then kind = sel end
+        local name = (zone and zone ~= "*") and (kind .. " - " .. zone) or kind
+        local pieces, seen = {}, {}
+        for _, r in ipairs(model.rows()) do
+            if not r.known and not seen[r.item.recipeID] then
+                seen[r.item.recipeID] = true
+                pieces[#pieces + 1] = { recipeID = r.item.recipeID, itemID = r.item.itemID,
+                    name = r.item.name, kind = "collect" }
+                if #pieces >= VWB.Constants.Projects.MAX_PIECES then break end
+            end
+        end
+        if #pieces == 0 then return end
+        local total = model.entries().recipeCount
+        local msg = string.format("Create a commission for %d unlearned recipe(s) from %s?", #pieces, name)
+        if total and #pieces == VWB.Constants.Projects.MAX_PIECES then
+            msg = msg .. "\n(capped at " .. VWB.Constants.Projects.MAX_PIECES .. " pieces)"
+        end
+        StaticPopup_Show("VWB_COMMISSION_STUDY", msg, nil, { fn = function()
+            ns.Store:Dispatch("ADD_PROJECT", { name = name, status = "backlog",
+                source = { type = "study", id = sel }, pieces = pieces })
+            VWB.Log:Print(string.format("Commission started: %s (%d pieces, in the Backlog)", name, #pieces))
+        end })
+    end)
+    R.bindShown(commissionBtn, function()
+        return (filters.navKey() ~= nil and #model.rows() > 0) or false
+    end)
 
     -- Rows -> list, with a NAMED empty state (blank lists are ambiguous).
     R.effect(function()

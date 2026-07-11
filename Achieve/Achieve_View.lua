@@ -22,11 +22,43 @@ local function singleLine(fs)
     return fs
 end
 
+-- Recipe criteria (type 34, assetID = recipe spellID) become commission
+-- pieces; the criteria text carries the recipe name so pieces render even
+-- when the recipe isn't harvested. Backlog by default (owner ruling: a
+-- 20-piece import is an intention, promote to the Bench when ready).
+local function startCommission(rec)
+    local AC = VWB.Constants.Achievements
+    local pieces = {}
+    for ci, c in ipairs(rec.criteria) do
+        if c.ctype == AC.CRITERIA_KNOW_RECIPE and c.assetID and c.assetID > 0 then
+            local r = VWB.Database:GetRecipe(c.assetID)
+            pieces[#pieces + 1] = { recipeID = c.assetID, itemID = r and r.itemID,
+                name = c.text, kind = "achievement", criteriaIndex = ci }
+            if #pieces >= VWB.Constants.Projects.MAX_PIECES then break end
+        end
+    end
+    if #pieces == 0 then return end
+    VWB.Store:Dispatch("ADD_PROJECT", { name = rec.name, icon = rec.icon, status = "backlog",
+        source = { type = "achievement", id = rec.id }, pieces = pieces })
+    VWB.Log:Print(string.format("Commission started: %s (%d pieces, in the Backlog)", rec.name, #pieces))
+end
+
+local function hasRecipeCriteria(rec)
+    local AC = VWB.Constants.Achievements
+    for _, c in ipairs(rec.criteria) do
+        if c.ctype == AC.CRITERIA_KNOW_RECIPE and c.assetID and c.assetID > 0 then return true end
+    end
+    return false
+end
+
 local function listRowTemplate(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(28, 28); icon:SetPoint("LEFT", 4, 0)
     frame.icon = icon
+    frame.track = VWB.UI:CreateButton(frame, "Track", 52, 18)
+    frame.track:SetPoint("RIGHT", -6, 0)
+    frame.track:SetScript("OnClick", function(self) startCommission(self:GetParent().data) end)
     local right = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
-    right:SetPoint("RIGHT", -6, 0); right:SetWidth(RIGHT_W); right:SetJustifyH("RIGHT")
+    right:SetPoint("RIGHT", frame.track, "LEFT", -8, 0); right:SetWidth(RIGHT_W); right:SetJustifyH("RIGHT")
     frame.right = right
     local pts = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"))
     pts:SetPoint("RIGHT", right, "LEFT", -6, 0); pts:SetWidth(PTS_W); pts:SetJustifyH("RIGHT")
@@ -133,6 +165,7 @@ function Achieve.buildView(container)
                 updateRow = function(row, rec)
                     row.data = rec
                     row.icon:SetTexture(rec.icon)
+                    row.track:SetShown(not rec.completed and hasRecipeCriteria(rec))
                     local name = rec.name
                     if rec.completed then name = ns.UI:ColorCode("green") .. name .. "|r" end
                     row.name:SetText(name)

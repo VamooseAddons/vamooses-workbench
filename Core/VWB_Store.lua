@@ -314,9 +314,13 @@ local function findProject(st, id)
     end
 end
 
+-- name: display fallback for pieces whose item is cold/absent (achievement
+-- criteria text carries the recipe name). criteriaIndex: achievement-kind
+-- pieces map to one criterion of source.id for the completion sweep.
 local function buildPiece(pc)
-    return { itemID = pc.itemID, recipeID = pc.recipeID,
+    return { itemID = pc.itemID, recipeID = pc.recipeID, name = pc.name,
         kind = pc.kind or "collect", par = pc.par or VWB.Constants.Projects.DEFAULT_PAR,
+        criteriaIndex = pc.criteriaIndex,
         pins = {}, completedAt = nil, refills = 0 }
 end
 

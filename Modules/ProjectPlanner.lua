@@ -178,7 +178,9 @@ function P:DerivePiecePlan(piece)
         plan.status = plan.level >= plan.par and "dormant" or "active"
         qty = math.max(0, plan.par - plan.level)
     else
-        local collected = self:IsCollected(piece.itemID) == true
+        -- achievement-kind pieces complete via the criteria sweep ONLY (a
+        -- collected item does not satisfy a know/craft criterion)
+        local collected = piece.kind == "collect" and self:IsCollected(piece.itemID) == true
         plan.status = collected and "complete" or "active"
         qty = 1
     end
@@ -306,6 +308,46 @@ local function sweepStockRefills()
     end
 end
 
+-- Achievement-sourced commissions: the trust pipeline (owner review: one
+-- stale piece counter and the board loses to the Blizzard UI). Criteria are
+-- read LIVE per piece.criteriaIndex -- no dependency on the Achieve view's
+-- latch walk. Both handlers are boundary latches: read, compare, dispatch.
+local achSettle = nil
+
+local function sweepAchievementCriteria()
+    for _, prj in ipairs(VWB.Store:GetState().projects.items) do
+        if not prj.completedAt and prj.source and prj.source.type == "achievement" then
+            local allDone = #prj.pieces > 0
+            for i, pc in ipairs(prj.pieces) do
+                if not pc.completedAt and pc.criteriaIndex then
+                    local _, _, done = GetAchievementCriteriaInfo(prj.source.id, pc.criteriaIndex)
+                    if done then
+                        VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
+                    end
+                end
+                if not pc.completedAt then allDone = false end
+            end
+            if allDone then
+                VWB.Store:Dispatch("COMPLETE_PROJECT", { id = prj.id })
+            end
+        end
+    end
+end
+
+local function onAchievementEarned(achievementID)
+    for _, prj in ipairs(VWB.Store:GetState().projects.items) do
+        if prj.source and prj.source.type == "achievement" and prj.source.id == achievementID
+            and not prj.completedAt then
+            for i, pc in ipairs(prj.pieces) do
+                if not pc.completedAt then
+                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
+                end
+            end
+            VWB.Store:Dispatch("COMPLETE_PROJECT", { id = prj.id })
+        end
+    end
+end
+
 function P:Initialize()
     -- B2: Replace the duplicate CreateFrame(NEW_MOUNT_ADDED/NEW_PET_ADDED) plus the
     -- direct VWB_TRANSMOG_UPDATED and VWB_DECOR_OWNERSHIP_UPDATE registrations with a
@@ -314,4 +356,16 @@ function P:Initialize()
     -- so one registration covers the full collect domain with no duplicate sweeps.
     VWB.Collectibles:RegisterCollectionListener(sweepCollectCompletions)
     VWB.EventBus:Register("VWB_INVENTORY_UPDATE", sweepStockRefills)
+    VWB.Reactor.subscribeEvent("ACHIEVEMENT_EARNED", function(achievementID)
+        if achievementID then onAchievementEarned(achievementID) end
+    end)
+    -- CRITERIA_UPDATE fires per craft action with no payload: coalesce, then
+    -- sweep only achievement commissions with unstamped pieces.
+    VWB.Reactor.subscribeEvent("CRITERIA_UPDATE", function()
+        if achSettle then return end
+        achSettle = VWB.ReactorWoW.after(VWB.Constants.Achievements.CRITERIA_SETTLE, function()
+            achSettle = nil
+            sweepAchievementCriteria()
+        end)
+    end)
 end
