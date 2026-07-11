@@ -44,6 +44,7 @@ Modules\RecipeHarvest.lua
 Modules\KnownRecipes.lua
 Modules\RecipeQuery.lua
 Modules\RecipeSources.lua
+Modules\ProfAchievements.lua
 Modules\Graph.lua
 Modules\AHScan.lua
 Modules\AuctionatorBridge.lua
@@ -65,6 +66,7 @@ Layout\Layout.lua
 Layout\LayoutConfig_Shell.lua
 Layout\LayoutConfig_Showroom.lua
 Layout\LayoutConfig_Study.lua
+Layout\LayoutConfig_Achieve.lua
 Layout\LayoutConfig_Recipes.lua
 Layout\LayoutConfig_Stockroom.lua
 Layout\LayoutConfig_Ledger.lua
@@ -79,6 +81,8 @@ Showroom\Showroom_Model.lua
 Showroom\Showroom_View.lua
 Study\Study_Model.lua
 Study\Study_View.lua
+Achieve\Achieve_Model.lua
+Achieve\Achieve_View.lua
 Recipes\Recipes_View.lua
 Records\Records_View.lua
 Roster\Roster_View.lua

@@ -450,6 +450,14 @@ VWB.Constants.Harvest = {
     OWN_HARVEST_DEBOUNCE = 0.5,    -- seconds; coalesces the TRADE_SKILL_LIST_UPDATE burst before Modules/KnownRecipes.lua's own-profession harvest starts
 }
 
+VWB.Constants.Achievements = {
+    PROFESSIONS_CATEGORY = 169,     -- Achievement_Category "Professions" root; stable across every expansion (DB2-verified 12.0.7). Children (Alchemy..Archaeology) are walked LIVE, never hardcoded.
+    CRITERIA_KNOW_RECIPE = 34,      -- criteriaType: assetID = recipe SPELL id (cross-links to KnownRecipes/Study)
+    CRITERIA_META = 8,              -- criteriaType: assetID = required achievementID (no exported enum; Blizzard's own CRITERIA_TYPE_ACHIEVEMENT global = 8)
+    PROGRESS_BAR_FLAG = 0x1,        -- criteriaFlags: display as quantity/reqQuantity bar
+    CRITERIA_SETTLE = 0.5,          -- seconds; CRITERIA_UPDATE fires per craft action -- coalesce before re-reading quantities
+}
+
 VWB.Constants.GuildQuery = {
     ROSTER_DEBOUNCE = 0.5,     -- seconds; GUILD_ROSTER_UPDATE debounce
     CRAFTER_TIMEOUT = 3,       -- seconds; QueryGuildMembersForRecipe response wait -> dataHole

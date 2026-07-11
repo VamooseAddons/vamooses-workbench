@@ -6,8 +6,8 @@ LUA="${LUA:-/opt/homebrew/bin/lua}"
 LUAC="${LUAC:-/opt/homebrew/bin/luac}"
 
 echo "=== parse ==="
-for f in "$DIR"/Reactor/*.lua "$DIR"/Layout/*.lua "$DIR"/Showroom/*.lua "$DIR"/Study/*.lua "$DIR"/Core/*.lua; do "$LUAC" -p "$f"; done
-echo "   all Reactor + Layout + Showroom + Study + Core files parse"
+for f in "$DIR"/Reactor/*.lua "$DIR"/Layout/*.lua "$DIR"/Showroom/*.lua "$DIR"/Study/*.lua "$DIR"/Achieve/*.lua "$DIR"/Core/*.lua; do "$LUAC" -p "$f"; done
+echo "   all Reactor + Layout + Showroom + Study + Achieve + Core files parse"
 
 fail=0
 for t in "$DIR"/tests/*_test.lua; do

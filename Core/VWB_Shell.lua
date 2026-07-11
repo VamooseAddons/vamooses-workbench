@@ -57,6 +57,8 @@ local VIEWS = {
       badge = function() return ns.Collectibles.UncollectedCount() end },
     { id = "study",     text = "Study",     subtitle = "Unlearned recipes and where to get them",
       build = function(c) return ns.Study.buildView(c) end },
+    { id = "achieve",   text = "Achieve",   subtitle = "Profession achievements and progress",
+      build = function(c) return ns.Achieve.buildView(c) end },
     { id = "workbench", text = "Workbench", subtitle = "Recipes, queue and materials",
       build = function(c) return ns.Recipes.buildView(c) end,
       badge = function()
