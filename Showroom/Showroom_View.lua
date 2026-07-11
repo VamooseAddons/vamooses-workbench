@@ -104,8 +104,15 @@ local function ensureResources()
 
     local function compositeEpoch() return uiEpoch() end
 
-    kindRes = { peek = deriveKind, epoch = compositeEpoch }
-    collectedRes = { peek = deriveCollected, epoch = compositeEpoch }
+    -- Callable like the resources they replaced (Showroom_Model passes these
+    -- through as kindOf/collectedOf, and the detail pane CALLS them for the
+    -- selected item -- live crash 2026-07-11 21:14 when they were plain
+    -- tables). A call is a tracked single-key read: it subscribes the
+    -- throttled composite so the pane repaints when the answer can change.
+    kindRes = setmetatable({ peek = deriveKind, epoch = compositeEpoch },
+        { __call = function(_, id) compositeEpoch(); return deriveKind(id) end })
+    collectedRes = setmetatable({ peek = deriveCollected, epoch = compositeEpoch },
+        { __call = function(_, id) compositeEpoch(); return deriveCollected(id) end })
 
     -- No invalidateAll, no event registrations, no collection listener: every
     -- live update reaches the view through the composite epoch (decor
@@ -556,10 +563,22 @@ function Showroom.buildView(container)
                 details[#details + 1] = dim .. "Expansion: |r" .. item.expansion
             end
         end
-        if collected ~= R.PENDING then
+        -- ITEM knowledge line (knowledge-domain ruling 2026-07-11): the
+        -- collection noun (Appearance/Mount/Pet/Decor) states the item side.
+        -- Guard the label: kind can be "none"/PENDING for non-collectibles in
+        -- the universe (concat on nil was a latent crash next to the live one).
+        if collected ~= R.PENDING and COLLECT_LABEL[kind] then
             details[#details + 1] = dim .. COLLECT_LABEL[kind] .. ": |r"
                 .. (collected and (ns.UI:ColorCode("green") .. "collected|r")
                     or (ns.UI:ColorCode("cyan") .. "NOT collected|r"))
+        end
+        -- RECIPE knowledge line beside it -- the supply-side answer for the
+        -- same item, and the cross-domain action hint (who could craft this).
+        local knownBy = ns.KnownRecipes:KnownByList(item.recipeID)
+        if #knownBy > 0 then
+            details[#details + 1] = dim .. "Recipe known by: |r" .. table.concat(knownBy, ", ")
+        else
+            details[#details + 1] = dim .. "Recipe: |r" .. ns.UI:ColorCode("cyan") .. "unlearned on this account|r"
         end
 
         if kind == "mount" or kind == "pet" then

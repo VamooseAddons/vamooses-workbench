@@ -655,10 +655,16 @@ function Recipes.buildView(container)
                         tip:AddLine(ns.UI:ColorCode("base01") .. "#" .. tostring(item.recipeID) .. "|r")
                     end
 
+                    -- Knowledge-domain wording (ruling 2026-07-11): the RECIPE
+                    -- line and the ITEM line name their domains explicitly --
+                    -- "Recipe known by" is who can craft it; "Appearance" is
+                    -- whether the ITEM's look is in the collection.
+                    tip:AddLine(" ")
                     local knownBy = ns.KnownRecipes:KnownByList(item.recipeID)
                     if #knownBy > 0 then
-                        tip:AddLine(" ")
-                        tip:AddLine(ns.UI:ColorCode("base01") .. "Known by: " .. table.concat(knownBy, ", ") .. "|r")
+                        tip:AddLine(ns.UI:ColorCode("base01") .. "Recipe known by: " .. table.concat(knownBy, ", ") .. "|r")
+                    else
+                        tip:AddLine(ns.UI:ColorCode("cyan") .. "Recipe: unlearned on this account|r")
                     end
 
                     local mog = ns.Transmog:GetStatus(item.itemID)

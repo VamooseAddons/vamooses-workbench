@@ -244,7 +244,7 @@ local function onStepRowEnter(st, rowFrame)
         T:AddTitle(st.name)
         T:AddLine(string.format("Need %d (own %d of %d)", st.need, st.owned, st.required))
         local names = VWB.KnownRecipes:KnownByList(st.recipeID)
-        T:AddLine("Known by: " .. table.concat(names, ", "))
+        T:AddLine("Recipe known by: " .. table.concat(names, ", ")) -- knowledge-domain wording: recipe side, not item collection
         local qn = queuedQty(st.recipeID, st.charKey)
         if qn > 0 then
             T:AddLine(string.format("Queued: x%d for %s -- Queue adds more", qn, VWB.ProjectPlanner:DisplayName(st.charKey)))
