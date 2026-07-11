@@ -56,10 +56,15 @@ boot:SetScript("OnEvent", function(self, event, name)
         ns.ProjectPlanner:Initialize() -- collect auto-complete + stock refill watchers (registration only)
         -- Graph + ReagentSource are lazy, no init.
         -- Rebuild the crafting queue's derived tables (expandedQueue/shoppingList)
-        -- from the persisted queuedRecipes -- the reducer that does this only runs
-        -- on queue edits otherwise, so a reloaded queue's Materials list is blank
-        -- until the user's next edit without this.
-        ns.Store:Dispatch("REBUILD_CRAFTING_STATE")
+        -- from the persisted queuedRecipes -- the reducer that does this only
+        -- runs on queue edits otherwise, so a reloaded queue's Materials list
+        -- is blank until the user's next edit. Constitution R6: this is
+        -- DERIVATION (graph walk + broker acquisitions for mat names), so it
+        -- wakes at first window open, not at login -- nothing reads the
+        -- derived tables before a view exists.
+        ns.Shell.WhenFirstOpen(function()
+            ns.Store:Dispatch("REBUILD_CRAFTING_STATE")
+        end)
     end
 end)
 

@@ -387,6 +387,7 @@ function Shell.openWindow()
         origShow(self)
         if not preBuildDone then
             preBuildDone = true
+            Shell.RunFirstOpenHooks() -- Constitution R6: deferred pipeline work wakes HERE
             VWB.ReactorWoW.after(0.05, function()
                 if not mounted["workbench"] then
                     mounted["workbench"] = viewById["workbench"].build(contentHost).root
@@ -407,6 +408,25 @@ function Shell.openWindow()
 
     Shell._win = win
     return win
+end
+
+-- ============================================================================
+-- Constitution R6 wake registry ("all work defers to window open" -- iron,
+-- owner ruling 2026-07-11). Modules register their Hydrate under this; login
+-- lifecycle does registrations only, and the queued work runs exactly once,
+-- at the first win:Show(). Registering after the window already opened runs
+-- the hook immediately (idempotent wake).
+-- ============================================================================
+local firstOpenHooks, firstOpenDone = {}, false
+function Shell.WhenFirstOpen(fn)
+    if firstOpenDone then fn(); return end
+    firstOpenHooks[#firstOpenHooks + 1] = fn
+end
+function Shell.RunFirstOpenHooks()
+    if firstOpenDone then return end
+    firstOpenDone = true
+    for i = 1, #firstOpenHooks do firstOpenHooks[i]() end
+    firstOpenHooks = {}
 end
 
 -- Entry-point adapters for ported code that expects VPC's VWB:ToggleWindow /

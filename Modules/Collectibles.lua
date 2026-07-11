@@ -176,6 +176,11 @@ local function recountTick(token, lastKey, seen, n)
         k, recipe = next(store, k)
         if k == nil then
             uncollectedCount(n)
+            -- SV snapshot (R6's v2.1.3 pattern): the badge rehydrates this at
+            -- next login so deferral is invisible -- last session's number
+            -- shows instantly, the live recount replaces it after first open.
+            VWB_DB.badgeSnapshots = VWB_DB.badgeSnapshots or {}
+            VWB_DB.badgeSnapshots.uncollected = n
             walkRunning = false
             if walkDirty then
                 walkDirty = false
@@ -250,17 +255,28 @@ function C:Initialize()
     f:SetScript("OnEvent", onScopedCollect)
     VWB.EventBus:Register("VWB_TRANSMOG_UPDATED", onBatchCollectionChanged)
     VWB.EventBus:Register("VWB_DECOR_OWNERSHIP_UPDATE", onBatchCollectionChanged)
-    -- Recount triggers, SPLIT by restart semantics: corpus changes restart
-    -- the walk (fresh next() iteration); collection events let the running
-    -- walk finish and rerun behind it. The effects only ARM ticks (no signal
-    -- writes, no API calls in the flush); recountCorpus fires at init so the
-    -- badge is live from login without mounting the Showroom.
-    VWB.Reactor.effect(function()
-        VWB.Store:Version("corpus")
-        beginWalk()
-    end, "collectibles:recountCorpus")
-    VWB.Reactor.effect(function()
-        collection.epoch()
-        if walkRunning then walkDirty = true else beginWalk() end
-    end, "collectibles:recountCollection")
+
+    -- R6 (iron): the badge shows LAST SESSION's snapshot until first window
+    -- open -- reading one SV field is registration-cheap; the recount
+    -- pipeline itself is Hydrate-gated below.
+    if VWB_DB.badgeSnapshots and VWB_DB.badgeSnapshots.uncollected then
+        uncollectedCount(VWB_DB.badgeSnapshots.uncollected)
+    end
+
+    -- Recount pipeline wakes at first window open (Constitution R6 -- iron,
+    -- owner ruling 2026-07-11: login registers, NOTHING derives). Triggers
+    -- are SPLIT by restart semantics: corpus changes restart the walk (fresh
+    -- next() iteration); collection events let the running walk finish and
+    -- rerun behind it. The effects only ARM ticks -- no signal writes, no
+    -- API calls in the flush.
+    VWB.Shell.WhenFirstOpen(function()
+        VWB.Reactor.effect(function()
+            VWB.Store:Version("corpus")
+            beginWalk()
+        end, "collectibles:recountCorpus")
+        VWB.Reactor.effect(function()
+            collection.epoch()
+            if walkRunning then walkDirty = true else beginWalk() end
+        end, "collectibles:recountCollection")
+    end)
 end
