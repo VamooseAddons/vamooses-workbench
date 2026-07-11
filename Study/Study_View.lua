@@ -68,6 +68,7 @@ function Study.buildView(container)
     local filters = {
         search = R.signal(""), profession = R.signal("all"),
         navKey = R.signal(nil), collapsed = R.signal({}),
+        showMissing = R.signal(true), -- include recipes with no source data (owner: on by default -- a player hunting a recipe must FIND it and see why it has no source)
     }
     local model = Study.buildModel({
         universe = universe,
@@ -104,7 +105,11 @@ function Study.buildView(container)
         end
         tip:AddLine(" ")
         tip:AddLine(ns.UI:ColorCode("cyan") .. "Recipe: unlearned on this account|r")
-        for _, line in ipairs(e.lines) do tip:AddLine(line) end
+        if #e.lines == 0 then
+            tip:AddLine(ns.UI:ColorCode("base01") .. "No data found for source|r")
+        else
+            for _, line in ipairs(e.lines) do tip:AddLine(line) end
+        end
         tip:Show()
     end
 
@@ -122,6 +127,12 @@ function Study.buildView(container)
             local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             fs:SetText(ns.UI:ColorCode("cyan") .. "Sources|r")
             return fs
+        elseif node.id == "missingToggle" then
+            local cb = ns.UI:CreateCheckbox(parent, "Missing", function(checked)
+                filters.showMissing(checked and true or false)
+            end)
+            cb.button:SetChecked(true)
+            return cb
         elseif node.id == "navTree" then
             navTree = ns.UI:CreateNavTree(parent, {
                 onHeaderClick = toggleCollapse,
@@ -158,9 +169,14 @@ function Study.buildView(container)
                     end
                     local s = e.source
                     local dim = ns.UI:ColorCode("base01")
-                    local d = dim .. s.kind .. (s.detail and (":|r " .. s.detail) or "|r")
-                    if s.via then d = d .. dim .. " - " .. s.via .. "|r" end
-                    if s.faction then d = d .. dim .. " [" .. s.faction .. "]|r" end
+                    local d
+                    if s.kind == "Unspecified" then
+                        d = dim .. "No data found for source|r" -- the honest WHY for recipes Blizzard ships no acquisition text for
+                    else
+                        d = dim .. s.kind .. (s.detail and (":|r " .. s.detail) or "|r")
+                        if s.via then d = d .. dim .. " - " .. s.via .. "|r" end
+                        if s.faction then d = d .. dim .. " [" .. s.faction .. "]|r" end
+                    end
                     row.detail:SetText(d)
                     row.zone:SetText(e.zone or "")
                     row.cost:SetText(s.cost or "")

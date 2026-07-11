@@ -8,7 +8,7 @@
 --   universe = () -> array of { recipeID, itemID?, name, profession, expansion }
 --   source   = { peek(recipeID) -> { lines, sources }|nil, epoch() }  (RecipeSources)
 --   known    = { version = fn (subscribing read), isKnown = fn(recipeID) plain }
---   filters  = { search, profession, navKey, collapsed }              (Reactor signals)
+--   filters  = { search, profession, navKey, collapsed, showMissing } (Reactor signals)
 -- navKey grammar: nil = everything | "Kind::*" = one kind, all zones |
 -- "Kind::Zone" = one kind in one zone. (Item keys always carry "::" so they
 -- can never collide with the section header keys the NavTree also tracks.)
@@ -49,9 +49,11 @@ function Study.buildModel(deps)
             if not known.isKnown(item.recipeID) and passes(item) then
                 local rec = src.peek(item.recipeID)
                 if rec then
-                    recipes = recipes + 1
+                    recipes = recipes + 1 -- counted even when Missing is hidden: it still needs learning
                     if #rec.sources == 0 then
-                        out[#out + 1] = { item = item, source = UNSPEC_SOURCE, lines = rec.lines }
+                        if f.showMissing() then
+                            out[#out + 1] = { item = item, source = UNSPEC_SOURCE, lines = rec.lines }
+                        end
                     else
                         for _, s in ipairs(rec.sources) do
                             if s.zones and #s.zones > 0 then

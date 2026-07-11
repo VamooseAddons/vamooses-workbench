@@ -21,7 +21,10 @@ ns.LayoutConfig = ns.LayoutConfig or {}
 local navPanel = {
     type = "stack", id = "navCol", dir = "col", gap = "sm", padding = "md", align = "stretch", chrome = "Panel",
     children = {
-        { type = "item", id = "navLabel", role = "section", size = { h = 16 } },
+        { type = "stack", dir = "row", gap = "sm", align = "center", size = { h = 20 }, children = {
+            { type = "item", id = "navLabel", role = "section", grow = true, size = { h = 16 } },
+            { type = "item", id = "missingToggle", size = { w = 84, h = 20 } }, -- "Missing" checkbox: include no-source-data recipes
+        } },
         { type = "item", id = "navTree", grow = true }, -- CreateNavTree target
     },
 }
