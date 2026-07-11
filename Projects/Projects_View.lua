@@ -833,14 +833,9 @@ function Projects.buildView(container)
         return e, i, i and e.plan.pieces[i] or e.plan
     end
 
-    -- Piece-filter clear (the tree replaces the drill-in; selection only
-    -- SCOPES, so the exit is one visible button). Inside the view tree,
-    -- never the shared container (cross-tab leak class).
-    local clearBtn = VWB.UI:CreateButton(handle.byId.prjPlanLabel:GetParent(), "Show all pieces", 110, 18)
-    clearBtn:SetPoint("RIGHT", handle.byId.prjQueueBtn, "LEFT", -8, 0)
-    clearBtn:SetScript("OnClick", function() selectedPiece(nil) end)
-    R.bindShown(clearBtn, function() return selectedPiece() ~= nil end)
-
+    -- (No separate clear-filter button: clicking the selected piece header
+    -- again deselects, and the label's "-- <piece> only" suffix carries the
+    -- state. A button here overlapped the label -- live 2026-07-12.)
     R.bindText(handle.byId.prjPlanLabel.label, function()
         local e = selectedEntry()
         if not e then return "Plan" end -- exception(nullable): no selection
