@@ -280,6 +280,13 @@ function Showroom.buildView(container)
                 onHeaderClick = function(key)
                     ns.Store:Dispatch("TOGGLE_NAV_COLLAPSE", { key = key })
                 end,
+                -- Tester bug (reganart, test1): the +/- arrow has its own hit
+                -- area (child Button wins the click), so WITHOUT this handler
+                -- the arrow strip ate clicks and did nothing -- worse than
+                -- dead. Same toggle as the header.
+                onArrowClick = function(key)
+                    ns.Store:Dispatch("TOGGLE_NAV_COLLAPSE", { key = key })
+                end,
                 onItemClick = function(key)
                     if ns.Store:GetState().ui.navSelectedItem == key then
                         ns.Store:Dispatch("SET_NAV_SELECTION", { exp = nil, item = nil })
