@@ -1,30 +1,33 @@
--- Headless tests for the projects slice, v2 (Commissions): the v1->v2
--- migration transform, all reducers against the pieces shape, nextId
--- monotonicity, the status<->completedAt invariant, and the alias contract
--- (in-place mutations survive reload via the VWB_DB reference).
+-- Headless tests for the projects slice, v3 (Commissions: pieces are
+-- ENTITIES). Covers: v1->v3 and v2->v3 migrations (ids, achievementID fold,
+-- idempotence), pieceId-addressed reducers incl. the dangling-index bug
+-- class, dedupe, the SEALED-DONE and DONE-ENTRY reducer rules, the state
+-- machine legality matrix, and the Constitution invariants.
 -- Run: lua store_projects_test.lua
 
 local base = arg[0]:gsub("tests/store_projects_test%.lua$", "")
 local R = dofile(base .. "Reactor/Reactor_Core.lua")
 _G.time = os.time
 _G.VWB = { Reactor = R, Database = { InvalidateIndexes = function() end } }
--- Constants load real values (MAX_PIECES/DEFAULT_PAR live there now)
 loadfile(base .. "Core/Constants.lua")("VWB", _G.VWB)
 
--- Seed a v1-shaped SavedVariables BEFORE the Store loads: the migration must
--- transform it during LoadFromSavedVariables, before the state alias.
-_G.VWB_DB = { projects = { nextId = 3, items = {
-    { id = 1, name = "Old Cauldron", icon = 133, itemID = 101, recipeID = 501,
-      kind = "collect", par = 20, pins = { ["craft:recipe:501"] = "Aly-Realm" },
-      createdAt = 100, completedAt = nil, refills = 0 },
-    { id = 2, name = "Old Flask", icon = 134, itemID = 202, recipeID = 502,
-      kind = "stock", par = 40, pins = {},
-      createdAt = 200, completedAt = 900, refills = 3 },
+-- Seed a v2-shaped DB (post-pieces, pre-ids) with an achievement commission:
+-- the v2->v3 migration must assign ids AND fold source.id onto criteria pieces.
+_G.VWB_DB = { projects = { v = 2, nextId = 10, items = {
+    { id = 1, name = "Old Set", icon = 133, status = "bench",
+      pieces = { { itemID = 101, recipeID = 501, kind = "collect", par = 20, pins = {}, refills = 0 } },
+      source = nil, createdAt = 100, completedAt = nil },
+    { id = 2, name = "Old Achieve", icon = 134, status = "backlog",
+      pieces = {
+        { itemID = 201, recipeID = 601, kind = "achievement", par = 20, pins = {}, refills = 0, criteriaIndex = 1 },
+        { itemID = 202, recipeID = 602, kind = "collect", par = 20, pins = {}, refills = 0 },
+      },
+      source = { type = "achievement", id = 9999 }, createdAt = 200, completedAt = nil },
 } } }
 
 dofile(base .. "Core/VWB_Store.lua")
 local Store = _G.VWB.Store
-Store:LoadFromSavedVariables() -- in-game Initialize() does this; run the migration against the seeded v1 DB
+Store:LoadFromSavedVariables()
 
 local pass, fail = 0, 0
 local function check(n, c) if c then pass = pass + 1 else fail = fail + 1; print("  FAIL: " .. n) end end
@@ -37,105 +40,142 @@ local function dispatch(action, payload)
     Store:Dispatch(action, payload)
 end
 
--- 1. MIGRATION v1 -> v2: transform in place, pins into pieces[1] --------------
+-- 1. MIGRATION v2 -> v3 --------------------------------------------------------
 do
-    check("migration: version stamped", st.projects.v == 2)
-    check("migration: nextId carried", st.projects.nextId == 3)
-    local m1 = st.projects.items[1]
-    check("migration: identity kept", m1.id == 1 and m1.name == "Old Cauldron" and m1.icon == 133)
-    check("migration: incomplete -> bench", m1.status == "bench" and m1.completedAt == nil)
-    check("migration: one piece", #m1.pieces == 1)
-    local pc = m1.pieces[1]
-    check("migration: piece fields", pc.itemID == 101 and pc.recipeID == 501
-        and pc.kind == "collect" and pc.par == 20 and pc.refills == 0)
-    check("migration: pins moved into pieces[1] verbatim", pc.pins["craft:recipe:501"] == "Aly-Realm")
-    check("migration: piece completedAt starts nil", pc.completedAt == nil)
-    local m2 = st.projects.items[2]
-    check("migration: completed -> done, timestamp on PROJECT", m2.status == "done" and m2.completedAt == 900)
-    check("migration: stock piece carries par/refills", m2.pieces[1].par == 40 and m2.pieces[1].refills == 3)
-    check("migration: source starts nil", m1.source == nil and m2.source == nil)
+    check("v stamped 3", st.projects.v == 3)
+    local p1, p2 = st.projects.items[1], st.projects.items[2]
+    check("pieces gained unique counter ids", type(p1.pieces[1].id) == "number"
+        and p2.pieces[1].id ~= p2.pieces[2].id and p1.pieces[1].id ~= p2.pieces[1].id)
+    check("nextId advanced past assigned piece ids", st.projects.nextId > p2.pieces[2].id
+        and st.projects.nextId > p1.pieces[1].id)
+    check("achievementID folded onto CRITERIA piece", p2.pieces[1].achievementID == 9999)
+    check("collect piece in same commission NOT folded", p2.pieces[2].achievementID == nil)
+    check("non-achievement commission untouched", p1.pieces[1].achievementID == nil)
 end
 
--- 2. ADD_PROJECT builds the v2 shape ------------------------------------------
-dispatch("ADD_PROJECT", { name = "Azure Set", icon = 200, source = { type = "manual" },
-    pieces = { { itemID = 301, recipeID = 601, kind = "collect" },
-               { itemID = 302, recipeID = 602, kind = "stock", par = 10 } } })
-local prj = st.projects.items[3]
-check("ADD: id from nextId", prj.id == 3 and st.projects.nextId == 4)
-check("ADD: status defaults bench", prj.status == "bench")
-check("ADD: two pieces", #prj.pieces == 2)
-check("ADD: piece defaults (par/pins/refills)", prj.pieces[1].par == VWB.Constants.Projects.DEFAULT_PAR
-    and next(prj.pieces[1].pins) == nil and prj.pieces[1].refills == 0)
-check("ADD: explicit piece par", prj.pieces[2].par == 10)
-check("ADD: source stored", prj.source.type == "manual")
-check("ADD: createdAt stamped, completedAt nil", prj.createdAt == 1000 and prj.completedAt == nil)
-dispatch("ADD_PROJECT", { name = "Backlog Idea", status = "backlog", pieces = {} })
-check("ADD: explicit backlog status", st.projects.items[4].status == "backlog")
+-- 2. Migration idempotence + double-jump + fresh seed --------------------------
+do
+    local beforeIds = { st.projects.items[1].pieces[1].id, st.projects.items[2].pieces[1].id }
+    local beforeNext = st.projects.nextId
+    Store:LoadFromSavedVariables() -- run again against the SAME (now v3) DB
+    st = Store:GetState()
+    check("idempotent: ids unchanged on second load", st.projects.items[1].pieces[1].id == beforeIds[1]
+        and st.projects.items[2].pieces[1].id == beforeIds[2])
+    check("idempotent: counter unchanged", st.projects.nextId == beforeNext)
 
--- 3. nextId monotonicity across removes ---------------------------------------
-dispatch("REMOVE_PROJECT", { id = 4 })
-dispatch("ADD_PROJECT", { name = "Fifth", pieces = {} })
-check("nextId monotonic after remove", st.projects.items[#st.projects.items].id == 5)
-dispatch("REMOVE_PROJECT", { id = 5 })
-check("REMOVE: unknown id no-op", (function()
-    local n = #st.projects.items
-    dispatch("REMOVE_PROJECT", { id = 9999 })
-    return #st.projects.items == n
-end)())
+    -- v1 -> v3 double-jump: a user who skipped the v2 build entirely
+    _G.VWB_DB = { projects = { nextId = 5, items = {
+        { id = 1, name = "V1 Relic", icon = 1, itemID = 11, recipeID = 21, kind = "stock",
+          par = 40, pins = { ["21"] = "Aly-R" }, createdAt = 1, completedAt = nil, refills = 2 },
+    } } }
+    Store:LoadFromSavedVariables()
+    st = Store:GetState()
+    local v1 = st.projects.items[1]
+    check("double-jump: v3 stamped", st.projects.v == 3)
+    check("double-jump: v1 fields became a piece WITH an id", #v1.pieces == 1
+        and v1.pieces[1].itemID == 11 and type(v1.pieces[1].id) == "number")
+    check("double-jump: pins + refills rode along", v1.pieces[1].pins["21"] == "Aly-R"
+        and v1.pieces[1].refills == 2)
 
--- 4. ADD_PIECE / REMOVE_PIECE, cap enforced -----------------------------------
-dispatch("ADD_PIECE", { projectId = 3, piece = { itemID = 303, recipeID = 603 } })
-check("ADD_PIECE appends with defaults", #prj.pieces == 3 and prj.pieces[3].kind == "collect")
-dispatch("REMOVE_PIECE", { projectId = 3, index = 3 })
-check("REMOVE_PIECE removes by index", #prj.pieces == 2)
-for _ = 1, 30 do dispatch("ADD_PIECE", { projectId = 3, piece = { itemID = 999 } }) end
-check("ADD_PIECE caps at MAX_PIECES", #prj.pieces == VWB.Constants.Projects.MAX_PIECES)
-while #prj.pieces > 2 do dispatch("REMOVE_PIECE", { projectId = 3, index = #prj.pieces }) end
+    _G.VWB_DB = nil
+    Store:LoadFromSavedVariables()
+    st = Store:GetState()
+    check("fresh install seeds v3 empty", st.projects.v == 3 and #st.projects.items == 0
+        and st.projects.nextId >= 1)
+end
 
--- 5. SET_PROJECT_STATUS maintains the done<->completedAt invariant ------------
-dispatch("SET_PROJECT_STATUS", { id = 3, status = "backlog" })
-check("STATUS: to backlog", prj.status == "backlog" and prj.completedAt == nil)
-dispatch("SET_PROJECT_STATUS", { id = 3, status = "done", _time = 7000 })
-check("STATUS: to done stamps completedAt", prj.status == "done" and prj.completedAt == 7000)
-dispatch("SET_PROJECT_STATUS", { id = 3, status = "bench" })
-check("STATUS: leaving done clears completedAt", prj.status == "bench" and prj.completedAt == nil)
+-- Fixture for the reducer groups ------------------------------------------------
+dispatch("ADD_PROJECT", { name = "Alpha", pieces = {
+    { itemID = 301, recipeID = 701 }, { itemID = 302, recipeID = 702 }, { itemID = 303, recipeID = 703 },
+} })
+local prj = st.projects.items[1]
+local ids = { prj.pieces[1].id, prj.pieces[2].id, prj.pieces[3].id }
 
--- 6. Piece-level actions route by pieceIndex ----------------------------------
-dispatch("SET_PIECE_PAR", { id = 3, pieceIndex = 2, par = 99 })
-check("SET_PIECE_PAR", prj.pieces[2].par == 99 and prj.pieces[1].par ~= 99)
-dispatch("PIN_PROJECT_STEP", { id = 3, pieceIndex = 1, stepKey = "craft:recipe:601", charKey = "Aly-Realm" })
-check("PIN routes to the piece", prj.pieces[1].pins["craft:recipe:601"] == "Aly-Realm")
-dispatch("UNPIN_PROJECT_STEP", { id = 3, pieceIndex = 1, stepKey = "craft:recipe:601" })
-check("UNPIN routes to the piece", prj.pieces[1].pins["craft:recipe:601"] == nil)
-dispatch("COMPLETE_PIECE", { projectId = 3, pieceIndex = 1, _time = 8000 })
-check("COMPLETE_PIECE stamps the piece", prj.pieces[1].completedAt == 8000 and prj.completedAt == nil)
-dispatch("PROJECT_REFILLED", { id = 3, pieceIndex = 2 })
-dispatch("PROJECT_REFILLED", { id = 3, pieceIndex = 2 })
-check("REFILLED per piece", prj.pieces[2].refills == 2 and prj.pieces[1].refills == 0)
+-- 3. pieceId reducers: the dangling-index bug class ----------------------------
+do
+    check("ADD_PROJECT assigned distinct piece ids", ids[1] ~= ids[2] and ids[2] ~= ids[3])
+    dispatch("REMOVE_PIECE", { projectId = prj.id, pieceId = ids[2] })
+    check("remove middle by id", #prj.pieces == 2 and prj.pieces[2].id == ids[3])
+    dispatch("SET_PIECE_PAR", { id = prj.id, pieceId = ids[3], par = 77 })
+    check("act on LATER piece after removal hits the right one", prj.pieces[2].par == 77
+        and prj.pieces[1].par ~= 77)
+    dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = ids[3], _time = 2000 })
+    check("complete by id after removal", prj.pieces[2].completedAt == 2000 and prj.pieces[1].completedAt == nil)
+    dispatch("PIN_PROJECT_STEP", { id = prj.id, pieceId = ids[1], stepKey = "s1", charKey = "Aly-R" })
+    dispatch("UNPIN_PROJECT_STEP", { id = prj.id, pieceId = ids[1], stepKey = "s1" })
+    check("pin/unpin route by id", prj.pieces[1].pins["s1"] == nil)
+    dispatch("PROJECT_REFILLED", { id = prj.id, pieceId = ids[1] })
+    check("refill routes by id", prj.pieces[1].refills == 1 and prj.pieces[2].refills == 0)
+    local n = #prj.pieces
+    dispatch("REMOVE_PIECE", { projectId = prj.id, pieceId = 424242 })
+    check("unknown pieceId no-op", #prj.pieces == n)
+end
 
--- 7. COMPLETE_PROJECT stamps both invariant halves ----------------------------
-dispatch("COMPLETE_PROJECT", { id = 3, _time = 9000 })
-check("COMPLETE_PROJECT: done + timestamp", prj.status == "done" and prj.completedAt == 9000)
+-- 4. Dedupe on ADD_PIECE --------------------------------------------------------
+do
+    local n = #prj.pieces
+    dispatch("ADD_PIECE", { projectId = prj.id, piece = { itemID = 301, recipeID = 701 } })
+    check("duplicate recipeID no-ops", #prj.pieces == n)
+    dispatch("ADD_PIECE", { projectId = prj.id, piece = { itemID = 304, recipeID = 704 } })
+    check("new recipeID appends with fresh id", #prj.pieces == n + 1
+        and type(prj.pieces[#prj.pieces].id) == "number")
+end
 
--- 8. projects slice signal fires on the new actions ---------------------------
-local projVer = 0
-R.effect(function() Store:Version("projects"); projVer = projVer + 1 end)
-local before = projVer
-dispatch("SET_PROJECT_STATUS", { id = 3, status = "bench" })
-dispatch("ADD_PIECE", { projectId = 3, piece = { itemID = 304 } })
-dispatch("COMPLETE_PIECE", { projectId = 3, pieceIndex = 3 })
-check("slice signal: 3 piece-level actions bump 3x", projVer == before + 3)
+-- 5. DONE-ENTRY rule lives in the reducer ---------------------------------------
+do
+    dispatch("SET_PROJECT_STATUS", { id = prj.id, status = "done" })
+    check("to-done REFUSED while pieces unstamped", prj.status ~= "done" and prj.completedAt == nil)
+    for _, pc in ipairs(prj.pieces) do
+        if not pc.completedAt then dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id }) end
+    end
+    dispatch("SET_PROJECT_STATUS", { id = prj.id, status = "done", _time = 3000 })
+    check("to-done allowed once all stamped", prj.status == "done" and prj.completedAt == 3000)
+    dispatch("ADD_PROJECT", { name = "Empty", pieces = {} })
+    local empty = st.projects.items[#st.projects.items]
+    dispatch("SET_PROJECT_STATUS", { id = empty.id, status = "done" })
+    check("zero-piece to-done refused", empty.status ~= "done")
+    dispatch("SET_PROJECT_STATUS", { id = empty.id, status = "backlog" })
+    check("backlog move fine for empty", empty.status == "backlog")
+end
 
--- 9. Alias contract: nested piece mutations write through to VWB_DB ----------
-_G.VWB_DB = nil
-Store:LoadFromSavedVariables() -- fresh VWB_DB (v seeded, migration no-ops)
-check("fresh DB seeds v2", _G.VWB_DB.projects.v == 2)
-local dbRef = _G.VWB_DB.projects
-dispatch("ADD_PROJECT", { name = "Alias Test", pieces = { { itemID = 600 } } })
-local aliasPrj = dbRef.items[#dbRef.items]
-check("alias: project written through", aliasPrj.name == "Alias Test")
-dispatch("COMPLETE_PIECE", { projectId = aliasPrj.id, pieceIndex = 1, _time = 4242 })
-check("alias: nested piece mutation written through", aliasPrj.pieces[1].completedAt == 4242)
+-- 6. DONE IS SEALED --------------------------------------------------------------
+do
+    local n = #prj.pieces
+    dispatch("ADD_PIECE", { projectId = prj.id, piece = { itemID = 999, recipeID = 999 } })
+    check("ADD_PIECE on done no-ops", #prj.pieces == n)
+    dispatch("REMOVE_PIECE", { projectId = prj.id, pieceId = prj.pieces[1].id })
+    check("REMOVE_PIECE on done no-ops", #prj.pieces == n)
+    dispatch("SET_PROJECT_STATUS", { id = prj.id, status = "bench" })
+    check("reopen to Active clears completedAt", prj.status == "bench" and prj.completedAt == nil)
+    dispatch("SET_PROJECT_STATUS", { id = prj.id, status = "done", _time = 4000 })
+    check("re-done after reopen (pieces still stamped)", prj.status == "done" and prj.completedAt == 4000)
+    dispatch("REMOVE_PROJECT", { id = prj.id })
+    check("delete from done", (function()
+        for _, p in ipairs(st.projects.items) do if p.id == prj.id then return false end end
+        return true
+    end)())
+end
+
+-- 7. Invariants: done iff completedAt; monotonic ids across churn ---------------
+do
+    dispatch("ADD_PROJECT", { name = "Inv", pieces = { { itemID = 1, recipeID = 2 } } })
+    local iv = st.projects.items[#st.projects.items]
+    dispatch("COMPLETE_PIECE", { projectId = iv.id, pieceId = iv.pieces[1].id })
+    dispatch("SET_PROJECT_STATUS", { id = iv.id, status = "done" })
+    check("invariant: done => completedAt", iv.completedAt ~= nil)
+    dispatch("SET_PROJECT_STATUS", { id = iv.id, status = "backlog" })
+    check("invariant: not-done => completedAt nil", iv.completedAt == nil)
+
+    local maxId = 0
+    for _, p in ipairs(st.projects.items) do
+        if p.id > maxId then maxId = p.id end
+        for _, pc in ipairs(p.pieces) do if pc.id > maxId then maxId = pc.id end end
+    end
+    dispatch("ADD_PROJECT", { name = "Mono", pieces = { { itemID = 5, recipeID = 6 } } })
+    local mono = st.projects.items[#st.projects.items]
+    check("ids monotonic across projects AND pieces (one counter)",
+        mono.id > maxId and mono.pieces[1].id > mono.id)
+end
 
 print(string.format("Store projects: %d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

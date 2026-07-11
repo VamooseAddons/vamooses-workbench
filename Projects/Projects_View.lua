@@ -22,7 +22,7 @@ local ICON_FALLBACK = 134400 -- INV_Misc_QuestionMark; exception(boundary): GetI
 
 local CARD_W, CARD_H, CARD_GAP = 260, 64, 6 -- rail cards (vertical scroll, left of Plan)
 local HDR_H = 18 -- status group divider rows (Backlog / On the Bench / Done)
-local STATUS_LABEL = { backlog = "BACKLOG", bench = "ON THE BENCH", done = "DONE" }
+local STATUS_LABEL = { backlog = "BACKLOG", bench = "ACTIVE", done = "DONE" } -- "bench" stays the STORED key; "On the Bench" read as sports-benched (owner 2026-07-12)
 
 StaticPopupDialogs["VWB_REMOVE_PROJECT"] = {
     text = "Remove project '%s'?",
@@ -41,7 +41,7 @@ local function bumpPar(card, delta)
     local e = card.entry
     local step = IsShiftKeyDown() and 5 or 1
     local piece = e.p.pieces[1]
-    VWB.Store:Dispatch("SET_PIECE_PAR", { id = e.p.id, pieceIndex = 1,
+    VWB.Store:Dispatch("SET_PIECE_PAR", { id = e.p.id, pieceId = piece.id,
         par = math.max(1, (piece.par or 1) + delta * step) })
 end
 
@@ -83,7 +83,7 @@ local function cardMenu(card)
     MenuUtil.CreateContextMenu(card, function(_, root)
         root:CreateTitle(e.p.name)
         for _, status in ipairs({ "backlog", "bench", "done" }) do
-            local label = ({ backlog = "Move to Backlog", bench = "Move to the Bench", done = "Move to Done" })[status]
+            local label = ({ backlog = "Move to Backlog", bench = "Mark Active", done = "Move to Done" })[status]
             local btn = root:CreateButton(label, function()
                 VWB.Store:Dispatch("SET_PROJECT_STATUS", { id = e.p.id, status = status })
             end)
@@ -731,7 +731,7 @@ function Projects.buildView(container)
     -- title carries the board summary
     R.bindText(handle.byId.prjTitle.label, function()
         local ps = plans()
-        return string.format("Projects  (%d on bench, %d backlog, %d done)",
+        return string.format("Projects  (%d active, %d backlog, %d done)",
             #ps.bench, #ps.backlog, #ps.done)
     end)
 

@@ -142,7 +142,7 @@ function Store:LoadFromSavedVariables()
     -- the completion timestamp stays on the PROJECT (the project was
     -- completed; piece-level completion is a new v2 fact and starts nil).
     -- Invariant from here on: status == "done" iff completedAt ~= nil.
-    if VWB_DB.projects.v ~= 2 then
+    if VWB_DB.projects.v < 2 then -- ORDERED gate ("~= 2" re-ran this against v3 DBs and shredded pieces -- caught by the idempotence test)
         for i, item in ipairs(VWB_DB.projects.items) do
             VWB_DB.projects.items[i] = {
                 id = item.id, name = item.name, icon = item.icon,
@@ -158,6 +158,24 @@ function Store:LoadFromSavedVariables()
             }
         end
         VWB_DB.projects.v = 2
+    end
+    -- v2 -> v3 (Commissions): PIECES BECOME ENTITIES -- stable ids from the
+    -- same monotonic counter (array position = display order only), and
+    -- achievement identity moves onto the PIECE (achievementID) so criteria
+    -- tick wherever a piece lives (multi-achievement commissions). Runs
+    -- after v1->v2, so a v1 DB double-jumps in one load.
+    if VWB_DB.projects.v < 3 then
+        for _, item in ipairs(VWB_DB.projects.items) do
+            for _, pc in ipairs(item.pieces) do
+                pc.id = VWB_DB.projects.nextId
+                VWB_DB.projects.nextId = VWB_DB.projects.nextId + 1
+                if item.source and item.source.type == "achievement"
+                    and pc.kind == "achievement" and not pc.achievementID then
+                    pc.achievementID = item.source.id
+                end
+            end
+        end
+        VWB_DB.projects.v = 3
     end
     state.projects       = VWB_DB.projects
 end
@@ -314,13 +332,24 @@ local function findProject(st, id)
     end
 end
 
+-- v3: pieces are ENTITIES, addressed by stable id everywhere.
+local function findPiece(prj, pieceId)
+    for _, pc in ipairs(prj.pieces) do
+        if pc.id == pieceId then return pc end
+    end
+end
+
 -- name: display fallback for pieces whose item is cold/absent (achievement
--- criteria text carries the recipe name). criteriaIndex: achievement-kind
--- pieces map to one criterion of source.id for the completion sweep.
-local function buildPiece(pc)
-    return { itemID = pc.itemID, recipeID = pc.recipeID, name = pc.name,
+-- criteria text carries the recipe name). achievementID+criteriaIndex:
+-- the criteria sweep addresses the PIECE, wherever it lives. qty/charKey:
+-- craft-kind pieces (queue saves) keep their target and crafter.
+local function buildPiece(st, pc)
+    local id = st.projects.nextId
+    st.projects.nextId = id + 1
+    return { id = id, itemID = pc.itemID, recipeID = pc.recipeID, name = pc.name,
         kind = pc.kind or "collect", par = pc.par or VWB.Constants.Projects.DEFAULT_PAR,
-        criteriaIndex = pc.criteriaIndex,
+        qty = pc.qty, charKey = pc.charKey,
+        achievementID = pc.achievementID, criteriaIndex = pc.criteriaIndex,
         pins = {}, completedAt = nil, refills = 0 }
 end
 
@@ -328,13 +357,15 @@ reducers.ADD_PROJECT = function(st, p)
     local now = p._time or time()
     local id = st.projects.nextId
     st.projects.nextId = id + 1
-    local pieces = {}
-    for i, pc in ipairs(p.pieces) do pieces[i] = buildPiece(pc) end
-    st.projects.items[#st.projects.items + 1] = {
+    local prj = {
         id = id, name = p.name, icon = p.icon,
         status = p.status or "bench", source = p.source,
-        pieces = pieces, createdAt = now, completedAt = nil,
+        pieces = {}, createdAt = now, completedAt = nil,
     }
+    for _, pc in ipairs(p.pieces) do
+        prj.pieces[#prj.pieces + 1] = buildPiece(st, pc)
+    end
+    st.projects.items[#st.projects.items + 1] = prj
 end
 
 reducers.REMOVE_PROJECT = function(st, p)
@@ -344,54 +375,68 @@ reducers.REMOVE_PROJECT = function(st, p)
     end
 end
 
+-- Done is SEALED (owner ruling 7b-D): no assembly on a done commission.
+-- Duplicate recipes no-op (dedupe by recipeID -- multi-session browsing
+-- double-adds were a trust break).
 reducers.ADD_PIECE = function(st, p)
     local prj = findProject(st, p.projectId)
-    if not prj or #prj.pieces >= VWB.Constants.Projects.MAX_PIECES then return end
-    prj.pieces[#prj.pieces + 1] = buildPiece(p.piece)
+    if not prj or prj.status == "done" then return end
+    if #prj.pieces >= VWB.Constants.Projects.MAX_PIECES then return end
+    for _, pc in ipairs(prj.pieces) do
+        if pc.recipeID and pc.recipeID == p.piece.recipeID then return end
+    end
+    prj.pieces[#prj.pieces + 1] = buildPiece(st, p.piece)
 end
 
 reducers.REMOVE_PIECE = function(st, p)
     local prj = findProject(st, p.projectId)
-    if prj then table.remove(prj.pieces, p.index) end
+    if not prj or prj.status == "done" then return end -- sealed
+    for i, pc in ipairs(prj.pieces) do
+        if pc.id == p.pieceId then table.remove(prj.pieces, i); return end
+    end
 end
 
--- The board move. Leaving "done" clears the timestamp; entering it stamps
--- one (unless the completion sweep already did) -- the invariant, both ways.
+-- The board move. DONE-ENTRY RULE lives HERE (owner 7b-B/E): entering
+-- "done" requires >=1 piece, all stamped -- the reducer refuses otherwise;
+-- UI greying is presentation on this same rule. Leaving "done" clears the
+-- timestamp (the invariant, both ways).
 reducers.SET_PROJECT_STATUS = function(st, p)
     local prj = findProject(st, p.id)
     if not prj then return end
-    prj.status = p.status
     if p.status == "done" then
+        if #prj.pieces == 0 then return end
+        for _, pc in ipairs(prj.pieces) do
+            if not pc.completedAt then return end
+        end
         prj.completedAt = prj.completedAt or (p._time or time())
     else
         prj.completedAt = nil
     end
+    prj.status = p.status
 end
 
 reducers.SET_PIECE_PAR = function(st, p)
     local prj = findProject(st, p.id)
-    if prj and prj.pieces[p.pieceIndex] then prj.pieces[p.pieceIndex].par = p.par end
+    local pc = prj and findPiece(prj, p.pieceId)
+    if pc then pc.par = p.par end
 end
 
 reducers.COMPLETE_PIECE = function(st, p)
     local prj = findProject(st, p.projectId)
-    if prj and prj.pieces[p.pieceIndex] then
-        prj.pieces[p.pieceIndex].completedAt = p._time or time()
-    end
+    local pc = prj and findPiece(prj, p.pieceId)
+    if pc then pc.completedAt = p._time or time() end
 end
 
 reducers.PIN_PROJECT_STEP = function(st, p)
     local prj = findProject(st, p.id)
-    if prj and prj.pieces[p.pieceIndex] then
-        prj.pieces[p.pieceIndex].pins[p.stepKey] = p.charKey
-    end
+    local pc = prj and findPiece(prj, p.pieceId)
+    if pc then pc.pins[p.stepKey] = p.charKey end
 end
 
 reducers.UNPIN_PROJECT_STEP = function(st, p)
     local prj = findProject(st, p.id)
-    if prj and prj.pieces[p.pieceIndex] then
-        prj.pieces[p.pieceIndex].pins[p.stepKey] = nil
-    end
+    local pc = prj and findPiece(prj, p.pieceId)
+    if pc then pc.pins[p.stepKey] = nil end
 end
 
 -- Fired ONLY from boundary handlers (ProjectPlanner sweeps, ACHIEVEMENT_
@@ -405,10 +450,8 @@ end
 
 reducers.PROJECT_REFILLED = function(st, p)
     local prj = findProject(st, p.id)
-    if prj and prj.pieces[p.pieceIndex] then
-        local piece = prj.pieces[p.pieceIndex]
-        piece.refills = piece.refills + 1
-    end
+    local pc = prj and findPiece(prj, p.pieceId)
+    if pc then pc.refills = pc.refills + 1 end
 end
 
 function Store:Dispatch(action, payload)

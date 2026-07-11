@@ -278,9 +278,9 @@ local function sweepCollectCompletions()
     if not hasActive then return end
     for _, prj in ipairs(items) do
         if not prj.completedAt then
-            for i, pc in ipairs(prj.pieces) do
+            for _, pc in ipairs(prj.pieces) do
                 if pc.kind == "collect" and not pc.completedAt and P:IsCollected(pc.itemID) == true then
-                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
+                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
                 end
             end
             promoteIfAllDone(prj)
@@ -295,9 +295,9 @@ local function sweepStudyLearns()
     for _, prj in ipairs(VWB.Store:GetState().projects.items) do
         if not prj.completedAt then
             local touched = false
-            for i, pc in ipairs(prj.pieces) do
+            for _, pc in ipairs(prj.pieces) do
                 if pc.kind == "study" and not pc.completedAt and VWB.KnownRecipes:IsKnown(pc.recipeID) then
-                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
+                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
                     touched = true
                 end
             end
@@ -317,12 +317,12 @@ local function sweepStockRefills()
     end
     if not hasStock then return end
     for _, prj in ipairs(items) do
-        for i, pc in ipairs(prj.pieces) do
+        for _, pc in ipairs(prj.pieces) do
             if pc.kind == "stock" then
-                local key = prj.id .. ":" .. i
+                local key = prj.id .. ":" .. pc.id -- pieceId key: survives removals mid-session
                 local below = P:StockLevel(pc.itemID) < (pc.par or 1)
                 if prevBelowPar[key] and not below then
-                    VWB.Store:Dispatch("PROJECT_REFILLED", { id = prj.id, pieceIndex = i })
+                    VWB.Store:Dispatch("PROJECT_REFILLED", { id = prj.id, pieceId = pc.id })
                 end
                 prevBelowPar[key] = below or nil
             end
@@ -336,35 +336,41 @@ end
 -- latch walk. Both handlers are boundary latches: read, compare, dispatch.
 local achSettle = nil
 
+-- PIECE-LEVEL identity (v3): criteria tick wherever the piece lives, so one
+-- commission can track multiple achievements. The gate is pc.achievementID,
+-- never the project's source (that is display provenance only).
 local function sweepAchievementCriteria()
     for _, prj in ipairs(VWB.Store:GetState().projects.items) do
-        if not prj.completedAt and prj.source and prj.source.type == "achievement" then
-            for i, pc in ipairs(prj.pieces) do
-                if not pc.completedAt and pc.criteriaIndex then
-                    local _, _, done = GetAchievementCriteriaInfo(prj.source.id, pc.criteriaIndex)
+        if not prj.completedAt then
+            local touched = false
+            for _, pc in ipairs(prj.pieces) do
+                if not pc.completedAt and pc.achievementID and pc.criteriaIndex then
+                    local _, _, done = GetAchievementCriteriaInfo(pc.achievementID, pc.criteriaIndex)
                     if done then
-                        VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
+                        VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
+                        touched = true
                     end
                 end
             end
-            promoteIfAllDone(prj)
+            if touched then promoteIfAllDone(prj) end
         end
     end
 end
 
--- Stamps CRITERIA pieces only (code review F2: a piece added manually to an
--- achievement commission is extra work the earn does not vouch for);
--- promotion then follows the one shared rule.
+-- Stamps the earned achievement's OWN criteria pieces only (a piece added
+-- manually is extra work the earn does not vouch for); promotion then
+-- follows the one shared rule.
 local function onAchievementEarned(achievementID)
     for _, prj in ipairs(VWB.Store:GetState().projects.items) do
-        if prj.source and prj.source.type == "achievement" and prj.source.id == achievementID
-            and not prj.completedAt then
-            for i, pc in ipairs(prj.pieces) do
-                if not pc.completedAt and pc.criteriaIndex then
-                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceIndex = i })
+        if not prj.completedAt then
+            local touched = false
+            for _, pc in ipairs(prj.pieces) do
+                if not pc.completedAt and pc.achievementID == achievementID then
+                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
+                    touched = true
                 end
             end
-            promoteIfAllDone(prj)
+            if touched then promoteIfAllDone(prj) end
         end
     end
 end

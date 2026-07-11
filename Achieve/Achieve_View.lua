@@ -40,7 +40,8 @@ local function startCommission(rec)
         if c.ctype == AC.CRITERIA_KNOW_RECIPE and c.assetID and c.assetID > 0 then
             local r = VWB.Database:GetRecipe(c.assetID)
             pieces[#pieces + 1] = { recipeID = c.assetID, itemID = r and r.itemID,
-                name = c.text, kind = "achievement", criteriaIndex = ci }
+                name = c.text, kind = "achievement",
+                achievementID = rec.id, criteriaIndex = ci } -- piece-level identity: ticks in ANY commission (v3)
             if #pieces >= VWB.Constants.Projects.MAX_PIECES then break end
         end
     end
