@@ -174,7 +174,6 @@ function Study.buildView(container)
                         d = dim .. "No data found for source|r" -- the honest WHY for recipes Blizzard ships no acquisition text for
                     else
                         d = dim .. s.kind .. (s.detail and (":|r " .. s.detail) or "|r")
-                        if s.via then d = d .. dim .. " - " .. s.via .. "|r" end
                         if s.faction then d = d .. dim .. " [" .. s.faction .. "]|r" end
                     end
                     row.detail:SetText(d)

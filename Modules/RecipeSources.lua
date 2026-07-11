@@ -101,28 +101,17 @@ function VWB.RecipeSources.Parse(text)
     local rec = { lines = {}, sources = {} }
     local current
 
-    -- Block-context folding (full-corpus audit 2026-07-11): a second string
-    -- style is LOCATION-FIRST -- "Zone: Dalaran|nNPC: Nomi|nDiscovery: Nomi's
-    -- Test Kitchen" is ONE acquisition path, not three. DESCRIPTOR kinds are
-    -- context that a following source label PROMOTES over (detail folds into
-    -- `via`); VIA labels arriving AFTER a real source attach as `via`
-    -- ("Profession: ...|nTrainer: Mai the Jade Shaper"). A REPEATED label
-    -- (second "Vendor:") and a blank line both mean a genuinely new source.
-    local DESCRIPTOR_KINDS = { Zone = true, NPC = true, ["Quest Giver"] = true }
-    local VIA_LABELS = { Trainer = true, NPC = true, ["Quest Giver"] = true }
-
+    -- EVERY source label is FIRST-CLASS -- one ledger row each (owner ruling
+    -- 2026-07-11: "Trainer: Clean Pelt" must be its own line, never a dim
+    -- suffix on the Profession row). The ONE exception is a bare leading
+    -- "Zone:" (location-first style, "Zone: Dalaran|nNPC: Nomi|n..."): Zone
+    -- is a field, not a path, so it opens a pending context that the next
+    -- source label promotes over, inheriting the zone.
     local function startSource(kind, detail)
         detail = detail ~= "" and detail or nil
-        if current and kind ~= current.kind then
-            if DESCRIPTOR_KINDS[current.kind] then -- promote: context becomes this source's descriptor
-                if current.detail then current.via = current.detail end
-                current.kind, current.detail = kind, detail
-                return
-            end
-            if VIA_LABELS[kind] and current.via == nil then -- who/where the current path goes through
-                current.via = detail
-                return
-            end
+        if current and current.kind == "Zone" and kind ~= "Zone" then
+            current.kind, current.detail = kind, detail -- promote: the zone context becomes this source's zone
+            return
         end
         current = { kind = kind, detail = detail }
         rec.sources[#rec.sources + 1] = current

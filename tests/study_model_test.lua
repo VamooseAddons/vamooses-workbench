@@ -88,28 +88,26 @@ do
     check("no trailing spacer", p.lines[#p.lines] ~= " ")
 end
 
--- 5c. Block-context folding: location-first blocks are ONE path -------------
+-- 5c. Every source label is FIRST-CLASS (own ledger row); only a bare
+-- leading Zone: promotes into the next source (it's a field, not a path).
 do
+    local prof = P("Profession: Pandaria Leatherworking (25)|nTrainer: Clean Pelt|nZone: Kun-Lai Summit|nCost: 1")
+    check("Trainer is its own source, never a suffix", #prof.sources == 2
+        and prof.sources[1].kind == "Profession" and prof.sources[2].kind == "Trainer")
+    check("zone+cost attach to the trainer row", prof.sources[2].zone == "Kun-Lai Summit"
+        and prof.sources[2].cost == "1" and prof.sources[1].zone == nil)
+
     local nomi = P("|cFFFFD200Zone:|r Dalaran|n|cFFFFD200NPC:|r Nomi|n|cFFFFD200Discovery:|r Nomi's Test Kitchen")
-    check("Zone/NPC/Discovery fold to one source", #nomi.sources == 1)
-    check("last real label wins the kind", nomi.sources[1].kind == "Discovery" and nomi.sources[1].detail == "Nomi's Test Kitchen")
-    check("intermediary folds into via", nomi.sources[1].via == "Nomi")
-    check("leading zone carried", nomi.sources[1].zone == "Dalaran")
+    check("leading Zone promotes into NPC", nomi.sources[1].kind == "NPC"
+        and nomi.sources[1].detail == "Nomi" and nomi.sources[1].zone == "Dalaran")
+    check("Discovery stays first-class", #nomi.sources == 2 and nomi.sources[2].kind == "Discovery")
 
     local quest = P("|cFFFFD200Zone:|r Blackrock Depths|n|cFFFFD200Quest:|r A Binding Contract|n")
-    check("Zone/Quest fold", #quest.sources == 1 and quest.sources[1].kind == "Quest"
+    check("Zone/Quest promotion", #quest.sources == 1 and quest.sources[1].kind == "Quest"
         and quest.sources[1].zone == "Blackrock Depths")
 
-    local prof = P("Profession: Pandaria Jewelcrafting (25)|nTrainer: Mai the Jade Shaper|nZone: The Jade Forest")
-    check("Trainer after a source attaches as via", #prof.sources == 1
-        and prof.sources[1].kind == "Profession" and prof.sources[1].via == "Mai the Jade Shaper"
-        and prof.sources[1].zone == "The Jade Forest")
-
-    local lone = P("Trainer: Deirdre|nZone: Ironforge")
-    check("lone Trainer is still its own kind", #lone.sources == 1 and lone.sources[1].kind == "Trainer")
-
     local blocks = P("Vendor: A|nZone: X|n|nZone: Y|nTreasure: Chest")
-    check("blank line closes the block (no folding across)", #blocks.sources == 2
+    check("blank line closes the block (no promotion across)", #blocks.sources == 2
         and blocks.sources[2].kind == "Treasure" and blocks.sources[2].zone == "Y")
 end
 
