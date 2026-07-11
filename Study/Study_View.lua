@@ -13,11 +13,8 @@ local _, ns = ...
 local Study = ns.Study or {}
 ns.Study = Study
 
-StaticPopupDialogs["VWB_COMMISSION_STUDY"] = {
-    text = "%s", button1 = "Create", button2 = "Cancel",
-    OnAccept = function(self, data) data.fn() end,
-    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
-}
+-- (the old VWB_COMMISSION_STUDY confirm popup is gone: the shared
+-- New-Commission dialog IS the confirm now -- lifecycle spec 5)
 
 -- Rank-collapsed corpus as light rows. Unlike Showroom, enchant recipes (no
 -- output item) STAY in -- Study browses RECIPES, and "where do I learn
@@ -54,8 +51,25 @@ local function listRowTemplate(frame)
     local text = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
     text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetWidth(NAME_W); text:SetJustifyH("LEFT")
     frame.text = text
+    -- single-recipe commission convenience (owner: a VISIBLE affordance,
+    -- never right-click-only) -- opens the same shared menu
+    frame.plus = CreateFrame("Button", nil, frame)
+    frame.plus:SetSize(16, 20); frame.plus:SetPoint("RIGHT", -2, 0)
+    frame.plus.txt = frame.plus:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.plus.txt:SetPoint("CENTER"); frame.plus.txt:SetText("+")
+    frame.plus:SetScript("OnClick", function(self)
+        local e = frame.data
+        VWB.UI:OpenCommissionMenu(self, {
+            name = e.item.name, count = 1, defaultStatus = "backlog",
+            source = { type = "study", id = "recipe:" .. e.item.recipeID },
+            pieces = function()
+                return { { recipeID = e.item.recipeID, itemID = e.item.itemID,
+                    name = e.item.name, kind = "study" } }
+            end,
+        })
+    end)
     local cost = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
-    cost:SetPoint("RIGHT", -6, 0); cost:SetWidth(COST_W); cost:SetJustifyH("RIGHT")
+    cost:SetPoint("RIGHT", frame.plus, "LEFT", -4, 0); cost:SetWidth(COST_W); cost:SetJustifyH("RIGHT")
     frame.cost = cost
     local zone = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"))
     zone:SetPoint("RIGHT", cost, "LEFT", -8, 0); zone:SetWidth(ZONE_W); zone:SetJustifyH("RIGHT")
@@ -204,6 +218,9 @@ function Study.buildView(container)
                         if e.known then name = ns.UI:ColorCode("green") .. name .. "|r" end -- learned: visible when Missing unticked
                         row.text:SetText(name)
                     end
+                    row.plus:SetShown(not e.known)
+                    local sch = ns.UI:GetScheme()
+                    row.plus.txt:SetTextColor(sch.accent.r, sch.accent.g, sch.accent.b)
                     local s = e.source
                     local dim = ns.UI:ColorCode("base01")
                     local d
@@ -244,41 +261,40 @@ function Study.buildView(container)
 
     local handle = ns.Layout.build(container, ns.LayoutConfig.study, { makeFrame = makeFrame, measure = VWB.ViewKit.measure })
 
-    -- "Commission this pick": visible on a leaf nav pick only -- turns the
-    -- visible UNLEARNED recipes into a Backlog commission (count-confirmed;
-    -- owner ruling: Study imports are research, not bench work). Parented
-    -- INSIDE the view tree -- an overlay parented to the shared shell
-    -- container renders (and clicks!) across every tab (live bug 2026-07-12).
-    local commissionBtn = ns.UI:CreateButton(breadcrumbFS:GetParent(), "Commission this pick", 150, 16)
-    commissionBtn:SetPoint("RIGHT", breadcrumbFS, "RIGHT", -4, 0)
-    commissionBtn:SetFrameLevel(breadcrumbFS:GetParent():GetFrameLevel() + 5)
-    commissionBtn:SetScript("OnClick", function()
+    -- The shared Commission control on the breadcrumb: turns the visible
+    -- UNLEARNED recipes of a leaf nav pick into pieces (study-kind: they
+    -- complete when the recipe is learned). Parented INSIDE the view tree --
+    -- an overlay on the shared shell container leaks across tabs.
+    local function pickName()
         local sel = filters.navKey()
-        if not sel then return end -- exception(nullable): bindShown races the click
+        if not sel then return "Study pick" end -- exception(nullable): bindShown races the menu open
         local kind, zone = sel:match("^(.+)::(.+)$")
         if not kind then kind = sel end
-        local name = (zone and zone ~= "*") and (kind .. " - " .. zone) or kind
+        return (zone and zone ~= "*") and (kind .. " - " .. zone) or kind
+    end
+    local function pickPieces()
         local pieces, seen = {}, {}
         for _, r in ipairs(model.rows()) do
             if not r.known and not seen[r.item.recipeID] then
                 seen[r.item.recipeID] = true
                 pieces[#pieces + 1] = { recipeID = r.item.recipeID, itemID = r.item.itemID,
-                    name = r.item.name, kind = "study" } -- completes when the RECIPE is learned (code review F3: collect-kind pieces waited on item collection forever)
+                    name = r.item.name, kind = "study" }
                 if #pieces >= VWB.Constants.Projects.MAX_PIECES then break end
             end
         end
-        if #pieces == 0 then return end
-        local total = model.entries().recipeCount
-        local msg = string.format("Create a commission for %d unlearned recipe(s) from %s?", #pieces, name)
-        if total and #pieces == VWB.Constants.Projects.MAX_PIECES then
-            msg = msg .. "\n(capped at " .. VWB.Constants.Projects.MAX_PIECES .. " pieces)"
-        end
-        StaticPopup_Show("VWB_COMMISSION_STUDY", msg, nil, { fn = function()
-            ns.Store:Dispatch("ADD_PROJECT", { name = name, status = "backlog",
-                source = { type = "study", id = sel }, pieces = pieces })
-            VWB.Log:Print(string.format("Commission started: %s (%d pieces, in the Backlog)", name, #pieces))
-        end })
-    end)
+        return pieces
+    end
+    local commissionBtn = ns.UI:CreateCommissionDropdown(breadcrumbFS:GetParent(), {
+        width = 110,
+        context = function()
+            return { name = pickName(), count = #pickPieces(),
+                defaultStatus = "backlog", -- Study imports are research, not bench work
+                source = { type = "study", id = filters.navKey() },
+                pieces = pickPieces }
+        end,
+    })
+    commissionBtn:SetPoint("RIGHT", breadcrumbFS, "RIGHT", -4, 0)
+    commissionBtn:SetFrameLevel(breadcrumbFS:GetParent():GetFrameLevel() + 5)
     R.bindShown(commissionBtn, function()
         return (filters.navKey() ~= nil and #model.rows() > 0) or false
     end)

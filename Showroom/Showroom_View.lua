@@ -392,46 +392,25 @@ function Showroom.buildView(container)
         elseif node.id == "startProject" then
             -- Item 4: Start Project button. Dispatches ADD_PROJECT for the selected item,
             -- then navigates to the Projects view with the new project selected.
-            startProjectBtn = ns.UI:CreateButton(parent, "Start Project", 100, 22)
-            startProjectBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            startProjectBtn:SetScript("OnClick", function(self, button)
-                local item = selected()
-                if button == "RightButton" then
-                    -- add THIS item as a piece of a bench commission
-                    local benches = {}
-                    for _, prj in ipairs(ns.Store:GetState().projects.items) do
-                        if prj.status == "bench" then benches[#benches + 1] = prj end
-                    end
-                    if #benches == 0 then
-                        VWB.Log:Print("Nothing on the bench -- left-click starts a new commission")
-                        return
-                    end
-                    MenuUtil.CreateContextMenu(self, function(_, root)
-                        root:CreateTitle("Add to commission")
-                        for _, prj in ipairs(benches) do
-                            root:CreateButton(prj.name, function()
-                                ns.Store:Dispatch("ADD_PIECE", { projectId = prj.id,
-                                    piece = { itemID = item.itemID, recipeID = item.recipeID, kind = "collect" } })
-                                VWB.Log:Print("Added " .. (item.name or "item") .. " to " .. prj.name)
-                            end)
-                        end
-                    end)
-                    return
-                end
-                local icon = C_Item.GetItemIconByID(item.itemID)
-                ns.Store:Dispatch("ADD_PROJECT", {
-                    name = item.name or ("item:" .. tostring(item.itemID)),
-                    icon = icon,
-                    source = { type = "showroom" },
-                    -- Showroom starts land ON THE BENCH (owner default: you
-                    -- just put it on the plan board, you're ready to work it)
-                    pieces = { { itemID = item.itemID, recipeID = item.recipeID, kind = "collect" } },
-                })
-                -- nextId was bumped by the reducer; the new project's id = nextId - 1.
-                local newId = ns.Store:GetState().projects.nextId - 1
-                VWB.Log:Print((item.name or "Item") .. " added to the bench") -- UX review M2: the view switches; say what happened
-                ns.Nav.Go("projects", { select = newId })
-            end)
+            -- THE shared Commission control (lifecycle spec 5): one visible
+            -- dropdown replaces Start Project + its hidden right-click menu.
+            -- Never navigates (owner: players scan-and-create in bulk).
+            startProjectBtn = ns.UI:CreateCommissionDropdown(parent, {
+                width = 110,
+                context = function()
+                    local item = selected()
+                    return {
+                        name = item.name or ("item:" .. tostring(item.itemID)),
+                        count = 1,
+                        defaultStatus = "bench", -- Showroom default: you're ready to work it
+                        source = { type = "showroom" },
+                        pieces = function()
+                            return { { itemID = item.itemID, recipeID = item.recipeID,
+                                kind = "collect", name = item.name } }
+                        end,
+                    }
+                end,
+            })
             startProjectBtn:Hide()
             return startProjectBtn
         end

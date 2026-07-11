@@ -12,11 +12,8 @@ local _, ns = ...
 local Achieve = ns.Achieve or {}
 ns.Achieve = Achieve
 
-StaticPopupDialogs["VWB_COMMISSION_ACHIEVE"] = {
-    text = "%s", button1 = "Create", button2 = "Cancel",
-    OnAccept = function(self, data) data.fn() end,
-    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
-}
+-- (the old VWB_COMMISSION_ACHIEVE confirm popup is gone: the shared
+-- New-Commission dialog IS the confirm now -- lifecycle spec 5)
 
 local ROW_H = 36
 local RIGHT_W, PTS_W = 110, 44
@@ -30,10 +27,9 @@ end
 
 -- Recipe criteria (type 34, assetID = recipe spellID) become commission
 -- pieces; the criteria text carries the recipe name so pieces render even
--- when the recipe isn't harvested. Count-CONFIRMED (owner 2026-07-12: the
--- first cut created silently on click), Backlog by default (a 20-piece
--- import is an intention; promote to the Bench when ready).
-local function startCommission(rec)
+-- when the recipe isn't harvested. Piece-level achievementID: ticks in ANY
+-- commission (v3 multi-achievement ruling).
+local function buildCriteriaPieces(rec)
     local AC = VWB.Constants.Achievements
     local pieces = {}
     for ci, c in ipairs(rec.criteria) do
@@ -41,33 +37,48 @@ local function startCommission(rec)
             local r = VWB.Database:GetRecipe(c.assetID)
             pieces[#pieces + 1] = { recipeID = c.assetID, itemID = r and r.itemID,
                 name = c.text, kind = "achievement",
-                achievementID = rec.id, criteriaIndex = ci } -- piece-level identity: ticks in ANY commission (v3)
+                achievementID = rec.id, criteriaIndex = ci }
             if #pieces >= VWB.Constants.Projects.MAX_PIECES then break end
         end
     end
-    if #pieces == 0 then return end
-    local msg = string.format("Create a commission for '%s'?\n%d recipe criteria become pieces; it completes itself as the achievement progresses.", rec.name, #pieces)
-    StaticPopup_Show("VWB_COMMISSION_ACHIEVE", msg, nil, { fn = function()
-        VWB.Store:Dispatch("ADD_PROJECT", { name = rec.name, icon = rec.icon, status = "backlog",
-            source = { type = "achievement", id = rec.id }, pieces = pieces })
-        VWB.Log:Print(string.format("Commission started: %s (%d pieces, in the Backlog)", rec.name, #pieces))
-    end })
+    return pieces
 end
 
-local function hasRecipeCriteria(rec)
+local function countRecipeCriteria(rec)
     local AC = VWB.Constants.Achievements
+    local n = 0
     for _, c in ipairs(rec.criteria) do
-        if c.ctype == AC.CRITERIA_KNOW_RECIPE and c.assetID and c.assetID > 0 then return true end
+        if c.ctype == AC.CRITERIA_KNOW_RECIPE and c.assetID and c.assetID > 0 then n = n + 1 end
     end
-    return false
+    return n
 end
 
 local function listRowTemplate(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(28, 28); icon:SetPoint("LEFT", 4, 0)
     frame.icon = icon
-    frame.track = VWB.UI:CreateButton(frame, "Commission", 84, 18) -- "Track" read as Blizzard's watch-list, not the importer
+    -- the shared control, per row; DISABLED explains itself (spec 5b: the
+    -- Elusive Beasts case -- no craftable criteria, nothing to plan)
+    frame.track = VWB.UI:CreateCommissionDropdown(frame, {
+        width = 104,
+        context = function()
+            local rec = frame.data
+            return {
+                name = rec.name, count = countRecipeCriteria(rec),
+                defaultStatus = "backlog", -- an import is an intention; promote when ready
+                source = { type = "achievement", id = rec.id },
+                pieces = function() return buildCriteriaPieces(rec) end,
+            }
+        end,
+    })
     frame.track:SetPoint("RIGHT", -6, 0)
-    frame.track:SetScript("OnClick", function(self) startCommission(self:GetParent().data) end)
+    frame.track:SetScript("OnEnter", function(self)
+        if not self:IsEnabled() then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("No craftable criteria -- nothing for the Workbench to plan", 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    frame.track:SetScript("OnLeave", function() GameTooltip:Hide() end)
     local right = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
     right:SetPoint("RIGHT", frame.track, "LEFT", -8, 0); right:SetWidth(RIGHT_W); right:SetJustifyH("RIGHT")
     frame.right = right
@@ -176,7 +187,8 @@ function Achieve.buildView(container)
                 updateRow = function(row, rec)
                     row.data = rec
                     row.icon:SetTexture(rec.icon)
-                    row.track:SetShown(not rec.completed and hasRecipeCriteria(rec))
+                    row.track:SetShown(not rec.completed)
+                    row.track:SetEnabled(countRecipeCriteria(rec) > 0)
                     local name = rec.name
                     if rec.completed then name = ns.UI:ColorCode("green") .. name .. "|r" end
                     row.name:SetText(name)

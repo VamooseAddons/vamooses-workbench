@@ -819,6 +819,149 @@ function VWB.UI:CreateMultiSelectDropdown(parent, options)
 end
 
 -- ============================================================================
+-- COMMISSION CONTROL (the ONE create/add-to grammar -- lifecycle spec sec 5)
+-- ============================================================================
+-- ctx (built fresh per menu open by the surface):
+--   { name = prefilled commission name, count = piece count,
+--     defaultStatus = "backlog"|"bench", source = provenance table,
+--     pieces = function() -> piece array (lazy: built at CLICK time),
+--     queueLoad = optional function(prj) -> readyCount (adds the
+--       "QUEUE FROM" section over ACTIVE commissions; Workbench only) }
+
+local function commissionDone(prj)
+    local done = 0
+    for _, pc in ipairs(prj.pieces) do if pc.completedAt then done = done + 1 end end
+    return done
+end
+
+local function commissionMenu(root, ctx)
+    root:CreateButton("New commission...", function()
+        VWB.UI:ShowNewCommissionDialog(ctx)
+    end)
+    -- Add-to: Active + Backlog (Done is sealed and never listed). Tags show
+    -- the TARGET's state, not the incoming count (playtest F6).
+    for _, g in ipairs({ { "bench", "Add to -- Active" }, { "backlog", "Add to -- Backlog" } }) do
+        local status, title = g[1], g[2]
+        local titled = false
+        for _, prj in ipairs(VWB.Store:GetState().projects.items) do
+            if prj.status == status then
+                if not titled then root:CreateTitle(title); titled = true end
+                local label = string.format("%s  |cff7d8494%d pcs, %d done|r",
+                    prj.name, #prj.pieces, commissionDone(prj))
+                root:CreateButton(label, function()
+                    local added, offered = 0, 0
+                    for _, pc in ipairs(ctx.pieces()) do
+                        offered = offered + 1
+                        local before = #prj.pieces
+                        VWB.Store:Dispatch("ADD_PIECE", { projectId = prj.id, piece = pc })
+                        if #prj.pieces > before then added = added + 1 end
+                    end
+                    local note = added < offered and string.format(" (%d duplicate/over-cap skipped)", offered - added) or ""
+                    VWB.Log:Print(string.format("Added %d piece(s) to '%s'%s", added, prj.name, note))
+                end)
+            end
+        end
+    end
+    if ctx.queueLoad then
+        local titled = false
+        for _, prj in ipairs(VWB.Store:GetState().projects.items) do
+            if prj.status == "bench" then -- execution is Active-only (ruling 6A, third enforcement site)
+                if not titled then root:CreateTitle("Queue from -- Active"); titled = true end
+                local ready = ctx.queueLoad(prj, true) -- count only
+                local btn = root:CreateButton(string.format("%s  |cff7d8494%d ready|r", prj.name, ready), function()
+                    ctx.queueLoad(prj, false)
+                end)
+                if ready == 0 then btn:SetEnabled(false) end
+            end
+        end
+        if not titled then
+            root:CreateTitle("Queue from -- no Active commissions")
+            root:CreateTitle("(promote one from the Projects tab)")
+        end
+    end
+end
+
+-- The shared dropdown button (proper Blizzard chrome, HDG pattern).
+function VWB.UI:CreateCommissionDropdown(parent, opts)
+    local dd = CreateFrame("DropdownButton", nil, parent, "WowStyle1FilterDropdownTemplate")
+    dd:SetText(opts.label or "Commission")
+    local w = opts.width or 110
+    dd.resizeToTextMinWidth = w
+    dd.resizeToTextMaxWidth = w
+    dd:SetWidth(w); dd:SetHeight(opts.height or 22)
+    dd:SetupMenu(function(_, root) commissionMenu(root, opts.context()) end)
+    return dd
+end
+
+-- Same menu from any plain anchor (Study's row plus-button convenience).
+function VWB.UI:OpenCommissionMenu(anchor, ctx)
+    MenuUtil.CreateContextMenu(anchor, function(_, root) commissionMenu(root, ctx) end)
+end
+
+-- The name dialog: absorbs the confirm popup -- name (prefilled), count,
+-- Backlog/Active destination, one Create. NEVER navigates (owner ruling).
+local ncDialog
+function VWB.UI:ShowNewCommissionDialog(ctx)
+    if not ncDialog then
+        local s = GetScheme()
+        local d = CreateFrame("Frame", nil, _G.VWB_Main or UIParent, "BackdropTemplate")
+        d:SetBackdrop(BACKDROP_FLAT)
+        d:SetBackdropColor(s.panel.r, s.panel.g, s.panel.b, 0.98)
+        d:SetBackdropBorderColor(s.accent.r, s.accent.g, s.accent.b, 1)
+        d:SetSize(340, 132)
+        d:SetPoint("CENTER", 0, 60)
+        d:SetFrameStrata("DIALOG")
+        RegisterWidget(d, "Panel")
+        d.title = d:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        d.title:SetPoint("TOPLEFT", 12, -10)
+        d.title:SetText("New Commission")
+        d.count = d:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        d.count:SetPoint("TOPRIGHT", -12, -12)
+        RegisterWidget(d.count, "DimLabel")
+        d.edit = CreateFrame("EditBox", nil, d, "BackdropTemplate")
+        d.edit:SetBackdrop(BACKDROP_FLAT)
+        d.edit:SetBackdropColor(0, 0, 0, 0.5)
+        d.edit:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, 1)
+        d.edit:SetSize(316, 24); d.edit:SetPoint("TOPLEFT", 12, -32)
+        d.edit:SetAutoFocus(true); d.edit:SetFontObject("GameFontHighlightSmall")
+        d.edit:SetTextInsets(6, 6, 0, 0)
+        d.edit:SetScript("OnEscapePressed", function() d:Hide() end)
+        -- destination: two plain toggles (Backlog default set per surface)
+        -- destination via the existing segmented toggle (needs no repaint
+        -- plumbing; ShowNewCommissionDialog re-selects the surface default)
+        d.seg = VWB.UI:CreateSegmentedToggle(d, {
+            width = 188, height = 20,
+            segments = { { key = "backlog", label = "Backlog" }, { key = "bench", label = "Active" } },
+            default = "backlog",
+            onSelect = function(key) d.status = key end })
+        d.seg:SetPoint("TOPLEFT", 12, -64)
+        local create = VWB.UI:CreateButton(d, "Create", 80, 22)
+        create:SetPoint("BOTTOMRIGHT", -12, 10)
+        create:SetScript("OnClick", function()
+            local name = d.edit:GetText()
+            if name == "" then name = d.ctx.name or "Untitled Commission" end -- exception(boundary): user cleared the box; Lua "" is truthy
+            VWB.Store:Dispatch("ADD_PROJECT", { name = name, status = d.status,
+                source = d.ctx.source, pieces = d.ctx.pieces() })
+            VWB.Log:Print(string.format("Commission created in %s: %s",
+                d.status == "backlog" and "the Backlog" or "Active", name))
+            d:Hide()
+        end)
+        local cancel = VWB.UI:CreateButton(d, "Cancel", 70, 22)
+        cancel:SetPoint("RIGHT", create, "LEFT", -8, 0)
+        cancel:SetScript("OnClick", function() d:Hide() end)
+        ncDialog = d
+    end
+    ncDialog.ctx = ctx
+    ncDialog.status = ctx.defaultStatus or "backlog"
+    ncDialog.seg:SetSelected(ncDialog.status)
+    ncDialog.edit:SetText(ctx.name or "")
+    ncDialog.count:SetText((ctx.count or 0) .. " piece(s)")
+    ncDialog:Show()
+    ncDialog.edit:SetFocus()
+    ncDialog.edit:HighlightText()
+end
+
+-- ============================================================================
 -- SEARCH BOX (Debounced text input with placeholder)
 -- ============================================================================
 
