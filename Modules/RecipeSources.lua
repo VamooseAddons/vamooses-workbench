@@ -203,6 +203,11 @@ local function walk()
             if text then
                 rec = VWB.RecipeSources.Parse(text)
                 exportEntry(rec)
+                -- TEMP(debug-dump 2026-07-11): raw sourceText corpus for the
+                -- offline parser/layout audit -- REVERT once reviewed. ~7.6k
+                -- strings, well under the SV constants trap threshold.
+                VWB_DB.debugSourceDump = VWB_DB.debugSourceDump or {}
+                VWB_DB.debugSourceDump[recipeID] = text
             else
                 stats.none = stats.none + 1
             end
