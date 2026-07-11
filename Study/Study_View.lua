@@ -202,7 +202,14 @@ function Study.buildView(container)
                     local dim = ns.UI:ColorCode("base01")
                     local d
                     if s.kind == "Unspecified" then
-                        d = dim .. "No data found for source|r" -- the honest WHY for recipes Blizzard ships no acquisition text for
+                        -- The honest WHY, plus what OUR harvest knows (owner
+                        -- 2026-07-12: "put our data into the line, just for
+                        -- info") -- the only otherwise-empty line in the list.
+                        d = dim .. "No data found for source|r"
+                        local info = {}
+                        if item.profession then info[#info + 1] = item.profession end
+                        if item.expansion then info[#info + 1] = item.expansion end
+                        if #info > 0 then d = d .. "  " .. table.concat(info, " - ") end
                     else
                         d = dim .. s.kind .. (s.detail and (":|r " .. s.detail) or "|r")
                         if s.faction then d = d .. dim .. " [" .. s.faction .. "]|r" end
