@@ -181,13 +181,14 @@ local function walk()
     local ids = pendingIDs()
     if #ids == 0 then return end
     walking = true
-    -- v2: the v1 parser baked "Name Zone: X Cost: Y" blobs into the export
-    -- keys; a version bump rebuilds the index clean on the next full walk
-    -- (the latchMap is session-local, so every session IS a full walk).
-    if VWB_DB.recipeSourceIndexV ~= 2 then
-        VWB_DB.recipeSourceIndex, VWB_DB.recipeSourceIndexV = {}, 2
+    -- Version tracks the PARSER: earlier parsers baked "Name Zone: X Cost: Y"
+    -- / "Name|nZone: ..." blobs into the export keys, and first-sighting-wins
+    -- would keep them forever. A bump rebuilds the index clean on the next
+    -- full walk (the latchMap is session-local, so every session IS a full
+    -- walk). v3 = the |n-normalizing tokenizer.
+    if VWB_DB.recipeSourceIndexV ~= 3 then
+        VWB_DB.recipeSourceIndex, VWB_DB.recipeSourceIndexV = {}, 3
     end
-    VWB_DB.recipeSourceIndex = VWB_DB.recipeSourceIndex or {}
     local total, idx = #ids, 1
     local HC = VWB.Constants.Harvest
 
