@@ -55,6 +55,8 @@ local VIEWS = {
       build = function(c) return ns.Showroom.buildView(c) end,
       -- Global filter-independent count, live from window open (no mount needed)
       badge = function() return ns.Collectibles.UncollectedCount() end },
+    { id = "study",     text = "Study",     subtitle = "Unlearned recipes and where to get them",
+      build = function(c) return ns.Study.buildView(c) end },
     { id = "workbench", text = "Workbench", subtitle = "Recipes, queue and materials",
       build = function(c) return ns.Recipes.buildView(c) end,
       badge = function()

@@ -43,6 +43,7 @@ Modules\Inventory.lua
 Modules\RecipeHarvest.lua
 Modules\KnownRecipes.lua
 Modules\RecipeQuery.lua
+Modules\RecipeSources.lua
 Modules\Graph.lua
 Modules\AHScan.lua
 Modules\AuctionatorBridge.lua
@@ -63,6 +64,7 @@ Modules\ProjectPlanner.lua
 Layout\Layout.lua
 Layout\LayoutConfig_Shell.lua
 Layout\LayoutConfig_Showroom.lua
+Layout\LayoutConfig_Study.lua
 Layout\LayoutConfig_Recipes.lua
 Layout\LayoutConfig_Stockroom.lua
 Layout\LayoutConfig_Ledger.lua
@@ -75,6 +77,8 @@ Layout\LayoutConfig_Projects.lua
 Projects\Projects_View.lua
 Showroom\Showroom_Model.lua
 Showroom\Showroom_View.lua
+Study\Study_Model.lua
+Study\Study_View.lua
 Recipes\Recipes_View.lua
 Records\Records_View.lua
 Roster\Roster_View.lua
