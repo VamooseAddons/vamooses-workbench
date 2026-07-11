@@ -269,28 +269,43 @@ local function passesKind(itemID, kind)
     return ns.Collectibles:ClassifyKind(itemID) == kind
 end
 
--- Chip specs by priority (capped CHIP_MAX): Ready > short N > uncollected >
--- new mog > known-by-alt. "Ready" and "short N" are gated on KNOWN-BY-THIS-
--- CHARACTER (IsKnownBy), NOT the blanket IsKnown (known by ANY scanned alt) --
--- an alt-only recipe must show "alt", never a green Ready tick.
+-- Chip taxonomy (knowledge-domain ruling 2026-07-11): position 1 is ALWAYS
+-- the recipe-state chip -- exactly one of Ready / short N (known by the
+-- scoped character) | alt (known elsewhere on the account) | unlearned
+-- (known by nobody scanned) -- then item-knowledge signals (uncollected /
+-- new mog) fill to CHIP_MAX. "Ready"/"short N" gate on IsKnownBy (the scoped
+-- character), never the blanket IsKnown -- an alt-only recipe must show
+-- "alt", never a green Ready tick.
 local function ComputeRecipeChips(item, c, currentCharKey)
     local specs = {}
     local recipeID, itemID = item.recipeID, item.itemID
     local knownHere = ns.KnownRecipes:IsKnownBy(recipeID, currentCharKey)
-    local ready = knownHere and ns.RecipeQuery:CanCraft(recipeID)
 
-    if ready then
-        specs[#specs + 1] = { label = "Ready", r = c.success.r, g = c.success.g, b = c.success.b }
-    else
-        -- Perf D6: CountShortMaterials is the paint-path variant of
-        -- GetDirectMaterials -- no row-table allocs, no name resolution (which
-        -- fires requestNameOnce server requests a paint must never trigger).
-        local shortCount = ns.Graph:CountShortMaterials(recipeID)
-        if shortCount > 0 then
-            specs[#specs + 1] = { label = "short " .. shortCount, r = c.warning.r, g = c.warning.g, b = c.warning.b }
+    -- RECIPE-STATE chip: exactly one, always FIRST so the cap can never drop
+    -- it (knowledge-domain scan 2026-07-11: the old order put "alt" last,
+    -- where CHIP_MAX=2 item signals could push the recipe state off the row
+    -- entirely, and un-known recipes showed a "short N" holdings answer to a
+    -- question that does not apply -- you cannot be short for a craft nobody
+    -- can perform).
+    if knownHere then
+        if ns.RecipeQuery:CanCraft(recipeID) then
+            specs[#specs + 1] = { label = "Ready", r = c.success.r, g = c.success.g, b = c.success.b }
+        else
+            -- Perf D6: CountShortMaterials is the paint-path variant of
+            -- GetDirectMaterials -- no row-table allocs, no name resolution.
+            local shortCount = ns.Graph:CountShortMaterials(recipeID)
+            if shortCount > 0 then
+                specs[#specs + 1] = { label = "short " .. shortCount, r = c.warning.r, g = c.warning.g, b = c.warning.b }
+            end
         end
+    elseif ns.KnownRecipes:IsKnown(recipeID) then
+        specs[#specs + 1] = { label = "alt", r = c.text.r, g = c.text.g, b = c.text.b }
+    else
+        specs[#specs + 1] = { label = "unlearned", r = c.accent.r, g = c.accent.g, b = c.accent.b }
     end
 
+    -- ITEM-knowledge signals (cross-domain "why craft this"); the cap keeps
+    -- the recipe-state chip plus the highest-priority item signal.
     if itemID and ns.DecorOwnership:IsUncollected(itemID) == true then
         specs[#specs + 1] = { label = "uncollected", r = c.accent.r, g = c.accent.g, b = c.accent.b }
     end
@@ -299,9 +314,6 @@ local function ComputeRecipeChips(item, c, currentCharKey)
         if mog.hasAppearance and not mog.isCollected then
             specs[#specs + 1] = { label = "new mog", r = c.accent.r, g = c.accent.g, b = c.accent.b }
         end
-    end
-    if not knownHere and ns.KnownRecipes:IsKnown(recipeID) then
-        specs[#specs + 1] = { label = "alt", r = c.text.r, g = c.text.g, b = c.text.b }
     end
 
     while #specs > CHIP_MAX do table.remove(specs) end
