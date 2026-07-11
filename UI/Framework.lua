@@ -313,10 +313,45 @@ function VWB.UI:CreateMainFrame(name, title)
         self:SetBackdropColor(c.button_normal.r, c.button_normal.g, c.button_normal.b, c.button_normal.a)
     end)
 
+    -- HDG launcher (tester request, reganart test1): sits left of the theme
+    -- button. Gated on the companion addon being installed AND loaded -- the
+    -- logo texture lives in HDG's own folder, so no HDG = no file = no icon;
+    -- we simply never build the button.
+    local hdgBtn
+    if C_AddOns.IsAddOnLoaded("HousingDecorGuide") then -- exception(boundary): optional companion addon
+        hdgBtn = CreateFrame("Button", nil, titleBar, "BackdropTemplate")
+        hdgBtn:SetSize(UI.titleBarHeight, UI.titleBarHeight)
+        hdgBtn:SetPoint("RIGHT", -52, 0)
+        hdgBtn:SetBackdrop(BACKDROP_FLAT)
+        hdgBtn:SetBackdropColor(scheme.button_normal.r, scheme.button_normal.g, scheme.button_normal.b, scheme.button_normal.a)
+        hdgBtn:SetBackdropBorderColor(scheme.border.r, scheme.border.g, scheme.border.b, scheme.border.a)
+        local logo = hdgBtn:CreateTexture(nil, "ARTWORK")
+        logo:SetPoint("TOPLEFT", 3, -3)
+        logo:SetPoint("BOTTOMRIGHT", -3, 3)
+        logo:SetTexture("Interface\\AddOns\\HousingDecorGuide\\textures\\Vamoose_HDG_400_trans")
+        hdgBtn:SetScript("OnClick", function()
+            _G.HDG:ToggleMainWindow() -- exception(boundary): cross-addon global; existence guaranteed by the IsAddOnLoaded gate
+        end)
+        hdgBtn:SetScript("OnEnter", function(self)
+            local c = GetScheme()
+            self:SetBackdropColor(c.button_hover.r, c.button_hover.g, c.button_hover.b, c.button_hover.a)
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+            GameTooltip:SetText("Housing Decor Guide")
+            GameTooltip:Show()
+        end)
+        hdgBtn:SetScript("OnLeave", function(self)
+            local c = GetScheme()
+            self:SetBackdropColor(c.button_normal.r, c.button_normal.g, c.button_normal.b, c.button_normal.a)
+            GameTooltip:Hide()
+        end)
+        RegisterWidget(hdgBtn, "Button")
+    end
+
     frame.titleBar = titleBar
     frame.title = titleText
     frame.themeBtn = themeBtn
     frame.closeBtn = closeBtn
+    frame.hdgBtn = hdgBtn
     frame.UpdateThemeIcon = UpdateThemeIcon
 
     -- Register with Theme Engine
