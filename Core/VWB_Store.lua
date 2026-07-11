@@ -80,8 +80,10 @@ local ACTION_SLICES = {
     SET_SCOPE = { "nav" }, CLEAR_SCOPE = { "nav" },
     PUSH_RECENT_PREVIEWED = { "recent" }, PUSH_RECENT_QUEUED = { "recent" },
     ADD_PROJECT = { "projects" }, REMOVE_PROJECT = { "projects" },
-    SET_PROJECT_PAR = { "projects" }, PIN_PROJECT_STEP = { "projects" },
-    UNPIN_PROJECT_STEP = { "projects" }, COMPLETE_PROJECT = { "projects" },
+    ADD_PIECE = { "projects" }, REMOVE_PIECE = { "projects" },
+    SET_PROJECT_STATUS = { "projects" }, SET_PIECE_PAR = { "projects" },
+    PIN_PROJECT_STEP = { "projects" }, UNPIN_PROJECT_STEP = { "projects" },
+    COMPLETE_PIECE = { "projects" }, COMPLETE_PROJECT = { "projects" },
     PROJECT_REFILLED = { "projects" },
 }
 function Store:Version(slice)
@@ -131,8 +133,32 @@ function Store:LoadFromSavedVariables()
     state.ui             = VWB_DB.ui
     state.ui.scopeCharacter = nil -- scope is session-only, never persists
     VWB_DB.projects        = VWB_DB.projects or {}
+    VWB_DB.projects.v      = VWB_DB.projects.v or 1
     VWB_DB.projects.items  = VWB_DB.projects.items or {}
     if VWB_DB.projects.nextId == nil then VWB_DB.projects.nextId = 1 end
+    -- v1 -> v2 (Commissions): each flat one-item project becomes a one-PIECE
+    -- project. TRANSFORM in place, before the state alias below, so reducers
+    -- only ever see the current shape. pins belong to the one piece verbatim;
+    -- the completion timestamp stays on the PROJECT (the project was
+    -- completed; piece-level completion is a new v2 fact and starts nil).
+    -- Invariant from here on: status == "done" iff completedAt ~= nil.
+    if VWB_DB.projects.v ~= 2 then
+        for i, item in ipairs(VWB_DB.projects.items) do
+            VWB_DB.projects.items[i] = {
+                id = item.id, name = item.name, icon = item.icon,
+                status = item.completedAt and "done" or "bench",
+                pieces = { {
+                    itemID = item.itemID, recipeID = item.recipeID,
+                    kind = item.kind or "collect", par = item.par,
+                    pins = item.pins or {}, completedAt = nil,
+                    refills = item.refills or 0,
+                } },
+                source = nil,
+                createdAt = item.createdAt, completedAt = item.completedAt,
+            }
+        end
+        VWB_DB.projects.v = 2
+    end
     state.projects       = VWB_DB.projects
 end
 
@@ -276,16 +302,34 @@ reducers.SET_MINIMAP_POS = function(st, p) st.minimap.minimapPos = p.angle end
 
 -- Projects slice. IDs from a monotonic counter; timestamps from a single time()
 -- read at dispatch so createdAt/completedAt are consistent within one action.
--- All mutations in-place (alias contract: st.projects IS VWB_DB.projects). ------
+-- All mutations in-place (alias contract: st.projects IS VWB_DB.projects).
+-- v2 (Commissions): a project CONTAINS pieces -- reducers write
+-- pieces[i].field in place and NEVER replace the pieces array (the alias
+-- must hold through nesting). Unknown-id dispatches no-op (established v1
+-- contract, pinned by store_projects_test). Invariant maintained here:
+-- status == "done" iff completedAt ~= nil. ------------------------------------
+local function findProject(st, id)
+    for _, prj in ipairs(st.projects.items) do
+        if prj.id == id then return prj end
+    end
+end
+
+local function buildPiece(pc)
+    return { itemID = pc.itemID, recipeID = pc.recipeID,
+        kind = pc.kind or "collect", par = pc.par or VWB.Constants.Projects.DEFAULT_PAR,
+        pins = {}, completedAt = nil, refills = 0 }
+end
+
 reducers.ADD_PROJECT = function(st, p)
     local now = p._time or time()
     local id = st.projects.nextId
     st.projects.nextId = id + 1
+    local pieces = {}
+    for i, pc in ipairs(p.pieces) do pieces[i] = buildPiece(pc) end
     st.projects.items[#st.projects.items + 1] = {
         id = id, name = p.name, icon = p.icon,
-        itemID = p.itemID, recipeID = p.recipeID,
-        kind = p.kind or "collect", par = p.par or 20,
-        pins = {}, createdAt = now, completedAt = nil, refills = 0,
+        status = p.status or "bench", source = p.source,
+        pieces = pieces, createdAt = now, completedAt = nil,
     }
 end
 
@@ -296,39 +340,70 @@ reducers.REMOVE_PROJECT = function(st, p)
     end
 end
 
-reducers.SET_PROJECT_PAR = function(st, p)
-    local items = st.projects.items
-    for i = 1, #items do
-        if items[i].id == p.id then items[i].par = p.par; return end
+reducers.ADD_PIECE = function(st, p)
+    local prj = findProject(st, p.projectId)
+    if not prj or #prj.pieces >= VWB.Constants.Projects.MAX_PIECES then return end
+    prj.pieces[#prj.pieces + 1] = buildPiece(p.piece)
+end
+
+reducers.REMOVE_PIECE = function(st, p)
+    local prj = findProject(st, p.projectId)
+    if prj then table.remove(prj.pieces, p.index) end
+end
+
+-- The board move. Leaving "done" clears the timestamp; entering it stamps
+-- one (unless the completion sweep already did) -- the invariant, both ways.
+reducers.SET_PROJECT_STATUS = function(st, p)
+    local prj = findProject(st, p.id)
+    if not prj then return end
+    prj.status = p.status
+    if p.status == "done" then
+        prj.completedAt = prj.completedAt or (p._time or time())
+    else
+        prj.completedAt = nil
+    end
+end
+
+reducers.SET_PIECE_PAR = function(st, p)
+    local prj = findProject(st, p.id)
+    if prj and prj.pieces[p.pieceIndex] then prj.pieces[p.pieceIndex].par = p.par end
+end
+
+reducers.COMPLETE_PIECE = function(st, p)
+    local prj = findProject(st, p.projectId)
+    if prj and prj.pieces[p.pieceIndex] then
+        prj.pieces[p.pieceIndex].completedAt = p._time or time()
     end
 end
 
 reducers.PIN_PROJECT_STEP = function(st, p)
-    local items = st.projects.items
-    for i = 1, #items do
-        if items[i].id == p.id then items[i].pins[p.stepKey] = p.charKey; return end
+    local prj = findProject(st, p.id)
+    if prj and prj.pieces[p.pieceIndex] then
+        prj.pieces[p.pieceIndex].pins[p.stepKey] = p.charKey
     end
 end
 
 reducers.UNPIN_PROJECT_STEP = function(st, p)
-    local items = st.projects.items
-    for i = 1, #items do
-        if items[i].id == p.id then items[i].pins[p.stepKey] = nil; return end
+    local prj = findProject(st, p.id)
+    if prj and prj.pieces[p.pieceIndex] then
+        prj.pieces[p.pieceIndex].pins[p.stepKey] = nil
     end
 end
 
+-- Fired ONLY from boundary handlers (ProjectPlanner sweeps, ACHIEVEMENT_
+-- EARNED) or the board menu -- never from a computed/effect (R2/R3).
 reducers.COMPLETE_PROJECT = function(st, p)
-    local now = p._time or time()
-    local items = st.projects.items
-    for i = 1, #items do
-        if items[i].id == p.id then items[i].completedAt = now; return end
-    end
+    local prj = findProject(st, p.id)
+    if not prj then return end
+    prj.completedAt = p._time or time()
+    prj.status = "done"
 end
 
 reducers.PROJECT_REFILLED = function(st, p)
-    local items = st.projects.items
-    for i = 1, #items do
-        if items[i].id == p.id then items[i].refills = items[i].refills + 1; return end
+    local prj = findProject(st, p.id)
+    if prj and prj.pieces[p.pieceIndex] then
+        local piece = prj.pieces[p.pieceIndex]
+        piece.refills = piece.refills + 1
     end
 end
 

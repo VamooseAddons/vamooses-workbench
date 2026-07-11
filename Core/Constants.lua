@@ -450,6 +450,11 @@ VWB.Constants.Harvest = {
     OWN_HARVEST_DEBOUNCE = 0.5,    -- seconds; coalesces the TRADE_SKILL_LIST_UPDATE burst before Modules/KnownRecipes.lua's own-profession harvest starts
 }
 
+VWB.Constants.Projects = {
+    MAX_PIECES = 20,   -- per commission; achievement imports hit this scale, and each piece costs a Graph plan walk
+    DEFAULT_PAR = 20,  -- stock-piece par when the creator doesn't set one (v1 default preserved)
+}
+
 VWB.Constants.Achievements = {
     PROFESSIONS_CATEGORY = 169,     -- Achievement_Category "Professions" root; stable across every expansion (DB2-verified 12.0.7). Children (Alchemy..Archaeology) are walked LIVE, never hardcoded.
     CRITERIA_KNOW_RECIPE = 34,      -- criteriaType: assetID = recipe SPELL id (cross-links to KnownRecipes/Study)
