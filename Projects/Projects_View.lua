@@ -21,11 +21,19 @@ local FLAT = VWB.UI.BACKDROP_FLAT -- exception(false-positive): indirection lose
 local ICON_FALLBACK = 134400 -- INV_Misc_QuestionMark; exception(boundary): GetItemIconByID nil on cold item data
 
 local CARD_W, CARD_H, CARD_GAP = 260, 64, 6 -- rail cards (vertical scroll, left of Plan)
-local HDR_H = 18 -- status group divider rows (Backlog / On the Bench / Done)
-local STATUS_LABEL = { backlog = "BACKLOG", bench = "ACTIVE", done = "DONE" } -- "bench" stays the STORED key; "On the Bench" read as sports-benched (owner 2026-07-12)
+-- The status PIPELINE (stored keys; "bench" displays as Active). The rail
+-- shows ONE segment at a time; card arrows move along the pipeline.
+local PIPE = { "backlog", "bench", "done" }
+local PIPE_POS = { backlog = 1, bench = 2, done = 3 }
+local SEGMENTS = { { key = "backlog", label = "Backlog" }, { key = "bench", label = "Active" }, { key = "done", label = "Done" } }
+-- Atlases (owner-picked commonicons set). TRASH: stand-in "common-icon-delete"
+-- until the trashcan atlas name is confirmed in the in-game atlas viewer.
+local ATLAS_BACK, ATLAS_BACK_DIS = "common-icon-backarrow", "common-icon-backarrow-disable"
+local ATLAS_FWD, ATLAS_FWD_DIS = "common-icon-forwardarrow", "common-icon-forwardarrow-disable"
+local ATLAS_TRASH = "common-icon-delete"
 
 StaticPopupDialogs["VWB_REMOVE_PROJECT"] = {
-    text = "Remove project '%s'?",
+    text = "Remove commission '%s'?",
     button1 = "Remove", button2 = "Cancel",
     OnAccept = function(self, id) VWB.Store:Dispatch("REMOVE_PROJECT", { id = id }) end,
     timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
@@ -97,6 +105,22 @@ local function cardMenu(card)
     end)
 end
 
+-- Small atlas button for the card's hover controls (arrows + trashcan).
+local function atlasButton(parent, size, tooltip)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(size, size)
+    b.tex = b:CreateTexture(nil, "OVERLAY")
+    b.tex:SetAllPoints()
+    b.tooltip = tooltip
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self.tooltip, 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
 local function createProjectCard(p, onSelect)
     local card = CreateFrame("Button", nil, p, "BackdropTemplate")
     card:SetSize(CARD_W, CARD_H)
@@ -131,6 +155,35 @@ local function createProjectCard(p, onSelect)
     card.plus:SetPoint("TOPRIGHT", -4, -6)
     card.plus:SetScript("OnClick", function() bumpPar(card, 1) end)
 
+    -- Hover controls: pipeline arrows + trashcan (owner atlas set; visible
+    -- affordance principle -- the right-click menu stays only as a power path)
+    card.back = atlasButton(card, 14, "")
+    card.back:SetPoint("BOTTOMRIGHT", -40, 5)
+    card.back:SetScript("OnClick", function(self)
+        local e = card.entry
+        if self.enabledMove then
+            VWB.Store:Dispatch("SET_PROJECT_STATUS", { id = e.p.id, status = PIPE[PIPE_POS[e.p.status] - 1] })
+        end
+    end)
+    card.fwd = atlasButton(card, 14, "")
+    card.fwd:SetPoint("BOTTOMRIGHT", -22, 5)
+    card.fwd:SetScript("OnClick", function(self)
+        local e = card.entry
+        if self.enabledMove then
+            VWB.Store:Dispatch("SET_PROJECT_STATUS", { id = e.p.id, status = PIPE[PIPE_POS[e.p.status] + 1] })
+        end
+    end)
+    card.trash = atlasButton(card, 13, "Remove commission")
+    card.trash:SetPoint("BOTTOMRIGHT", -4, 5)
+    card.trash.tex:SetAtlas(ATLAS_TRASH)
+    card.trash:SetScript("OnClick", function()
+        StaticPopup_Show("VWB_REMOVE_PROJECT", card.entry.p.name, nil, card.entry.p.id)
+    end)
+    card.back:Hide(); card.fwd:Hide(); card.trash:Hide()
+
+    local function hoverControls(shown)
+        card.back:SetShown(shown); card.fwd:SetShown(shown); card.trash:SetShown(shown)
+    end
     card:SetScript("OnClick", function(self, button)
         if button == "RightButton" then
             cardMenu(self)
@@ -138,9 +191,31 @@ local function createProjectCard(p, onSelect)
             onSelect(self.entry.p.id)
         end
     end)
-    card:SetScript("OnEnter", cardTooltip)
-    card:SetScript("OnLeave", function(self) VWB.UI.Tooltip:Hide(self) end)
+    card:SetScript("OnEnter", function(self) hoverControls(true); cardTooltip(self) end)
+    card:SetScript("OnLeave", function(self)
+        if not self:IsMouseOver() then hoverControls(false) end
+        VWB.UI.Tooltip:Hide(self)
+    end)
     return card
+end
+
+-- Arrow state per the pipeline + the done-entry rule (presentation of the
+-- SAME rule the reducer enforces).
+local function paintCardControls(card, entry)
+    local pos = PIPE_POS[entry.p.status]
+    local backOk = pos > 1
+    card.back.tex:SetAtlas(backOk and ATLAS_BACK or ATLAS_BACK_DIS)
+    card.back.enabledMove = backOk
+    card.back.tooltip = pos == 3 and "Reopen (to Active)" or pos == 2 and "Back to Backlog" or "Start of the line"
+    local fwdOk
+    if pos == 1 then fwdOk = true
+    elseif pos == 2 then fwdOk = entry.plan.total > 0 and entry.plan.done >= entry.plan.total
+    else fwdOk = false end
+    card.fwd.tex:SetAtlas(fwdOk and ATLAS_FWD or ATLAS_FWD_DIS)
+    card.fwd.enabledMove = fwdOk
+    card.fwd.tooltip = pos == 1 and "Move to Active"
+        or pos == 2 and (fwdOk and "Move to Done" or "Pieces remain -- can't complete yet")
+        or "Done is done"
 end
 
 local function paintProjectCard(card, entry, isSelected)
@@ -192,6 +267,7 @@ local function paintProjectCard(card, entry, isSelected)
     end
 
     card:SetAlpha(p.status == "done" and 0.5 or 1)
+    paintCardControls(card, entry)
 end
 
 -- ============================================================================
@@ -366,6 +442,7 @@ function Projects.buildView(container)
     local Kit = ns.ViewKit
 
     local selectedId = R.signal(nil)
+    local railSeg = R.signal("bench") -- the rail's visible segment; Active = the working set (ruling 6B)
     local newStockOpen = R.signal(false)
     local stockSearch = R.signal("")
     local invEpoch = R.signal(0) -- VWB_INVENTORY_UPDATE has no Store slice; local epoch stands in
@@ -545,6 +622,11 @@ function Projects.buildView(container)
                 newStockOpen(not R.untrack(newStockOpen))
             end)
             return btn
+        elseif node.id == "prjRailSeg" then
+            return VWB.UI:CreateSegmentedToggle(parent, {
+                width = CARD_W, height = 22,
+                segments = SEGMENTS, default = "bench",
+                onSelect = function(key) railSeg(key) end })
         elseif node.id == "prjRail" then
             -- Vertical card rail (2026-07-11: was a horizontal strip across
             -- the top -- fine at 5 projects, unusable at 20).
@@ -769,40 +851,20 @@ function Projects.buildView(container)
         end
     end, "projects:pendingSelect")
 
-    -- the card rail: ONE list, status-grouped by dim dividers (Backlog / On
-    -- the Bench / Done -- the kanban that fits 1340px; Done dimmed trophy
-    -- shelf at the bottom)
+    -- the card rail: ONE segment at a time (Backlog | Active | Done toggle
+    -- above it) -- each status gets the full rail height (design-lab E)
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled card rows on switch
         local ps = plans()
         local sel = selectedId()
+        local group = ps[railSeg()]
         VWB.UI:ResetRows(stripContent)
         local y = 0
-        local function placeHeader(status, n)
-            local hdr = VWB.UI:AcquireRow(stripContent, "prjhdr", function(p)
-                local f = CreateFrame("Frame", nil, p)
-                f:SetSize(CARD_W, HDR_H)
-                f.label = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-                f.label:SetPoint("BOTTOMLEFT", 2, 2)
-                VWB.Theme:Register(f.label, "DimLabel")
-                return f
-            end)
-            hdr:SetPoint("TOPLEFT", stripContent, "TOPLEFT", 0, -y)
-            hdr.label:SetText(STATUS_LABEL[status] .. "  (" .. n .. ")")
-            y = y + HDR_H + 2
-        end
-        local function place(e)
+        for _, e in ipairs(group) do
             local card = VWB.UI:AcquireRow(stripContent, "prjcard", function(p) return createProjectCard(p, selectedId) end)
             card:SetPoint("TOPLEFT", stripContent, "TOPLEFT", 0, -y)
             paintProjectCard(card, e, e.p.id == sel)
             y = y + CARD_H + CARD_GAP
-        end
-        for _, status in ipairs({ "bench", "backlog", "done" }) do
-            local group = ps[status]
-            if #group > 0 then
-                placeHeader(status, #group)
-                for _, e in ipairs(group) do place(e) end
-            end
         end
         VWB.UI:HideUnusedRows(stripContent)
         stripContent:SetHeight(math.max(1, y))

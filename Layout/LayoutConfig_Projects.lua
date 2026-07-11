@@ -31,7 +31,12 @@ ns.LayoutConfig.projects = {
         { type = "grid", id = "prjBoard", grow = true, padding = 0, gap = 6,
           columns = { 260, "flex", 380 }, rows = { "flex" }, -- rail 210->260 (Commissions cards carry pieces info; ui-designer pixel budget 2026-07-12)
           cells = {
-            { at = { col = 1, row = 1 }, child = { type = "item", id = "prjRail" } }, -- vertical project-card rail
+            { at = { col = 1, row = 1 }, child = {
+                type = "stack", dir = "col", gap = "sm", align = "stretch", children = {
+                    { type = "item", id = "prjRailSeg", size = { h = 22 } }, -- Backlog | Active | Done (22px min: playtest F16)
+                    { type = "item", id = "prjRail", grow = true },          -- the selected segment's cards
+                },
+            } },
             { at = { col = 2, row = 1 }, child = {
                 type = "stack", id = "prjPlanCol", dir = "col", gap = "sm", padding = "md", align = "stretch", chrome = "Panel", children = {
                     { type = "stack", dir = "row", gap = "sm", align = "center", children = {
