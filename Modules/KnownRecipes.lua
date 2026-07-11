@@ -192,8 +192,14 @@ function VWB.KnownRecipes:Initialize()
     eventFrame = CreateFrame("Frame")
     eventFrame:RegisterEvent("TRADE_SKILL_LIST_UPDATE")
     eventFrame:RegisterEvent("TRADE_SKILL_ITEM_CRAFTED_RESULT")
+    eventFrame:RegisterEvent("TRADE_SKILL_CRAFT_BEGIN")
+    local lastCraftRecipeID -- latched at cast start; CRAFTED_RESULT's payload has no recipe id
 
     eventFrame:SetScript("OnEvent", function(self, event, ...)
+        if event == "TRADE_SKILL_CRAFT_BEGIN" then
+            lastCraftRecipeID = ... -- boundary latch (recipeSpellID)
+            return
+        end
         if event == "TRADE_SKILL_LIST_UPDATE" then
             if C_TradeSkillUI.IsTradeSkillReady() then
                 if IsGuildOrOtherPlayerSession() then return end -- not the player's own data; don't contaminate known-recipe/skill/harvest caches
@@ -233,6 +239,7 @@ function VWB.KnownRecipes:Initialize()
                         name = name,
                         itemID = data.itemID,
                         qty = data.quantity,
+                        recipeID = lastCraftRecipeID, -- exception(boundary): nil if the result outraced CRAFT_BEGIN; that craft just doesn't count toward craft pieces
                         profession = profName,
                     })
                     VWB.EventBus:Trigger("VWB_CRAFT_COMPLETE", { name = name, itemID = data.itemID, qty = data.quantity })

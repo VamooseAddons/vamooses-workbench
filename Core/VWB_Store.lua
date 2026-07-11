@@ -236,6 +236,7 @@ end
 reducers.ADD_CRAFTING_HISTORY = function(st, p)
     table.insert(st.craftingHistory, 1, {
         name = p.name, itemID = p.itemID, qty = p.qty, profession = p.profession,
+        recipeID = p.recipeID, -- craft-piece completion matches on RECIPE (quality tiers ship different itemIDs)
         character = p.character, realm = p.realm, timestamp = p.timestamp or time(),
     })
     while #st.craftingHistory > 200 do table.remove(st.craftingHistory) end
@@ -343,13 +344,14 @@ end
 -- criteria text carries the recipe name). achievementID+criteriaIndex:
 -- the criteria sweep addresses the PIECE, wherever it lives. qty/charKey:
 -- craft-kind pieces (queue saves) keep their target and crafter.
-local function buildPiece(st, pc)
+local function buildPiece(st, pc, now)
     local id = st.projects.nextId
     st.projects.nextId = id + 1
     return { id = id, itemID = pc.itemID, recipeID = pc.recipeID, name = pc.name,
         kind = pc.kind or "collect", par = pc.par or VWB.Constants.Projects.DEFAULT_PAR,
         qty = pc.qty, charKey = pc.charKey,
         achievementID = pc.achievementID, criteriaIndex = pc.criteriaIndex,
+        createdAt = now, -- craft pieces count history STRICTLY after this
         pins = {}, completedAt = nil, refills = 0 }
 end
 
@@ -363,7 +365,7 @@ reducers.ADD_PROJECT = function(st, p)
         pieces = {}, createdAt = now, completedAt = nil,
     }
     for _, pc in ipairs(p.pieces) do
-        prj.pieces[#prj.pieces + 1] = buildPiece(st, pc)
+        prj.pieces[#prj.pieces + 1] = buildPiece(st, pc, now)
     end
     st.projects.items[#st.projects.items + 1] = prj
 end
@@ -385,7 +387,7 @@ reducers.ADD_PIECE = function(st, p)
     for _, pc in ipairs(prj.pieces) do
         if pc.recipeID and pc.recipeID == p.piece.recipeID then return end
     end
-    prj.pieces[#prj.pieces + 1] = buildPiece(st, p.piece)
+    prj.pieces[#prj.pieces + 1] = buildPiece(st, p.piece, p._time or time())
 end
 
 reducers.REMOVE_PIECE = function(st, p)

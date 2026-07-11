@@ -826,9 +826,54 @@ function Recipes.buildView(container)
                 end)
                 rightAnchor = pslBtn
             end
+            -- The shared Commission control, BOTH directions (lifecycle 5a):
+            -- SAVE the queue as craft pieces (bookmark -- never clears the
+            -- queue) / LOAD ready steps from an ACTIVE commission (appends;
+            -- the queue reducer merges by recipe+char).
+            local commDD = ns.UI:CreateCommissionDropdown(f, {
+                width = 96, height = 15,
+                context = function()
+                    local q = ns.Store:GetState().crafting.queuedRecipes
+                    return {
+                        name = "Queued crafts",
+                        count = #q,
+                        defaultStatus = "bench", -- you were about to craft these
+                        source = { type = "queue" },
+                        pieces = function()
+                            local out = {}
+                            for _, entry in ipairs(q) do
+                                local r = ns.Database:GetRecipe(entry.recipeID)
+                                out[#out + 1] = { recipeID = entry.recipeID,
+                                    itemID = r and r.itemID, name = r and r.name,
+                                    kind = "craft", qty = entry.qty, charKey = entry.charKey }
+                            end
+                            return out
+                        end,
+                        queueLoad = function(prj, countOnly)
+                            local plan = ns.ProjectPlanner:DerivePlan(prj)
+                            local current, n = ns.CharacterData:GetCharacterKey(), 0
+                            for _, pp in ipairs(plan.pieces) do
+                                for _, st in ipairs(pp.steps) do
+                                    if st.kind == "CRAFT" and st.ready and st.charKey == current then
+                                        n = n + 1
+                                        if not countOnly then
+                                            ns.Store:Dispatch("ADD_TO_QUEUE", { recipeID = st.recipeID, qty = st.need, charKey = current })
+                                        end
+                                    end
+                                end
+                            end
+                            if not countOnly then
+                                VWB.Log:Print(string.format("Queued %d ready step(s) from '%s'", n, prj.name))
+                            end
+                            return n
+                        end,
+                    }
+                end,
+            })
+            commDD:SetPoint("RIGHT", rightAnchor, "LEFT", -6, 0)
             f.label:ClearAllPoints()
             f.label:SetPoint("TOPLEFT", 4, -3)
-            f.label:SetPoint("BOTTOMRIGHT", rightAnchor, "BOTTOMLEFT", -4, 3)
+            f.label:SetPoint("BOTTOMRIGHT", commDD, "BOTTOMLEFT", -4, 3)
             return f
         elseif node.id == "rcpMatHeader" then
             local f = ns.ViewKit.roleLabel(node, parent)

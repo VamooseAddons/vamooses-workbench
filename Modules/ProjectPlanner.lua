@@ -172,7 +172,10 @@ function P:DerivePiecePlan(piece)
     if piece.completedAt then plan.status = "complete"; return plan end
 
     local qty
-    if piece.kind == "stock" then
+    if piece.kind == "craft" then
+        plan.status = "active" -- completion is the history sweep's call, never derived here
+        qty = piece.qty or 1
+    elseif piece.kind == "stock" then
         plan.level = self:StockLevel(piece.itemID)
         plan.par = piece.par or 1
         plan.status = plan.level >= plan.par and "dormant" or "active"
@@ -288,6 +291,36 @@ local function sweepCollectCompletions()
     end
 end
 
+-- Craft pieces (queue saves): done when qty has been crafted since the piece
+-- was created. LAZY count over the persisted account-wide history (crafts by
+-- ANY character count -- owner ruling 7b-A; no per-piece counter to drift;
+-- the ring is capped at 200 so this is a bounded scan).
+local function craftedSince(piece)
+    local total = 0
+    for _, h in ipairs(VWB.Store:GetState().craftingHistory) do
+        if h.recipeID == piece.recipeID and h.timestamp >= (piece.createdAt or 0) then
+            total = total + (h.qty or 1)
+        end
+    end
+    return total
+end
+
+local function sweepCraftCompletions()
+    for _, prj in ipairs(VWB.Store:GetState().projects.items) do
+        if not prj.completedAt then
+            local touched = false
+            for _, pc in ipairs(prj.pieces) do
+                if pc.kind == "craft" and not pc.completedAt and craftedSince(pc) >= (pc.qty or 1) then
+                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
+                    touched = true
+                end
+            end
+            if touched then promoteIfAllDone(prj) end
+        end
+    end
+end
+P._sweepCraftCompletions = sweepCraftCompletions -- exposed for headless tests
+
 -- Study-sourced pieces complete when the RECIPE is learned -- their goal is
 -- knowledge, not collection (code review F3). Swept on the profession-scan
 -- event, which is exactly when the known set can change.
@@ -384,6 +417,7 @@ function P:Initialize()
     VWB.Collectibles:RegisterCollectionListener(sweepCollectCompletions)
     VWB.EventBus:Register("VWB_INVENTORY_UPDATE", sweepStockRefills)
     VWB.EventBus:Register("VWB_RECIPES_SCANNED", sweepStudyLearns)
+    VWB.EventBus:Register("VWB_CRAFT_COMPLETE", sweepCraftCompletions)
     VWB.Reactor.subscribeEvent("ACHIEVEMENT_EARNED", function(achievementID)
         if achievementID then onAchievementEarned(achievementID) end
     end)
