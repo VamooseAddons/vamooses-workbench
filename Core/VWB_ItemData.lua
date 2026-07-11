@@ -94,11 +94,22 @@ requestKey = function(id)
     ItemEventListener:AddCallback(id, function() onLoaded(id) end)
 end
 
+-- Acquisition WRITES (the PENDING latch) -- and reads legally happen inside
+-- computeds, so the write half rides Reactor.defer: queued past the current
+-- computed evaluation, inline everywhere else (live 2026-07-11: the purity
+-- guard caught projects:plans acquiring synchronously). Until the deferred
+-- latch lands, tracked readers see nil, which the API treats as PENDING.
+local acquiring = {} -- ids with a deferred acquisition queued (pre-latch dedupe)
 local function acquire(id)
-    if latch:hasKey(id) then return end
-    stats.acquired = stats.acquired + 1
-    latch:latch(id, Reactor.PENDING)
-    requestKey(id)
+    if latch:hasKey(id) or acquiring[id] then return end
+    acquiring[id] = true
+    Reactor.defer(function()
+        acquiring[id] = nil
+        if latch:hasKey(id) then return end
+        stats.acquired = stats.acquired + 1
+        latch:latch(id, Reactor.PENDING)
+        requestKey(id)
+    end)
 end
 
 -- Failure half: ItemEventListener never fires callbacks for success=false
@@ -122,10 +133,14 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Tracked read: record | PENDING | DEAD | NODATA. Acquires on first sight.
+-- nil (deferred acquisition not yet latched) normalizes to PENDING so
+-- callers see exactly one "not yet" value.
 function ItemData.get(id)
     ensureFailureListener()
     acquire(id)
-    return latch:get(id)
+    local v = latch:get(id)
+    if v == nil then return Reactor.PENDING end
+    return v
 end
 
 function ItemData.peek(id) return latch:peek(id) end

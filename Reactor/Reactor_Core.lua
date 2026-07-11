@@ -133,6 +133,22 @@ local function updateIfNecessary(node)
     node.state = CLEAN
 end
 
+-- Deferred boundary writes (alien-signals' leftover-work guard, ported the
+-- day the purity guard caught a real one, 2026-07-11): code that must WRITE
+-- a signal (broker acquisition latching PENDING) but can be reached from
+-- INSIDE a computed's evaluation queues here and runs the moment evaluation
+-- returns to top level. Keeps the computed-purity guard intact -- writes
+-- never execute mid-compute -- without every acquisition path needing to
+-- know its caller's context. Effects and top-level callers run fn inline.
+local deferredWrites = {}
+local function drainDeferred()
+    if currentObserver ~= nil then return end
+    while #deferredWrites > 0 do
+        local fn = table.remove(deferredWrites, 1)
+        fn()
+    end
+end
+
 recompute = function(node)
     if node.cleanup then
         local c = node.cleanup; node.cleanup = nil; c()
@@ -170,6 +186,11 @@ recompute = function(node)
     else -- effect: result may be a cleanup fn
         node.cleanup = (type(result) == "function") and result or nil
     end
+    -- Outermost compute finished: run writes queued mid-compute (a nested
+    -- recompute restores a non-nil prevObserver, so this only fires at the
+    -- true top of stack -- including lazy top-level computed reads that never
+    -- pass through the flush loop).
+    if prevObserver == nil then drainDeferred() end
 end
 
 -- ---------------------------------------------------------------------------
@@ -192,6 +213,7 @@ end
 ---@field dispose fun(scope:table)
 ---@field batch fun(fn:function)
 ---@field untrack fun(fn:function):any
+---@field defer fun(fn:function)
 ---@field flush fun()
 ---@field resource fun(opts:table):any
 ---@field latchMap fun(name?:string):table
@@ -423,6 +445,19 @@ function Reactor.untrack(fn)
     local a, b, c = fn()
     currentObserver = prev
     return a, b, c
+end
+
+-- Queue fn past the current computed evaluation (runs inline from effects
+-- and top-level code). THE sanctioned path for acquisition-class writes that
+-- can legally be reached from computed bodies (Constitution R4): the write
+-- executes at top of stack, so the computed-purity guard holds and the
+-- computed re-runs against the latched value on the next flush.
+function Reactor.defer(fn)
+    if currentObserver and currentObserver.kind == "computed" then
+        deferredWrites[#deferredWrites + 1] = fn
+        return
+    end
+    fn()
 end
 
 -- Test/host hook: force a synchronous flush (headless tests; deferred schedulers)

@@ -169,5 +169,23 @@ do
     check("reader re-ran to the name", seen == "Living Steel")
 end
 
+-- 10. acquisition from INSIDE a computed defers its latch write ---------------
+-- (live 2026-07-11: projects:plans acquired synchronously and the engine's
+-- purity guard threw "a computed wrote a signal". Acquisition now queues via
+-- Reactor.defer and executes at top of stack.)
+do
+    local name = R.named("test:computedAcquire", function()
+        return ItemData.nameFor(808)
+    end)
+    local v = name() -- lazy top-level read: computed evaluates, acquisition deferred to its exit
+    check("computed read returns PENDING, no purity error", v == R.PENDING)
+    check("deferred acquisition issued after the compute", addCallbackCount[808] == 1)
+    name(); name()
+    check("re-reads do not re-acquire", addCallbackCount[808] == 1)
+    cache[808] = "Deferred Ore"
+    fireLoaded(808)
+    check("computed re-derives to the latched name", name() == "Deferred Ore")
+end
+
 print(string.format("VWB ItemData: %d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
