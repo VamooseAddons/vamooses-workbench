@@ -34,7 +34,10 @@ end
 --   badge    : function() -> number  live count; shown as a pill when > 0
 --   subtitle : string  one-line descriptor shown in the nav row tooltip
 -- Projects is TOP of the rail (the plan board -- the addon's hero surface).
--- Badge: below-par stock count from the projects slice.
+-- Rail order groups by player intent (owner 2026-07-12): the daily loop
+-- (plan -> craft -> mats), the three commission FEEDERS (browse -> commission
+-- siblings, kept adjacent), passive reference, then meta. { divider = true }
+-- entries render as separator lines between the blocks.
 local VIEWS = {
     { id = "projects",  text = "Projects",  subtitle = "Pin items and plan your collection",
       build = function(c) return ns.Projects.buildView(c) end,
@@ -51,14 +54,6 @@ local VIEWS = {
           end
           return n
       end },
-    { id = "showroom",  text = "Showroom",  subtitle = "Browse craftable collectibles",
-      build = function(c) return ns.Showroom.buildView(c) end,
-      -- Global filter-independent count, live from window open (no mount needed)
-      badge = function() return ns.Collectibles.UncollectedCount() end },
-    { id = "study",     text = "Study",     subtitle = "Unlearned recipes and where to get them",
-      build = function(c) return ns.Study.buildView(c) end },
-    { id = "achieve",   text = "Achieve",   subtitle = "Profession achievements and progress",
-      build = function(c) return ns.Achieve.buildView(c) end },
     { id = "workbench", text = "Workbench", subtitle = "Recipes, queue and materials",
       build = function(c) return ns.Recipes.buildView(c) end,
       badge = function()
@@ -67,17 +62,32 @@ local VIEWS = {
       end },
     { id = "stockroom", text = "Stockroom", subtitle = "Raw materials ledger",
       build = function(c) return ns.Stockroom.buildView(c) end },
+    { divider = true },
+    { id = "showroom",  text = "Showroom",  subtitle = "Browse craftable collectibles",
+      build = function(c) return ns.Showroom.buildView(c) end,
+      -- Global filter-independent count, live from window open (no mount needed)
+      badge = function() return ns.Collectibles.UncollectedCount() end },
+    { id = "study",     text = "Study",     subtitle = "Unlearned recipes and where to get them",
+      build = function(c) return ns.Study.buildView(c) end },
+    { id = "achieve",   text = "Achieve",   subtitle = "Profession achievements and progress",
+      build = function(c) return ns.Achieve.buildView(c) end },
+    { divider = true },
     { id = "ledger",    text = "Ledger",    subtitle = "Profit and AH pricing",
       build = function(c) return ns.Ledger.buildView(c) end },
     { id = "roster",    text = "Roster",    subtitle = "Your characters professions",
       build = function(c) return ns.Roster.buildView(c) end },
     { id = "records",   text = "Records",   subtitle = "Scan coverage and history",
       build = function(c) return ns.Records.buildView(c) end },
+    { divider = true },
     { id = "settings",  text = "Settings",  subtitle = "Options",
       build = function(c) return ns.Settings.buildView(c) end },
     { id = "debug",     text = "Debug",     subtitle = "Developer diagnostics",
       build = function(c) return ns.Debug.buildView(c) end }, -- last: nav row hides when debug off (no gap)
 }
+
+-- Views only (no divider markers): the wiring/mount loops iterate this.
+local VIEW_LIST = {}
+for _, v in ipairs(VIEWS) do if not v.divider then VIEW_LIST[#VIEW_LIST + 1] = v end end
 
 -- Shell chrome frames (sidebar / content / status), themed from the scheme. ---
 local function shellMakeFrame(node, parent)
@@ -107,6 +117,15 @@ end
 -- sub-frames: count is the text; pill is the tinted backdrop behind it.
 local function navMakeFrame(node, parent)
     if node.type ~= "item" then return CreateFrame("Frame", nil, parent) end
+    if node.role == "divider" then -- separator line between nav blocks
+        local f = CreateFrame("Frame", nil, parent)
+        local s = VWB.UI:GetScheme()
+        local line = f:CreateTexture(nil, "ARTWORK")
+        line:SetHeight(1)
+        line:SetPoint("LEFT", 8, 0); line:SetPoint("RIGHT", -8, 0)
+        line:SetColorTexture(s.border.r, s.border.g, s.border.b, 0.6)
+        return f
+    end
     local btn = CreateFrame("Button", nil, parent)
     local _d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
     local hl = btn:CreateTexture(nil, "BACKGROUND")
@@ -199,21 +218,25 @@ function Shell.openWindow()
     -- 2. active-view signal, persisted across reloads
     local persisted = VWB_DB and VWB_DB.activeView
     local known = false
-    for _, v in ipairs(VIEWS) do if v.id == persisted then known = true break end end
-    local activeView = R.signal(known and persisted or VIEWS[1].id) -- fall back if the persisted id was retired
+    for _, v in ipairs(VIEW_LIST) do if v.id == persisted then known = true break end end
+    local activeView = R.signal(known and persisted or VIEW_LIST[1].id) -- fall back if the persisted id was retired
     Shell.setView = function(id) activeView(id) end
     ns.Nav._setView = Shell.setView  -- late-bind Nav's view-switch hook
     R.effect(function() if VWB_DB then VWB_DB.activeView = activeView() end end)
 
-    -- 3. sidebar nav generated from the registry
+    -- 3. sidebar nav generated from the registry (dividers between blocks)
     local navChildren = {}
-    for _, v in ipairs(VIEWS) do
-        navChildren[#navChildren + 1] = { type = "item", id = "nav:" .. v.id, role = "label", text = v.text, size = { h = 30 } }
+    for i, v in ipairs(VIEWS) do
+        if v.divider then
+            navChildren[#navChildren + 1] = { type = "item", id = "navdiv:" .. i, role = "divider", size = { h = 7 } }
+        else
+            navChildren[#navChildren + 1] = { type = "item", id = "nav:" .. v.id, role = "label", text = v.text, size = { h = 30 } }
+        end
     end
     local nav = ns.Layout.build(sidebar,
         { type = "stack", dir = "col", gap = "xs", padding = "sm", align = "stretch", children = navChildren },
         { makeFrame = navMakeFrame, measure = measure })
-    for _, v in ipairs(VIEWS) do
+    for _, v in ipairs(VIEW_LIST) do
         local btn = nav.byId["nav:" .. v.id]
         btn:SetScript("OnClick", function() activeView(v.id) end)
         R.bindShown(btn.hl, function() return activeView() == v.id end)
@@ -268,7 +291,7 @@ function Shell.openWindow()
     -- opens never builds. (Full per-dispatch scoping of hidden-but-visited views
     -- rides on the per-slice Store signals -- views subscribe their own slice.)
     local viewById = {}
-    for _, v in ipairs(VIEWS) do viewById[v.id] = v end
+    for _, v in ipairs(VIEW_LIST) do viewById[v.id] = v end
     local mounted, shownId = {}, nil
     R.effect(function()
         local id = activeView()
