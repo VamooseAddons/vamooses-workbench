@@ -182,7 +182,8 @@ function P:DerivePiecePlan(piece)
                 plan.steps[#plan.steps + 1] = { kind = "LEARN",
                     name = s.kind .. (s.detail and (": " .. s.detail) or ""),
                     zone = s.zone, cost = s.cost, faction = s.faction,
-                    recipeID = piece.recipeID } -- the waypoint bridge keys on the recipe
+                    recipeID = piece.recipeID,
+                    npc = s.detail } -- waypoint bridge keys on recipe + THIS source's NPC (multi-vendor recipes pin per row)
             end
         end
         plan.total, plan.done = 1, 0
