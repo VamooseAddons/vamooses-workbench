@@ -1006,57 +1006,60 @@ end
 
 -- The name dialog: absorbs the confirm popup -- name (prefilled), count,
 -- Backlog/Active destination, one Create. NEVER navigates (owner ruling).
+-- Construction is one-time (lazy); ShowNewCommissionDialog hydrates + shows.
 local ncDialog
+local function buildNewCommissionDialog()
+    local s = GetScheme()
+    local d = CreateFrame("Frame", nil, _G.VWB_Main or UIParent, "BackdropTemplate")
+    d:SetBackdrop(BACKDROP_FLAT)
+    d:SetBackdropColor(s.panel.r, s.panel.g, s.panel.b, 0.98)
+    d:SetBackdropBorderColor(s.accent.r, s.accent.g, s.accent.b, 1)
+    d:SetSize(340, 132)
+    d:SetPoint("CENTER", 0, 60)
+    d:SetFrameStrata("DIALOG")
+    RegisterWidget(d, "Panel")
+    d.title = d:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
+    d.title:SetPoint("TOPLEFT", 12, -10)
+    d.title:SetText("New Commission")
+    d.count = d:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
+    d.count:SetPoint("TOPRIGHT", -12, -12)
+    RegisterWidget(d.count, "DimLabel")
+    d.edit = CreateFrame("EditBox", nil, d, "BackdropTemplate")
+    d.edit:SetBackdrop(BACKDROP_FLAT)
+    d.edit:SetBackdropColor(0, 0, 0, 0.5)
+    d.edit:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, 1)
+    d.edit:SetSize(316, 24); d.edit:SetPoint("TOPLEFT", 12, -32)
+    d.edit:SetAutoFocus(true); d.edit:SetFontObject("VWBFontHighlightSmall")
+    d.edit:SetTextInsets(6, 6, 0, 0)
+    d.edit:SetScript("OnEscapePressed", function() d:Hide() end)
+    -- destination: two plain toggles (Backlog default set per surface)
+    -- destination via the existing segmented toggle (needs no repaint
+    -- plumbing; ShowNewCommissionDialog re-selects the surface default)
+    d.seg = VWB.UI:CreateSegmentedToggle(d, {
+        width = 188, height = 20,
+        segments = { { key = "backlog", label = "Backlog" }, { key = "bench", label = "Active" } },
+        default = "backlog",
+        onSelect = function(key) d.status = key end })
+    d.seg:SetPoint("TOPLEFT", 12, -64)
+    local create = VWB.UI:CreateButton(d, "Create", 80, 22)
+    create:SetPoint("BOTTOMRIGHT", -12, 10)
+    create:SetScript("OnClick", function()
+        local name = d.edit:GetText()
+        if name == "" then name = d.ctx.name or "Untitled Commission" end -- exception(boundary): user cleared the box; Lua "" is truthy
+        VWB.Store:Dispatch("ADD_PROJECT", { name = name, status = d.status,
+            source = d.ctx.source, pieces = d.ctx.pieces() })
+        VWB.Log:Print(string.format("Commission created in %s: %s",
+            d.status == "backlog" and "the Backlog" or "Active", name))
+        d:Hide()
+    end)
+    local cancel = VWB.UI:CreateButton(d, "Cancel", 70, 22)
+    cancel:SetPoint("RIGHT", create, "LEFT", -8, 0)
+    cancel:SetScript("OnClick", function() d:Hide() end)
+    return d
+end
+
 function VWB.UI:ShowNewCommissionDialog(ctx)
-    if not ncDialog then
-        local s = GetScheme()
-        local d = CreateFrame("Frame", nil, _G.VWB_Main or UIParent, "BackdropTemplate")
-        d:SetBackdrop(BACKDROP_FLAT)
-        d:SetBackdropColor(s.panel.r, s.panel.g, s.panel.b, 0.98)
-        d:SetBackdropBorderColor(s.accent.r, s.accent.g, s.accent.b, 1)
-        d:SetSize(340, 132)
-        d:SetPoint("CENTER", 0, 60)
-        d:SetFrameStrata("DIALOG")
-        RegisterWidget(d, "Panel")
-        d.title = d:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
-        d.title:SetPoint("TOPLEFT", 12, -10)
-        d.title:SetText("New Commission")
-        d.count = d:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
-        d.count:SetPoint("TOPRIGHT", -12, -12)
-        RegisterWidget(d.count, "DimLabel")
-        d.edit = CreateFrame("EditBox", nil, d, "BackdropTemplate")
-        d.edit:SetBackdrop(BACKDROP_FLAT)
-        d.edit:SetBackdropColor(0, 0, 0, 0.5)
-        d.edit:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, 1)
-        d.edit:SetSize(316, 24); d.edit:SetPoint("TOPLEFT", 12, -32)
-        d.edit:SetAutoFocus(true); d.edit:SetFontObject("VWBFontHighlightSmall")
-        d.edit:SetTextInsets(6, 6, 0, 0)
-        d.edit:SetScript("OnEscapePressed", function() d:Hide() end)
-        -- destination: two plain toggles (Backlog default set per surface)
-        -- destination via the existing segmented toggle (needs no repaint
-        -- plumbing; ShowNewCommissionDialog re-selects the surface default)
-        d.seg = VWB.UI:CreateSegmentedToggle(d, {
-            width = 188, height = 20,
-            segments = { { key = "backlog", label = "Backlog" }, { key = "bench", label = "Active" } },
-            default = "backlog",
-            onSelect = function(key) d.status = key end })
-        d.seg:SetPoint("TOPLEFT", 12, -64)
-        local create = VWB.UI:CreateButton(d, "Create", 80, 22)
-        create:SetPoint("BOTTOMRIGHT", -12, 10)
-        create:SetScript("OnClick", function()
-            local name = d.edit:GetText()
-            if name == "" then name = d.ctx.name or "Untitled Commission" end -- exception(boundary): user cleared the box; Lua "" is truthy
-            VWB.Store:Dispatch("ADD_PROJECT", { name = name, status = d.status,
-                source = d.ctx.source, pieces = d.ctx.pieces() })
-            VWB.Log:Print(string.format("Commission created in %s: %s",
-                d.status == "backlog" and "the Backlog" or "Active", name))
-            d:Hide()
-        end)
-        local cancel = VWB.UI:CreateButton(d, "Cancel", 70, 22)
-        cancel:SetPoint("RIGHT", create, "LEFT", -8, 0)
-        cancel:SetScript("OnClick", function() d:Hide() end)
-        ncDialog = d
-    end
+    if not ncDialog then ncDialog = buildNewCommissionDialog() end
     ncDialog.ctx = ctx
     ncDialog.status = ctx.defaultStatus or "backlog"
     ncDialog.seg:SetSelected(ncDialog.status)
@@ -2098,6 +2101,41 @@ function VWB.UI:CreateNavTree(parent, options)
         return section._hexStr
     end
 
+    local function paintNavHeader(header, section, c)
+        header._sectionKey = section.key
+        header:SetBackdropColor(c.panel.r, c.panel.g, c.panel.b, c.panel.a * 0.6)
+        header:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a * 0.8)
+        header.arrow:SetText(section.collapsed and "+" or "-")
+        header.arrow:SetTextColor(c.text.r, c.text.g, c.text.b)
+        if section.color then
+            header.accentBar:SetColorTexture(section.color.r, section.color.g, section.color.b, 1)
+            header.text:SetText(string.format("|cFF%s%s|r", _sectionColorHex(section), section.label))
+        else
+            header.accentBar:SetColorTexture(c.accent.r, c.accent.g, c.accent.b, 1)
+            header.text:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b)
+            header.text:SetText(section.label)
+        end
+        header.countText:SetText(section.itemCount and ("|cFF" .. _navHexText .. section.itemCount .. "|r") or "")
+    end
+
+    local function paintNavItem(row, item, isSelected, c, d)
+        row._itemKey = item.key
+        row._item = item
+        row._isSelected = isSelected
+        if isSelected then
+            row:SetBackdropColor(d.selected_fill.r, d.selected_fill.g, d.selected_fill.b, d.selected_fill.a)
+            row.selBar:SetVertexColor(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 1)
+            row.selBar:Show()
+            row.text:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b)
+        else
+            row:SetBackdropColor(0, 0, 0, 0)
+            row.selBar:Hide()
+            row.text:SetTextColor(c.text.r, c.text.g, c.text.b)
+        end
+        row.text:SetText(item.label)
+        row.countText:SetText(item.count and ("|cFF" .. _navHexText .. item.count .. "|r") or "")
+    end
+
     function nav:Refresh()
         VWB.UI:ResetRows(content)
         local c = GetScheme()
@@ -2114,20 +2152,7 @@ function VWB.UI:CreateNavTree(parent, options)
             local header = VWB.UI:AcquireRow(content, "header", CreateNavHeader)
             header:SetPoint("TOPLEFT", 0, yOff)
             header:SetPoint("RIGHT", content, "RIGHT", 0, 0)
-            header._sectionKey = section.key
-            header:SetBackdropColor(c.panel.r, c.panel.g, c.panel.b, c.panel.a * 0.6)
-            header:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a * 0.8)
-            header.arrow:SetText(section.collapsed and "+" or "-")
-            header.arrow:SetTextColor(c.text.r, c.text.g, c.text.b)
-            if section.color then
-                header.accentBar:SetColorTexture(section.color.r, section.color.g, section.color.b, 1)
-                header.text:SetText(string.format("|cFF%s%s|r", _sectionColorHex(section), section.label))
-            else
-                header.accentBar:SetColorTexture(c.accent.r, c.accent.g, c.accent.b, 1)
-                header.text:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b)
-                header.text:SetText(section.label)
-            end
-            header.countText:SetText(section.itemCount and ("|cFF" .. _navHexText .. section.itemCount .. "|r") or "")
+            paintNavHeader(header, section, c)
             yOff = yOff - 23
 
             if not section.collapsed and section.items then
@@ -2135,23 +2160,7 @@ function VWB.UI:CreateNavTree(parent, options)
                     local row = VWB.UI:AcquireRow(content, "item", CreateNavItem)
                     row:SetPoint("TOPLEFT", 10, yOff)
                     row:SetPoint("RIGHT", content, "RIGHT", 0, 0)
-                    row._itemKey = item.key
-                    row._item = item
-
-                    local isSelected = (self.selected == item.key)
-                    row._isSelected = isSelected
-                    if isSelected then
-                        row:SetBackdropColor(d.selected_fill.r, d.selected_fill.g, d.selected_fill.b, d.selected_fill.a)
-                        row.selBar:SetVertexColor(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 1)
-                        row.selBar:Show()
-                        row.text:SetTextColor(c.text_header.r, c.text_header.g, c.text_header.b)
-                    else
-                        row:SetBackdropColor(0, 0, 0, 0)
-                        row.selBar:Hide()
-                        row.text:SetTextColor(c.text.r, c.text.g, c.text.b)
-                    end
-                    row.text:SetText(item.label)
-                    row.countText:SetText(item.count and ("|cFF" .. _navHexText .. item.count .. "|r") or "")
+                    paintNavItem(row, item, self.selected == item.key, c, d)
                     yOff = yOff - 19
                 end
             end
