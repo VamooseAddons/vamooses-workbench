@@ -81,16 +81,28 @@ local function listRowTemplate(frame)
         end,
     })
     frame.track:SetPoint("RIGHT", -6, 0)
-    frame.track:SetScript("OnEnter", function(self)
-        if not self:IsEnabled() then
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("No craftable criteria -- nothing for the Workbench to plan", 1, 1, 1, 1, true)
-            GameTooltip:Show()
+    -- Blizzard objectives-tracker toggle (owner 2026-07-12): un-earned
+    -- achievements get Track/Untrack via C_ContentTracking; anchored
+    -- dynamically in updateRow (left of Commission, or the right edge when
+    -- the Commission button is hidden).
+    frame.trackBliz = VWB.UI:CreateButton(frame, "Track", 62, 20)
+    frame.trackBliz:SetScript("OnClick", function(self)
+        local rec = frame.data
+        local t = Enum.ContentTrackingType.Achievement
+        if C_ContentTracking.IsTracking(t, rec.id) then
+            C_ContentTracking.StopTracking(t, rec.id, Enum.ContentTrackingStopType.Manual)
+            self:SetText("Track")
+        else
+            local err = C_ContentTracking.StartTracking(t, rec.id)
+            if err then -- exception(boundary): Blizzard refuses past the tracking cap
+                VWB.Log:Print("Blizzard declined to track this achievement (the tracker caps at 10)")
+            else
+                self:SetText("Untrack")
+            end
         end
     end)
-    frame.track:SetScript("OnLeave", function() GameTooltip:Hide() end)
     local right = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
-    right:SetPoint("RIGHT", frame.track, "LEFT", -8, 0); right:SetWidth(RIGHT_W); right:SetJustifyH("RIGHT")
+    right:SetWidth(RIGHT_W); right:SetJustifyH("RIGHT") -- anchored in updateRow (leftmost visible control varies)
     frame.right = right
     local pts = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"))
     pts:SetPoint("RIGHT", right, "LEFT", -6, 0); pts:SetWidth(PTS_W); pts:SetJustifyH("RIGHT")
@@ -197,8 +209,31 @@ function Achieve.buildView(container)
                 updateRow = function(row, rec)
                     row.data = rec
                     row.icon:SetTexture(rec.icon)
-                    row.track:SetShown(not rec.completed)
-                    row.track:SetEnabled(#buildCriteriaPieces(rec) > 0)
+                    -- hidden, not greyed: no criteria will EVER be craftable for
+                    -- skill/slay achievements, so a permanent grey button is
+                    -- noise (owner 2026-07-12; contrast the ATT-absent Map
+                    -- button, which greys because installing ATT fixes it)
+                    local hasCommission = not rec.completed and #buildCriteriaPieces(rec) > 0
+                    row.track:SetShown(hasCommission)
+                    row.trackBliz:SetShown(not rec.completed)
+                    if not rec.completed then
+                        row.trackBliz:SetText(C_ContentTracking.IsTracking(Enum.ContentTrackingType.Achievement, rec.id)
+                            and "Untrack" or "Track")
+                    end
+                    -- right-edge flow: [progress] [Track] [Commission?] -- anchor
+                    -- each to the next visible control
+                    row.trackBliz:ClearAllPoints()
+                    if hasCommission then
+                        row.trackBliz:SetPoint("RIGHT", row.track, "LEFT", -6, 0)
+                    else
+                        row.trackBliz:SetPoint("RIGHT", -6, 0)
+                    end
+                    row.right:ClearAllPoints()
+                    if not rec.completed then
+                        row.right:SetPoint("RIGHT", row.trackBliz, "LEFT", -8, 0)
+                    else
+                        row.right:SetPoint("RIGHT", -6, 0)
+                    end
                     local name = rec.name
                     if rec.completed then name = ns.UI:ColorCode("green") .. name .. "|r" end
                     row.name:SetText(name)
