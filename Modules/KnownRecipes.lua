@@ -37,6 +37,7 @@ local function HarvestOwnProfession(recipeIDs, profName)
     local total = #recipeIDs
     local idx = 1
     local newRecipes = {}
+    local newSalvage = {} -- salvage recipes (Recycling): description-only records, separate slice
     local newCount, alreadyKnownCount = 0, 0
     local expansionCounts = {}
     local HC = VWB.Constants.Harvest
@@ -59,7 +60,16 @@ local function HarvestOwnProfession(recipeIDs, profName)
                 expansionCounts[key] = (expansionCounts[key] or 0) + 1
             else
                 local recipeInfo = C_TradeSkillUI.GetRecipeInfo(recipeID) -- exception(boundary): nil for a stale recipeID
-                if recipeInfo then
+                if recipeInfo and recipeInfo.isSalvageRecipe then
+                    -- salvage recipes never enter recipeStore (BuildRecord rejects
+                    -- them), so they re-enumerate each harvest: dedupe on the
+                    -- stored description to keep re-opens dispatch-free
+                    local desc = C_TradeSkillUI.GetRecipeDescription(recipeID, {}) -- exception(boundary): needs the open tradeskill session
+                    local cur = VWB.Store:GetState().salvageRecipes[recipeID]
+                    if desc and desc ~= "" and not (cur and cur.description == desc) then
+                        newSalvage[recipeID] = { name = recipeInfo.name, description = desc, profession = profName }
+                    end
+                elseif recipeInfo then
                     local record = VWB.RecipeHarvest:BuildRecord(recipeID, recipeInfo, profName)
                     if record then
                         newRecipes[recipeID] = record
@@ -85,6 +95,9 @@ local function HarvestOwnProfession(recipeIDs, profName)
 
         if next(newRecipes) then
             VWB.Store:Dispatch("ADD_RECIPES", { records = newRecipes }) -- corpus bump ONLY when definitions grew
+        end
+        if next(newSalvage) then
+            VWB.Store:Dispatch("ADD_SALVAGE_RECIPES", { records = newSalvage })
         end
         if next(expansionCounts) then
             local coverage = {}

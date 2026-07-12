@@ -34,9 +34,9 @@ local CLASS_LABELS = { farmbuy = "Farm/Buy", crafted = "Crafted", endproduct = "
 local CLASS_SCHEME_KEY = { farmbuy = "success", crafted = "accent", endproduct = "warning" } -- scheme fields for SetTextColor
 local CLASS_COLOR_CODE = { farmbuy = "green", crafted = "cyan", endproduct = "yellow" } -- VWB.UI:ColorCode keys, for inline-colored tooltip text
 
-local TIER_LABEL      = { gather = "Gather", refine = "Refine", farm = "Farm" }
-local TIER_SCHEME_KEY = { gather = "success", refine = "accent", farm = "warning" } -- SetTextColor scheme fields
-local TIER_COLOR_CODE = { gather = "green",   refine = "cyan",   farm = "yellow"  } -- VWB.UI:ColorCode keys
+local TIER_LABEL      = { gather = "Gather", refine = "Refine", farm = "Farm", salvage = "Salvage" }
+local TIER_SCHEME_KEY = { gather = "success", refine = "accent", farm = "warning", salvage = "accent" } -- SetTextColor scheme fields
+local TIER_COLOR_CODE = { gather = "green",   refine = "cyan",   farm = "yellow", salvage = "cyan" } -- VWB.UI:ColorCode keys
 
 -- Badge label + scheme field for a row: the gather source when a farmbuy reagent
 -- has one, else the plain class label. (info.gatherMethod is nil unless farmbuy.)

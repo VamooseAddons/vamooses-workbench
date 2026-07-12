@@ -61,6 +61,58 @@ local function ResolveGather(itemID)
     return nil, nil
 end
 
+-- ============================================================================
+-- Salvage-output tag (Midnight Recycling). No client API maps salvage OUTPUTS
+-- to their recipe (outputs are server loot; DB2 dead-ends at treasure ids --
+-- docs/VWB_SALVAGE_SOURCES_RESEARCH_2026-07-12.md). Blizzard names them in
+-- the salvage recipe DESCRIPTION ("...like Aetherlume and Evercores"), so a
+-- farmbuy mat's own name is frontier-matched against the handful of stored
+-- salvage descriptions (owner 2026-07-12: no capture, no hand-coding).
+-- ============================================================================
+
+local salvageTagCache = {} -- [itemID] = {label,tier} | NONE; wiped on InvalidateIndexes (the salvage set grew)
+
+local function isWordChar(c)
+    return c ~= "" and c:match("%w") ~= nil
+end
+
+-- Plain-find containment with word frontiers; a trailing pluralizing "s" on
+-- the text side counts as a frontier ("Evercores" matches item "Evercore",
+-- but a hypothetical item "Core" does NOT match inside "Evercores").
+local function nameInText(name, text)
+    local init = 1
+    while true do
+        local s, e = text:find(name, init, true)
+        if not s then return false end
+        local beforeOk = s == 1 or not isWordChar(text:sub(s - 1, s - 1))
+        local nxt = text:sub(e + 1, e + 1)
+        if (nxt == "s" or nxt == "S") and not isWordChar(text:sub(e + 2, e + 2)) then
+            nxt = text:sub(e + 2, e + 2) -- plural frontier
+        end
+        if beforeOk and not isWordChar(nxt) then return true end
+        init = s + 1
+    end
+end
+
+local function ResolveSalvage(itemID)
+    local cached = salvageTagCache[itemID]
+    if cached ~= nil then
+        if cached == NONE then return nil, nil end
+        return cached.label, cached.tier
+    end
+    if not C_Item.IsItemDataCachedByID(itemID) then return nil, nil end -- exception(boundary): the name needs the item cache; retry next paint, don't poison NONE
+    local name = C_Item.GetItemInfo(itemID)
+    if not name then return nil, nil end -- exception(boundary): same cold-cache retry
+    for _, rec in pairs(VWB.Store:GetState().salvageRecipes) do
+        if nameInText(name, rec.description) then
+            salvageTagCache[itemID] = { label = rec.name, tier = "salvage" }
+            return rec.name, "salvage"
+        end
+    end
+    salvageTagCache[itemID] = NONE
+    return nil, nil
+end
+
 local function BuildIndexes()
     if outputs then return end
     outputs, inputs = {}, {}
@@ -93,6 +145,7 @@ end
 function VWB.ReagentSource:InvalidateIndexes()
     outputs = nil
     inputs = nil
+    for k in pairs(salvageTagCache) do salvageTagCache[k] = nil end -- NONE entries retry against the grown salvage set
 end
 
 -- { class = "farmbuy"|"crafted"|"endproduct", usedInCount, producedByCount,
@@ -135,6 +188,9 @@ function VWB.ReagentSource:GetInfo(itemID)
     local gatherMethod, sourceTier = nil, nil
     if class == "farmbuy" then
         gatherMethod, sourceTier = ResolveGather(itemID)
+        if not gatherMethod then
+            gatherMethod, sourceTier = ResolveSalvage(itemID) -- "FARM 5x Aetherlume  Recycling"
+        end
     end
 
     return {
@@ -144,8 +200,8 @@ function VWB.ReagentSource:GetInfo(itemID)
         producedBy = producedBy,
         usedIn = usedIn, -- recipe IDs that CONSUME this reagent (for the Stockroom detail panel)
         bop = bop,
-        gatherMethod = gatherMethod, -- nil unless class == "farmbuy" with a Trade Goods subclass
-        sourceTier = sourceTier,     -- "gather" | "refine" | "farm" | nil
+        gatherMethod = gatherMethod, -- nil unless farmbuy with a Trade Goods subclass OR a salvage-description match
+        sourceTier = sourceTier,     -- "gather" | "refine" | "farm" | "salvage" | nil
     }
 end
 

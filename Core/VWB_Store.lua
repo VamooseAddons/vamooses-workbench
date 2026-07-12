@@ -71,6 +71,7 @@ local ACTION_SLICES = {
     SAVE_CHARACTER_PROFESSIONS = { "characters" },
     REMOVE_CHARACTER = { "characters", "nav" }, -- nav: may clear scopeCharacter
     ADD_CRAFTING_HISTORY = { "history" }, CLEAR_HISTORY = { "history" },
+    ADD_SALVAGE_RECIPES = { "corpus" }, -- mats may gain a salvage tag -> reclassify
     ADD_TO_QUEUE = { "crafting" }, REMOVE_FROM_QUEUE = { "crafting" },
     UPDATE_QUEUE_QTY = { "crafting" }, CLEAR_QUEUE = { "crafting" },
     TOGGLE_MATERIALS_MODE = { "crafting", "config" }, REBUILD_CRAFTING_STATE = { "crafting" },
@@ -111,6 +112,7 @@ function Store:LoadFromSavedVariables()
     VWB_DB.recipeCoverage = VWB_DB.recipeCoverage or {}
     VWB_DB.account        = VWB_DB.account or {}
     VWB_DB.account.characters = VWB_DB.account.characters or {}
+    VWB_DB.salvageRecipes = VWB_DB.salvageRecipes or {} -- exception(boundary): SV shape init; [recipeID] = {name, description, profession}
     VWB_DB.crafting       = VWB_DB.crafting or {}
     VWB_DB.crafting.queuedRecipes = VWB_DB.crafting.queuedRecipes or {}
     VWB_DB.config         = VWB_DB.config or {}
@@ -123,6 +125,7 @@ function Store:LoadFromSavedVariables()
     VWB_DB.ui.recentQueued = VWB_DB.ui.recentQueued or {}
     if VWB_DB.ui.navSelectedExp == nil then VWB_DB.ui.navSelectedExp = "AllExps" end
     state.recipeStore    = VWB_DB.recipeStore
+    state.salvageRecipes = VWB_DB.salvageRecipes
     state.knownRecipes   = VWB_DB.knownRecipes
     state.recipeCoverage = VWB_DB.recipeCoverage
     state.account        = VWB_DB.account
@@ -194,6 +197,18 @@ reducers.ADD_RECIPES = function(st, p)
         st.recipeStore[recipeID] = record
     end
     VWB.Database:InvalidateIndexes()
+end
+
+-- Salvage recipes (Midnight Recycling) stay OUT of recipeStore -- they craft
+-- nothing and would pollute the browser/graph. Their DESCRIPTION is the only
+-- cold source naming their outputs ("...like Aetherlume and Evercores");
+-- ReagentSource frontier-matches mat names against it (owner 2026-07-12:
+-- no capture, no hand-coding; docs/VWB_SALVAGE_SOURCES_RESEARCH_2026-07-12.md).
+reducers.ADD_SALVAGE_RECIPES = function(st, p)
+    for recipeID, rec in pairs(p.records) do
+        st.salvageRecipes[recipeID] = rec
+    end
+    VWB.Database:InvalidateIndexes() -- ReagentSource's salvage-tag memo depends on this set
 end
 
 -- Coverage (scan status/timestamps) is written here, NOT in ADD_RECIPES, so a
