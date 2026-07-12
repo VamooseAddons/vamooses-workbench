@@ -277,7 +277,7 @@ function Ledger.buildView(container)
     local knownMode = R.signal("all")
     local showCraftableOnly = R.signal(false)
     local showDecorMissing = R.signal(false) -- "Decor: Missing" collector filter (item 2)
-    local hideUnprofitable = R.signal(true) -- CRITICAL default: open filtered like VPC, don't dump ~8600 rows
+    local profitableOnly = R.signal(true) -- matches the "Profitable only" pill; CRITICAL default: open filtered, don't dump ~8600 rows
     local profitRows = R.signal({}) -- built rows; see rebuildProfitRows below
     local hasLiquidity = ns.PriceIntegration:HasTSM()
     local listWidget, summaryFrame, scanBtn, profDropdown
@@ -394,7 +394,7 @@ function Ledger.buildView(container)
         local allProfs = next(selProfs) == nil
         local kMode = knownMode()
         local matsOnly = showCraftableOnly()
-        local hideUnp = hideUnprofitable()
+        local profOnly = profitableOnly()
         local decorMissing = showDecorMissing()
 
         local out, unpriced = {}, 0
@@ -418,7 +418,7 @@ function Ledger.buildView(container)
                 and passesDecor
             if passes then
                 if d.profit == nil then unpriced = unpriced + 1 end
-                if not hideUnp or (d.profit and d.profit >= 0) then
+                if not profOnly or (d.profit and d.profit >= 0) then
                     out[#out + 1] = d
                 end
             end
@@ -496,7 +496,7 @@ function Ledger.buildView(container)
             decorCb:SetPoint("LEFT", matsCb, "RIGHT", 12, 0)
 
             local hideUnpCb = VWB.UI:CreateFilterPill(filterStrip, "Profitable only", function(checked)
-                hideUnprofitable(checked)
+                profitableOnly(checked)
             end)
             hideUnpCb:SetPoint("LEFT", decorCb, "RIGHT", 12, 0)
             hideUnpCb:SetChecked(true)

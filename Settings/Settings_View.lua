@@ -23,8 +23,7 @@
 --     directly to the live window here: _G.VWB_Main, the global Shell.lua
 --     names its frame, guaranteed to exist by the time Settings itself is
 --     visible inside it.
---   * autoExpand -- new key, no consumer yet (same "inert until wired"
---     contract already established below for Ambient Item Tooltips).
+--   * autoExpand -- new key, no consumer yet (inert until wired).
 --
 -- Reactive re-sync: every effect below subscribes ns.Store:Version("config")
 -- (the per-slice signal), NOT the blanket ns.Store:Version() -- so this page
@@ -38,11 +37,10 @@
 -- ask) is sufficient and safe; a real second writer would need the slider
 -- widget itself to grow a suppress guard first.
 --
--- Ambient Item Tooltips / Auto-expand Sub-recipes dispatch SET_CONFIG
--- immediately and are REAL toggles, but have no visible effect until their
--- consumer module reads the flag (Modules/AmbientTooltips.lua for the
--- former; nothing yet for the latter) -- the setting is not lost by flipping
--- it early, the module's own gate honors it the moment it loads.
+-- Ambient Item Tooltips is fully wired (Modules/AmbientTooltips.lua reads
+-- the flag at hover time; opt-in, default off): flipping it takes effect at
+-- the next item hover. Auto-expand Sub-recipes still awaits its consumer --
+-- the setting is not lost by flipping it early.
 -- ============================================================================
 
 local _, ns = ...

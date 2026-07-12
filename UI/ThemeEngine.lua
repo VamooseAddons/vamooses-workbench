@@ -82,7 +82,7 @@ VWB.Theme:ApplyFontObjects() -- file-load pass: themed face before any view buil
 -- ============================================================================
 
 function VWB.Theme:Initialize()
-    self:ApplyFontObjects() -- SavedVariables are live now: persisted family/scale
+    self:ApplyFontObjects() -- SavedVariables are live now: persisted font family
     -- Store:Initialize ran first (VWB_Init), so state.config aliases the persisted
     -- VWB_DB.config -- read the saved theme strictly.
     local themeKey = VWB.Store:GetState().config.theme or "solarizeddark" -- exception(optional): unset until the user first picks a theme
@@ -100,7 +100,7 @@ function VWB.Theme:Initialize()
         if payload.themeName then -- font/opacity refreshes fire without themeName; keep current scheme
             self.currentScheme = VWB.Colors.Schemes[payload.themeName]
         end
-        self:ApplyFontObjects() -- family/scale config may have changed; propagates to every VWBFont* string
+        self:ApplyFontObjects() -- font family config may have changed; propagates to every VWBFont* string
         self:UpdateAll()
         VWB.Reactor.untrack(function() self.epoch(self.epoch() + 1) end) -- after UpdateAll: rows repaint against the NEW scheme
     end)
@@ -338,7 +338,7 @@ VWB.Theme.Skinners = {
     -- Segmented toggle: segments are tertiary atlas buttons; UpdateAppearance
     -- repaints each through the shared painter with the current scheme
     -- (unification 2026-07-11 -- the per-segment backdrop painting is gone).
-    SegmentedToggle = function(f, _c)
+    SegmentedToggle = function(f)
         if f.UpdateAppearance then f:UpdateAppearance() end
     end,
 

@@ -1018,7 +1018,7 @@ function Projects.buildView(container)
 
     emptyCard = VWB.UI:CreateEmptyStateCard(viewRoot, {
         title = "Plan your collection",
-        body = "Start a commission from the Showroom (pin an item), the Achieve tab (profession achievements), or Study (a vendor's recipes). Mats, prices, and which alt crafts each step appear here.",
+        body = "Start a commission from the Showroom (pin an item), the Achievements tab, or Study (a vendor's recipes). Mats, prices, and which alt crafts each step appear here.",
         buttonText = "Showroom",
         onClick = function() ns.Nav.Go("showroom") end,
         width = 420, height = 170,

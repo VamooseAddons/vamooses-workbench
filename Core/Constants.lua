@@ -145,12 +145,6 @@ end
 -- 4. THEME HELPER FUNCTIONS
 -- ============================================================================
 
--- Get current theme key
-function VWB.Constants:GetCurrentTheme()
-    local state = VWB.Store and VWB.Store:GetState()
-    return (state and state.config and state.config.theme) or "solarizeddark"
-end
-
 -- Theme toggle function (cycles through all themes)
 function VWB.Constants:ToggleTheme()
     local state = VWB.Store and VWB.Store:GetState()
@@ -183,33 +177,6 @@ function VWB.Constants:ApplyTheme()
     return themeName
 end
 
--- Helper functions for color access
-function VWB.Constants:GetHex(colorName)
-    local scheme = VWB.Colors.Schemes.SolarizedDark
-    if VWB.Theme and VWB.Theme.currentScheme then
-        scheme = VWB.Theme.currentScheme
-    end
-    local color = scheme and scheme[colorName]
-    if color then
-        -- Generate hex from RGB (schemes use 'a' not 'hex')
-        return string.format("%02x%02x%02x",
-            math.floor(color.r * 255),
-            math.floor(color.g * 255),
-            math.floor(color.b * 255))
-    end
-    return "ffffff"
-end
-
-function VWB.Constants:GetRGB(colorName)
-    local scheme = VWB.Colors.Schemes.SolarizedDark
-    if VWB.Theme and VWB.Theme.currentScheme then
-        scheme = VWB.Theme.currentScheme
-    end
-    local c = scheme and scheme[colorName]
-    if c then return c.r, c.g, c.b end
-    return 1, 1, 1
-end
-
 -- ============================================================================
 -- 4b. DERIVED VISUAL COLORS (computed from scheme at runtime)
 -- ============================================================================
@@ -232,66 +199,20 @@ end
 -- 5. UI SIZING CONSTANTS
 -- ============================================================================
 
+-- Only the fields with live readers survive (hygiene 2026-07-13: the VPC-era
+-- window/rail/panel geometry constants had zero callers -- the Layout box
+-- model owns geometry now -- and the Trainer-tab column widths belonged to a
+-- tab that no longer exists).
 VWB.Constants.UI = {
-    -- Window dimensions (DecorDrop-style)
-    WINDOW_WIDTH = 1140,
-    WINDOW_HEIGHT = 700,
-
-    -- Title and tab sizing
-    titleBarHeight = 28,
-    tabHeight = 24,
-    tabWidth = 100,
-
-    -- Page rail (left side, outside main frame)
-    PAGE_RAIL_WIDTH = 44,
-    PAGE_BUTTON_SIZE = 40,
-
-    -- Recipes page 3-column layout
-    NAV_PANEL_WIDTH = 240,
-    RECIPE_LIST_WIDTH = 360,
-    -- Queue + Materials fills remaining (~460px)
-
     -- Row sizing
-    rowHeight = 20,
     recipeRowHeight = 20,
-    rowSpacing = 22,
-    queueRowHeight = 22,
-    queueRowSpacing = 24,
-    headerHeight = 20,
     stockroomRowHeight = 24,
 
-    -- Button sizing
-    buttonHeight = 22,
-    buttonPadding = 4,
-    checkboxSize = 24,
-
-    -- Panel sizing
-    panelPadding = 8,
-    sectionHeaderOffset = 30,  -- Space from panel top to scroll area start
-    sectionSpacing = 15,
-    dividerHeight = 1,
-
-    -- 3-Column Panel Layout (legacy, still used by current panels)
-    PANEL_GAP = 6,              -- Gap between panels
-    PANEL_PADDING = 4,          -- Outer padding from frame edge
-    PANEL_HEADER_HEIGHT = 22,   -- Header bar height for each panel
-    LEFT_PANEL_WIDTH = 260,     -- Recipe list panel
-    MIDDLE_PANEL_WIDTH = 260,   -- Crafting queue panel
-    RIGHT_PANEL_MIN_WIDTH = 200, -- Raw materials panel
-    PANEL_HEIGHT = 480,         -- Panel content height
-    FILTER_ROWS_HEIGHT = 60,    -- Two rows: filters/search (24) + gap + profession tabs (28)
-
-    -- Data tab column widths
+    -- Records tab column widths
     colWidthTime = 75,
     colWidthItem = 180,
     colWidthQty = 40,
     colWidthProfession = 100,
-
-    -- Trainer tab column widths
-    colWidthFaction = 30,
-    colWidthName = 160,
-    colWidthZone = 140,
-    colWidthCoords = 70,
 }
 
 -- ============================================================================
@@ -335,88 +256,6 @@ VWB.Constants.ClassificationIcons = {
     Toys = "Interface\\Icons\\INV_Misc_Toy_07",
     Decor = "Interface\\Icons\\INV_Misc_Flower_02",
     Misc = "Interface\\Icons\\INV_Misc_QuestionMark",
-}
-
--- ============================================================================
--- 8. SMART FOLDERS - Groups related categories into logical folders
--- ============================================================================
-
-VWB.Constants.SmartFolders = {
-    Jewelcrafting = {
-        ["Color Gems"] = { "Red Gems", "Blue Gems", "Yellow Gems", "Green Gems", "Orange Gems", "Purple Gems", "Gems" },
-        ["Named Gems"] = { "Extravagant Emeralds", "Radiant Rubies", "Stunning Sapphires", "Ostentatious Onyxes", "Ambivalent Amber", "Benevolent Blasphemite" },
-        Elemental = { "Air Gems", "Earth Gems", "Fire Gems", "Frost Gems", "Rudimentary Gems" },
-        Special = { "Meta Gems", "Primalist Gems", "Prismatic Gems", "Prisms", "Prisms & Statues", "Statues", "Statues & Carvings" },
-        Jewelry = { "Rings", "Necklaces", "Jewelry", "Crowns", "Crowns & Accessories", "Jewelry Enhancers", "Trinkets" },
-        Equipment = { "Fist Weapons", "Weapons", "Profession Equipment", "Hats" },
-        Crafting = { "Prospecting", "Mass Prospecting", "Basic Reagents", "Finishing Reagents", "Reagents", "Reagents and Research", "Materials", "Jewelcrafting Essentials", "Optional Reagents", "Optional Embellishments", "Research", "Training" },
-    },
-    Alchemy = {
-        Combat = { "Combat Potions", "Flasks", "Phials", "Vicious Flasks", "Elemental Phials and Potions", "Air Phials", "Frost Phials", "Air Potions", "Frost Potions" },
-        Utility = { "Utility Potions", "Potions", "Cures & Tonics", "Anti-Venoms", "Incense", "Oils", "Oils and Extracts", "Mana Oils" },
-        Elixirs = { "Elixirs", "Potions and Elixirs", "Basic Concoctions", "Cauldrons" },
-        Crafting = { "Transmutation", "Transmutations", "Alchemist Stones", "Finishing Reagents", "Reagents", "Reagents and Research", "Materials", "Alchemy Essentials", "Optional Reagents", "Research", "Training" },
-        Trinkets = { "Trinkets", "Trinkets and Trinket Upgrades" },
-    },
-    Tailoring = {
-        Bags = { "Bags", "Embroidered Bags" },
-        Body = { "Armor", "Cloth Armor", "Robes & Tunics", "Garments", "Azureweave Garments", "Chronocloth Garments", "Specialized Armor", "Reshii Wraps" },
-        Slots = { "Boots", "Belts", "Bracers", "Gloves", "Hats & Hoods", "Hats & Accessories", "Pants", "Shoulders", "Cloaks", "Shirts" },
-        Utility = { "Bandages", "Cures of Draenor", "Cures of the Broken Isles", "Battle Flags", "Battle Standards", "Nets", "Spellthread", "Spellthreads" },
-        Crafting = { "Materials", "Woven Cloth", "Woven Dawn", "Woven Dusk", "Dyes and Thread", "Conversions", "Finishing Reagents", "Reagents", "Reagents and Research", "Optional Reagents", "Embroidery", "Assorted Embroidery", "Training" },
-    },
-    Engineering = {
-        Explosives = { "Bombs", "Explosives", "EZ-Thro", "Fireworks" },
-        Gadgets = { "Devices", "Tinkers", "Tinker's Essentials", "Robotics", "Safety Components", "Cogwheels", "Combat Tools" },
-        Goggles = { "Goggles", "Cloth Goggles", "Leather Goggles", "Mail Goggles", "Plate Goggles", "Armor" },
-        Weapons = { "Guns", "Guns & Bows", "Weapons", "Scopes", "Scopes & Ammo" },
-        Crafting = { "Parts", "Tools", "Profession Equipment", "Belt Attachments", "Finishing Reagents", "Reagents", "Reagents and Research", "Optional Reagents" },
-    },
-    Cooking = {
-        Feasts = { "Feasts", "Great Feasts", "Cooking For Others" },
-        Meals = { "Large Meals", "Light Meals", "A Full Belly", "Everyday Cooking", "Quick and Easy", "Nutritious and Delicious", "Delicious and Nutritious" },
-        Fish = { "Fish Dishes", "Deluxe Fish Dishes", "Simple Fish Dishes" },
-        Meat = { "Meat Dishes", "Meat Meals", "Orcish Cuisine" },
-        Snacks = { "Snacks", "Desserts", "Delicacies", "Unusual Delights", "Best of the Best", "Secret Recipes" },
-        Drinks = { "Beverages", "Delightful Drinks", "Crisp and Refreshing", "Soul Food" },
-        Ways = { "Way of the Brew", "Way of the Grill", "Way of the Oven", "Way of the Pot", "Way of the Steamer", "Way of the Wok" },
-    },
-    Enchanting = {
-        Weapon = { "Weapon", "Weapon Enchantments" },
-        Armor = { "Armor Enchantments", "Chest Enchantments", "Cloak", "Cloak Enchantments", "Boot Enchantments", "Bracer Enchantments", "Wrist Enchantments", "Glove Enchantments", "Shoulder Enchantments" },
-        Jewelry = { "Ring", "Ring Enchantments", "Neck", "Neck Enchantments", "Trinket" },
-        ["Off-Hand"] = { "Shield Enchantments", "Shield and Off-Hand Enchantments" },
-        Illusions = { "Illusions", "Algari Illusions", "Illusory Goods" },
-        Crafting = { "Rods", "Rods and Wands", "Wands", "Disenchant", "Disenchants", "Shatters", "Conversions", "Reagents", "Reagents and Research", "Optional Reagents", "Infusions of Power", "Magical Merchandise", "Training" },
-        Oils = { "Oils", "Mana Oils" },
-    },
-    Blacksmithing = {
-        Body = { "Armor", "Chest" },
-        Slots = { "Belts", "Boots", "Bracers", "Gauntlets", "Helms", "Legs", "Shoulders" },
-        Weapons = { "Weapons", "Weapons and Shields", "Shields" },
-        Mods = { "Armor Mods", "Equipment Mods", "Weapon Mods", "Weapons Mods", "Item Enhancers" },
-        Crafting = { "Smelting", "Stonework", "Frameworks", "Materials", "Reagents", "Reagents and Research", "Finishing Reagents", "Optional Reagents", "Training" },
-        Utility = { "Skeleton Keys", "Consumable Tools" },
-    },
-    Leatherworking = {
-        Leather = { "Leather Armor", "Specialized Armor" },
-        Mail = { "Mail Armor" },
-        Slots = { "Boots", "Belts", "Bracers", "Chest", "Chests", "Gloves", "Helms", "Pants", "Shoulders", "Cloaks" },
-        Consumables = { "Drums", "Armor Kits", "Armor Enhancers", "Consumables" },
-        Bags = { "Bags", "Tents" },
-        Crafting = { "Materials", "Reagents", "Reagents and Research", "Finishing Reagents", "Optional Reagents", "Embossments", "Research" },
-        Training = { "Basic Training", "Material Preparation Training", "Shaping Training", "Stitching Training", "Tanning Training" },
-    },
-    Inscription = {
-        Glyphs = { "Glyphs" },
-        Contracts = { "Contracts", "Blood Contracts", "Vantus Runes" },
-        Scrolls = { "Scrolls", "Scrolls & Research", "Books & Scrolls", "Runes", "Runes and Sigils" },
-        Missives = { "Missives", "Crafting Tool Missives", "Gathering Tool Missives" },
-        Weapons = { "Staves", "Staves & Off-Hands", "Staves & Wands", "Off-Hands", "Off-hand", "Weapons", "Weapons & Off-Hands" },
-        Crafting = { "Ink", "Inks", "Mass Milling", "Conversions", "Reagents", "Reagents and Research", "Optional Reagents", "Research" },
-        Cards = { "Card", "Cards", "Mysteries", "Trinkets" },
-        Skyriding = { "Skyriding - Cliffside Wylderdrake", "Skyriding - Grotto Netherwing Drake", "Skyriding - Highland Drake", "Skyriding - Renewed Proto-Drake", "Skyriding - Windborne Velocidrake", "Skyriding - Winding Slitherdrake" },
-    },
 }
 
 -- ============================================================================

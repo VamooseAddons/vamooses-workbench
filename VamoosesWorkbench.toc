@@ -59,8 +59,8 @@ Modules\GuildCrafters.lua
 Modules\AmbientTooltips.lua
 Modules\ProjectPlanner.lua
 
-# AmbientTooltips hooks EVERY game tooltip at file load (no dormant option) --
-# flagged decide-or-remove in TODO_VamoosesWorkbench.md.
+# AmbientTooltips hooks at file load; the handler is opt-in gated
+# (config.ambientTooltips, default off -- resolved 2026-07-13).
 
 # --- Layout box model ---
 Layout\Layout.lua
