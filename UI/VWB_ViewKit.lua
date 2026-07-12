@@ -22,6 +22,14 @@ function Kit.measure(node)
     return { w = measureFS:GetUnboundedStringWidth() + 6, h = 14 }
 end
 
+-- One-line FontString clamp shared by row templates (hygiene 2026-07-13:
+-- was a byte-identical local in Study + Achieve).
+function Kit.singleLine(fs)
+    fs:SetWordWrap(false)
+    fs:SetMaxLines(1)
+    return fs
+end
+
 -- Role-aware label widget -- the default renderer for a label-role item node
 -- (title / section / label / body). Styled BY ROLE, so a title reads as a title
 -- instead of the uniform dim box the old placeholder rendered for everything.

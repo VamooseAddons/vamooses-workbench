@@ -43,7 +43,7 @@ local _, ns = ...
 local Records = ns.Records or {}
 ns.Records = Records
 
-local QUESTION_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local QUESTION_ICON = VWB.Constants.ICON_QUESTION
 
 -- Canonical profession row set for the coverage grid (alphabetical, matches
 -- VPC's COVERAGE_PROFESSIONS). Fishing/Runeforging are excluded -- nothing to

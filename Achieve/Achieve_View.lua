@@ -19,11 +19,7 @@ local ROW_H = 36
 local RIGHT_W, PTS_W = 110, 44
 local TOOLTIP_CRITERIA_CAP = 15 -- "know each of..." lists run long; tooltip stays a summary
 
-local function singleLine(fs)
-    fs:SetWordWrap(false)
-    fs:SetMaxLines(1)
-    return fs
-end
+local singleLine = ns.ViewKit.singleLine
 
 -- PLANNABLE criteria become commission pieces: know-recipe (type 34,
 -- assetID = recipe spellID) and craft-item (type 29, assetID = itemID --
@@ -137,12 +133,7 @@ function Achieve.buildView(container)
 
     local listWidget, navTree, breadcrumbFS
 
-    local function toggleCollapse(key)
-        local next = {}
-        for k, v in pairs(filters.collapsed()) do next[k] = v end
-        next[key] = not next[key]
-        filters.collapsed(next)
-    end
+    local function toggleCollapse(key) VWB.UI.ToggleSetKey(filters.collapsed, key) end
 
     local function onRowEnter(rec, rowFrame)
         local tip = ns.UI.Tooltip
@@ -251,16 +242,7 @@ function Achieve.buildView(container)
                 onRowEnter = onRowEnter,
                 onRowLeave = function(_, rowFrame) ns.UI.Tooltip:Hide(rowFrame) end,
             })
-            local s = ns.UI:GetScheme()
-            local empty = listWidget:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
-            empty:SetPoint("TOP", 0, -30)
-            empty:SetPoint("LEFT", listWidget, "LEFT", 20, 0)
-            empty:SetPoint("RIGHT", listWidget, "RIGHT", -20, 0)
-            empty:SetJustifyH("CENTER"); empty:SetWordWrap(true)
-            empty:SetTextColor(s.text.r, s.text.g, s.text.b)
-            empty:Hide()
-            listWidget.emptyText = empty
-            VWB.Theme:Register(empty, "DimLabel")
+            ns.UI:AddEmptyOverlayText(listWidget)
             return listWidget
         end
         -- unhandled node -> Layout's default factory renders it

@@ -71,7 +71,7 @@ function VWB.RecipeQuery:GetProfessions()
                 key = p,
                 label = p,
                 abbrev = profInfo and profInfo.code or nil,
-                icon = profIcons[p] or "Interface\\Icons\\INV_Misc_QuestionMark",
+                icon = profIcons[p] or VWB.Constants.ICON_QUESTION,
                 isGathering = gatheringProfs[p] or false,
             })
         end

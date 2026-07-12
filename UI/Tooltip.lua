@@ -146,7 +146,7 @@ end
 -- own name resolution -- nil name renders "Loading..." and the caller's next
 -- repaint re-hovers with the real one.
 function Tooltip:SetItemHeader(itemID, name, quality)
-    local icon = C_Item.GetItemIconByID(itemID) or 134400 -- exception(boundary): question-mark icon for uncached/invalid items
+    local icon = C_Item.GetItemIconByID(itemID) or VWB.Constants.ICON_QUESTION -- exception(boundary): uncached/invalid items
     local qr, qg, qb
     if quality then
         qr, qg, qb = C_Item.GetItemQualityColor(quality)

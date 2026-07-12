@@ -39,7 +39,7 @@ local _, ns = ...
 local Ledger = ns.Ledger or {}
 ns.Ledger = Ledger
 
-local QUESTION_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local QUESTION_ICON = VWB.Constants.ICON_QUESTION
 
 local CHUNK_SIZE = 250   -- recipes Calculate()'d per rendered frame while building
 local SESSION_START = time()
@@ -272,13 +272,7 @@ function Ledger.buildView(container)
     local search = R.signal("")
     local sortMode = R.signal("profit")
     local selectedProfessions = R.signal({}) -- set of profession keys; empty = all (Stockroom's multi-select semantics)
-    -- Immutable toggle: a NEW set each time so the signal sees an identity change
-    local function toggleProfession(key)
-        local nxt = {}
-        for k in pairs(selectedProfessions()) do nxt[k] = true end
-        if nxt[key] then nxt[key] = nil else nxt[key] = true end
-        selectedProfessions(nxt)
-    end
+    local function toggleProfession(key) VWB.UI.ToggleSetKey(selectedProfessions, key) end
     -- 3-state: "all" / "me" / "account" (item 3)
     local knownMode = R.signal("all")
     local showCraftableOnly = R.signal(false)
@@ -639,15 +633,8 @@ function Ledger.buildView(container)
         paintSummary(summaryFrame, filtered())
     end, "ledger:summary")
 
-    -- Closed-trigger label: "All Professions" / the single pick / a count
-    -- (Stockroom's multi-select idiom).
-    R.effect(function()
-        local sel = selectedProfessions()
-        local n, last = 0, nil
-        for k in pairs(sel) do n = n + 1; last = k end
-        local label = (n == 0 and "All Professions") or (n == 1 and last) or (n .. " professions")
-        profDropdown:SetTriggerText(label)
-    end, "ledger:professionLabel")
+    VWB.UI.BindMultiSelectLabel(profDropdown, selectedProfessions,
+        { all = "All Professions", noun = "professions", effectName = "ledger:professionLabel" })
 
     R.bindText(handle.byId.ldgKpiProfit.label, function()
         VWB.Theme.epoch() -- theme epoch: repaint on switch

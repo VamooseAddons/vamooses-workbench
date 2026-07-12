@@ -581,18 +581,7 @@ function Recipes.buildView(container)
             return ns.UI:CreateFilterPill(parent, "Unlearned", function(checked) unlearnedPill(checked and true or false) end)
         elseif node.id == "rcpNavLabel" then
             local f = ns.ViewKit.roleLabel(node, parent)
-            -- Expand-all / collapse-all: one button that flips whichever state
-            -- most sections are in. Label reflects the action (see the effect below).
-            local collapseBtn = ns.UI:CreateButton(f, "Collapse", 62, 14)
-            collapseBtn:SetPoint("RIGHT", -4, 0)
-            collapseBtn:SetScript("OnClick", function()
-                local keys, anyOpen = {}, false
-                for _, s in ipairs(navSections()) do
-                    keys[#keys + 1] = s.key
-                    if not s.collapsed then anyOpen = true end
-                end
-                ns.Store:Dispatch("SET_NAV_COLLAPSED_ALL", { keys = keys, collapsed = anyOpen }) -- any open -> collapse all; else expand all
-            end)
+            local collapseBtn = ns.UI:AddCollapseAllButton(f, navSections, { effectName = "recipes:collapseAllLabel" })
             f.collapseBtn = collapseBtn
             f.label:ClearAllPoints()
             f.label:SetPoint("TOPLEFT", 4, -1)
@@ -1001,19 +990,8 @@ function Recipes.buildView(container)
     -- First-run onboarding (no professions harvested yet) vs filtered-to-zero
     -- (professions exist, current filters just don't match anything) share one
     -- card widget; only the copy + CTA visibility differ per state.
-    emptyCard = ns.UI:CreateEmptyStateCard(handle.byId.rcpListCol, {
-        width = 300, height = 170,
-        icon = "Interface\\Icons\\INV_Misc_Book_09",
-        title = "The shelves are bare",
-        body = "Scan a profession window, or pull your guild's recipes in one pass.",
-        buttonText = "Scan Guild Recipes",
-        onClick = function()
-            ns:ShowPage("data")
-            ns.RecipeHarvest:Start()
-        end,
-    })
-    emptyCard:SetPoint("CENTER", handle.byId.rcpListCol, "CENTER", 0, 10)
-    emptyCard:SetFrameLevel(listWidget:GetFrameLevel() + 5)
+    emptyCard = ns.UI:CreateScanGuildCard(handle.byId.rcpListCol, { width = 300 })
+    emptyCard:SetFrameLevel(listWidget:GetFrameLevel() + 5) -- above the list, not just the column
 
     -- Profession tab bar: rebuild only when the profession KEY SET actually
     -- changes (new recipes for an already-known profession must not tear down
@@ -1094,12 +1072,6 @@ function Recipes.buildView(container)
         navTreeWidget:SetData(navSections())
     end, "recipes:nav")
 
-    -- Collapse-all button label reflects the action it will take.
-    R.effect(function()
-        local anyOpen = false
-        for _, s in ipairs(navSections()) do if not s.collapsed then anyOpen = true; break end end
-        handle.byId.rcpNavLabel.collapseBtn:SetText(anyOpen and "Collapse" or "Expand")
-    end, "recipes:collapseAllLabel")
 
     -- MRU strip: recent-queued icon chips (state.ui.recentQueued), click = requeue 1.
     -- Item 7: rcpMru collapses to h=0 when empty. The Layout engine's hug path for

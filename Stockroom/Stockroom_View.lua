@@ -28,7 +28,7 @@ local _, ns = ...
 local Stockroom = ns.Stockroom or {}
 ns.Stockroom = Stockroom
 
-local QUESTION_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local QUESTION_ICON = VWB.Constants.ICON_QUESTION
 
 local CLASS_LABELS = { farmbuy = "Farm/Buy", crafted = "Crafted", endproduct = "End Product" }
 local CLASS_SCHEME_KEY = { farmbuy = "success", crafted = "accent", endproduct = "warning" } -- scheme fields for SetTextColor
@@ -121,12 +121,17 @@ local function ensureNameRes()
     }
 end
 
--- A themed reagent row: icon | name | itemID | class badge | evidence | owned | BoP | queue need.
-local function rowTemplate(frame)
-    -- persistent selection tint (behind the hover highlight the list factory adds)
+-- Persistent selection tint behind the hover highlight (shared by both row
+-- templates below).
+local function addSelHL(frame)
     local d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
     local selHL = frame:CreateTexture(nil, "BACKGROUND"); selHL:SetAllPoints(); selHL:SetColorTexture(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 0.12); selHL:Hide()
     frame._selHL = selHL
+end
+
+-- A themed reagent row: icon | name | itemID | class badge | evidence | owned | BoP | queue need.
+local function rowTemplate(frame)
+    addSelHL(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(18, 18); icon:SetPoint("LEFT", 4, 0)
     frame.icon = icon
     local name = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
@@ -156,9 +161,7 @@ end
 
 -- A recipe row for the detail panel: icon | recipe name | qty | "uses"/"makes".
 local function recipeRowTemplate(frame)
-    local d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
-    local selHL = frame:CreateTexture(nil, "BACKGROUND"); selHL:SetAllPoints(); selHL:SetColorTexture(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b, 0.12); selHL:Hide()
-    frame._selHL = selHL
+    addSelHL(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 2, 0)
     frame.icon = icon
     local tag = frame:CreateFontString(nil, "OVERLAY", "VWBFontDisableSmall")
@@ -196,14 +199,7 @@ function Stockroom.buildView(container)
     end
     EXPANSION_ITEMS[#EXPANSION_ITEMS + 1] = { key = OTHER_KEY, label = "Other", color = { r = 0.6, g = 0.6, b = 0.6 } }
 
-    -- Immutable toggle: a NEW set each time so the signal sees an identity change
-    -- (mutating in place wouldn't re-fire the items() computed).
-    local function toggleExpansion(key)
-        local nxt = {}
-        for k in pairs(selectedExpansions()) do nxt[k] = true end
-        if nxt[key] then nxt[key] = nil else nxt[key] = true end
-        selectedExpansions(nxt)
-    end
+    local function toggleExpansion(key) VWB.UI.ToggleSetKey(selectedExpansions, key) end
 
     local selectedSources = R.signal({}) -- set of source keys; empty = "All Sources" (no filter)
 
@@ -228,12 +224,7 @@ function Stockroom.buildView(container)
     SOURCE_ITEMS[#SOURCE_ITEMS + 1] = { key = UNCLASSIFIED_KEY, label = "Farm/Buy", color = { r = 0.6, g = 0.6, b = 0.6 } }
     SOURCE_LABEL[UNCLASSIFIED_KEY] = "Farm/Buy"
 
-    local function toggleSource(key)
-        local nxt = {}
-        for k in pairs(selectedSources()) do nxt[k] = true end
-        if nxt[key] then nxt[key] = nil else nxt[key] = true end
-        selectedSources(nxt)
-    end
+    local function toggleSource(key) VWB.UI.ToggleSetKey(selectedSources, key) end
 
     -- Queue-need merged across shoppingList entries by itemID (same merge VPC's
     -- RebuildQueueNeed did). Its OWN computed on the crafting slice: a queue edit
@@ -528,22 +519,12 @@ function Stockroom.buildView(container)
         end
     end)
 
-    -- Truly-cold corpus gets the one-click card instead of directions-only
-    -- text (Workbench's pattern -- consistency review 2026-07-13).
-    local emptyCard = VWB.UI:CreateEmptyStateCard(listWidget, {
-        width = 320, height = 170,
+    -- Truly-cold corpus gets the one-click card instead of directions-only text
+    local emptyCard = VWB.UI:CreateScanGuildCard(listWidget, {
         icon = "Interface\\Icons\\INV_Crate_01",
         title = "The stockroom is bare",
         body = "Nobody's catalogued a single reagent yet. Scan a profession window, or pull your guild's recipes in one pass.",
-        buttonText = "Scan Guild Recipes",
-        onClick = function()
-            ns:ShowPage("data")
-            ns.RecipeHarvest:Start()
-        end,
     })
-    emptyCard:SetPoint("CENTER", listWidget, "CENTER", 0, 10)
-    emptyCard:SetFrameLevel(listWidget:GetFrameLevel() + 5)
-    emptyCard:Hide()
 
     -- List data + empty states in one effect: bare vs no-search-results get
     -- distinct copy, same distinction VPC's PaintList drew.
@@ -563,24 +544,10 @@ function Stockroom.buildView(container)
         end
     end, "stockroom:list")
 
-    -- Closed-trigger label: "All Expansions" when nothing's picked, the single
-    -- expansion's name for one, else a count.
-    R.effect(function()
-        local sel = selectedExpansions()
-        local n, last = 0, nil
-        for k in pairs(sel) do n = n + 1; last = k end
-        local label = (n == 0 and "All Expansions") or (n == 1 and labelForKey(last)) or (n .. " expansions")
-        expansionDD:SetTriggerText(label)
-    end, "stockroom:expansionLabel")
-
-    -- Closed-trigger label: "All Sources" / the single method / a count.
-    R.effect(function()
-        local sel = selectedSources()
-        local n, last = 0, nil
-        for k in pairs(sel) do n = n + 1; last = k end
-        local label = (n == 0 and "All Sources") or (n == 1 and SOURCE_LABEL[last]) or (n .. " sources")
-        sourceDD:SetTriggerText(label)
-    end, "stockroom:sourceLabel")
+    VWB.UI.BindMultiSelectLabel(expansionDD, selectedExpansions,
+        { all = "All Expansions", noun = "expansions", labelFor = labelForKey, effectName = "stockroom:expansionLabel" })
+    VWB.UI.BindMultiSelectLabel(sourceDD, selectedSources,
+        { all = "All Sources", noun = "sources", labelFor = function(k) return SOURCE_LABEL[k] end, effectName = "stockroom:sourceLabel" })
 
     -- Detail panel: the recipes that USE (and produce) the selected reagent -- the
     -- reverse lookup the hover tooltip only hinted at. Reactive on the selection +

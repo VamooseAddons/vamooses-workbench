@@ -224,8 +224,6 @@ function Showroom.buildView(container)
     -- item list (profession/search/type/missing) but WITHOUT the nav's own
     -- category pick -- so choosing a category doesn't collapse its siblings
     -- out from under it. Mirrors VPC Preview.lua's RefreshNavTree.
-    local navSections -- memoized sections computed; assigned below, used by the collapse-all click closure
-
     local function buildNavSections()
         ns.Store:Version("nav") -- navSelected/navCollapsed slice
         kindRes.epoch() -- O(1) classification dep; passesTypeAndMissing peeks per item
@@ -268,6 +266,8 @@ function Showroom.buildView(container)
         table.sort(sections, function(a, b) return a.order < b.order end)
         return sections
     end
+    -- Memoized: the tree effect, the collapse-all button, and its label share one walk.
+    local navSections = R.named("showroom:navSections", buildNavSections)
 
     local function makeFrame(node, parent)
         if node.id == "search" then
@@ -290,20 +290,7 @@ function Showroom.buildView(container)
             local fs = f:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
             fs:SetText(ns.UI:ColorCode("cyan") .. "Categories|r")
             fs:SetPoint("LEFT", 4, 0)
-            -- Expand-all / collapse-all: one button that flips whichever state
-            -- most sections are in (Workbench's rcpNavLabel pattern; owner
-            -- 2026-07-12). Label reflects the action (effect below).
-            local collapseBtn = ns.UI:CreateButton(f, "Collapse", 62, 14)
-            collapseBtn:SetPoint("RIGHT", -4, 0)
-            collapseBtn:SetScript("OnClick", function()
-                local keys, anyOpen = {}, false
-                for _, s in ipairs(navSections()) do
-                    keys[#keys + 1] = s.key
-                    if not s.collapsed then anyOpen = true end
-                end
-                ns.Store:Dispatch("SET_NAV_COLLAPSED_ALL", { keys = keys, collapsed = anyOpen }) -- any open -> collapse all; else expand all
-            end)
-            f.collapseBtn = collapseBtn
+            f.collapseBtn = ns.UI:AddCollapseAllButton(f, navSections, { effectName = "showroom:collapseAllLabel" })
             return f
         elseif node.id == "navTree" then
             navTree = ns.UI:CreateNavTree(parent, {
@@ -355,16 +342,7 @@ function Showroom.buildView(container)
                 end,
                 onRowLeave = function(_, rowFrame) ns.UI.Tooltip:Hide(rowFrame) end,
             })
-            local s = ns.UI:GetScheme()
-            local empty = listWidget:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
-            empty:SetPoint("TOP", 0, -30)
-            empty:SetPoint("LEFT", listWidget, "LEFT", 20, 0)
-            empty:SetPoint("RIGHT", listWidget, "RIGHT", -20, 0)
-            empty:SetJustifyH("CENTER"); empty:SetWordWrap(true)
-            empty:SetTextColor(s.text.r, s.text.g, s.text.b)
-            empty:Hide()
-            listWidget.emptyText = empty
-            VWB.Theme:Register(empty, "DimLabel")
+            ns.UI:AddEmptyOverlayText(listWidget)
             return listWidget
         elseif node.id == "modelDress" then
             modelDressFrame = CreateFrame("DressUpModel", nil, parent)
@@ -466,22 +444,8 @@ function Showroom.buildView(container)
     -- Also owns the empty-state caption: a blank list is ambiguous (nothing
     -- here? filters too tight? a bug?) -- name the reason instead of going quiet.
     -- Truly-cold corpus: the text empty-states below explain FILTER misses;
-    -- a fresh install needs the one-click fix instead (Workbench's card
-    -- pattern -- consistency review 2026-07-13).
-    local emptyCard = ns.UI:CreateEmptyStateCard(listWidget, {
-        width = 320, height = 170,
-        icon = "Interface\\Icons\\INV_Misc_Book_09",
-        title = "The shelves are bare",
-        body = "Scan a profession window, or pull your guild's recipes in one pass.",
-        buttonText = "Scan Guild Recipes",
-        onClick = function()
-            ns:ShowPage("data")
-            ns.RecipeHarvest:Start()
-        end,
-    })
-    emptyCard:SetPoint("CENTER", listWidget, "CENTER", 0, 10)
-    emptyCard:SetFrameLevel(listWidget:GetFrameLevel() + 5)
-    emptyCard:Hide()
+    -- a fresh install needs the one-click fix instead.
+    local emptyCard = ns.UI:CreateScanGuildCard(listWidget)
 
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
@@ -523,15 +487,8 @@ function Showroom.buildView(container)
     -- missing/search scope, classification, or collapse state changes. Memoized:
     -- the tree effect, the collapse-all label, and the button click all share
     -- one walk.
-    navSections = R.named("showroom:navSections", buildNavSections)
     R.effect(function() VWB.Theme.epoch(); navTree:SetData(navSections()) end, "showroom:nav") -- theme epoch: repaint on switch
 
-    -- Collapse-all button label reflects the action it will take (Workbench pattern).
-    R.effect(function()
-        local anyOpen = false
-        for _, s in ipairs(navSections()) do if not s.collapsed then anyOpen = true; break end end
-        handle.byId.navLabel.collapseBtn:SetText(anyOpen and "Collapse" or "Expand")
-    end, "showroom:collapseAllLabel")
 
     -- Recent-previews strip: persisted ring (Store ui.recentPreviewed), chips
     -- rebuilt whenever it changes. Pooled buttons -- ported from VPC's

@@ -287,10 +287,30 @@ end
 -- never from a computed/effect). Stock pieces never stamp completedAt --
 -- they are perpetual par-keepers, so a project holding one stays active by
 -- design. B3 early-return keeps the no-collect-projects case free.
+-- Shared sweep scaffold (hygiene 2026-07-13: was the same three-level walk in
+-- four sweeps): stamp every live piece the predicate confirms, promote
+-- projects that became all-done. Stock refills keep their own walk -- par
+-- keepers never stamp.
+local function sweepPieces(shouldComplete)
+    for _, prj in ipairs(VWB.Store:GetState().projects.items) do
+        if not prj.completedAt then
+            local touched = false
+            for _, pc in ipairs(prj.pieces) do
+                if not pc.completedAt and shouldComplete(pc) then
+                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
+                    touched = true
+                end
+            end
+            if touched then promoteIfAllDone(prj) end
+        end
+    end
+end
+
 local function sweepCollectCompletions()
-    local items = VWB.Store:GetState().projects.items
+    -- B3 early-return: collection events fire constantly; boards with no
+    -- live collect piece skip the IsCollected walk entirely.
     local hasActive = false
-    for _, prj in ipairs(items) do
+    for _, prj in ipairs(VWB.Store:GetState().projects.items) do
         if not prj.completedAt then
             for _, pc in ipairs(prj.pieces) do
                 if pc.kind == "collect" and not pc.completedAt then hasActive = true; break end
@@ -299,16 +319,9 @@ local function sweepCollectCompletions()
         if hasActive then break end
     end
     if not hasActive then return end
-    for _, prj in ipairs(items) do
-        if not prj.completedAt then
-            for _, pc in ipairs(prj.pieces) do
-                if pc.kind == "collect" and not pc.completedAt and P:IsCollected(pc.itemID) == true then
-                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
-                end
-            end
-            promoteIfAllDone(prj)
-        end
-    end
+    sweepPieces(function(pc)
+        return pc.kind == "collect" and P:IsCollected(pc.itemID) == true
+    end)
 end
 
 -- Craft pieces (queue saves): done when qty has been crafted since the piece
@@ -326,18 +339,9 @@ local function craftedSince(piece)
 end
 
 local function sweepCraftCompletions()
-    for _, prj in ipairs(VWB.Store:GetState().projects.items) do
-        if not prj.completedAt then
-            local touched = false
-            for _, pc in ipairs(prj.pieces) do
-                if pc.kind == "craft" and not pc.completedAt and craftedSince(pc) >= (pc.qty or 1) then
-                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
-                    touched = true
-                end
-            end
-            if touched then promoteIfAllDone(prj) end
-        end
-    end
+    sweepPieces(function(pc)
+        return pc.kind == "craft" and craftedSince(pc) >= (pc.qty or 1)
+    end)
 end
 P._sweepCraftCompletions = sweepCraftCompletions -- exposed for headless tests
 
@@ -345,18 +349,9 @@ P._sweepCraftCompletions = sweepCraftCompletions -- exposed for headless tests
 -- knowledge, not collection (code review F3). Swept on the profession-scan
 -- event, which is exactly when the known set can change.
 local function sweepStudyLearns()
-    for _, prj in ipairs(VWB.Store:GetState().projects.items) do
-        if not prj.completedAt then
-            local touched = false
-            for _, pc in ipairs(prj.pieces) do
-                if pc.kind == "study" and not pc.completedAt and VWB.KnownRecipes:IsKnown(pc.recipeID) then
-                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
-                    touched = true
-                end
-            end
-            if touched then promoteIfAllDone(prj) end
-        end
-    end
+    sweepPieces(function(pc)
+        return pc.kind == "study" and VWB.KnownRecipes:IsKnown(pc.recipeID)
+    end)
 end
 
 local function sweepStockRefills()
@@ -393,45 +388,23 @@ local achSettle = nil
 -- commission can track multiple achievements. The gate is pc.achievementID,
 -- never the project's source (that is display provenance only).
 local function sweepAchievementCriteria()
-    for _, prj in ipairs(VWB.Store:GetState().projects.items) do
-        if not prj.completedAt then
-            local touched = false
-            for _, pc in ipairs(prj.pieces) do
-                if not pc.completedAt and pc.achievementID and pc.criteriaIndex then
-                    -- exception(boundary): criteriaIndex is PERSISTED (SV) and Blizzard
-                    -- reshuffles criteria between patches -- a stale index hard-errors
-                    -- GetAchievementCriteriaInfo and would kill the sweep for every
-                    -- other piece (code review 2026-07-13). Out-of-range = piece waits.
-                    if pc.criteriaIndex <= GetAchievementNumCriteria(pc.achievementID) then
-                        local _, _, done = GetAchievementCriteriaInfo(pc.achievementID, pc.criteriaIndex)
-                        if done then
-                            VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
-                            touched = true
-                        end
-                    end
-                end
-            end
-            if touched then promoteIfAllDone(prj) end
-        end
-    end
+    sweepPieces(function(pc)
+        if not (pc.achievementID and pc.criteriaIndex) then return false end
+        -- exception(boundary): criteriaIndex is PERSISTED (SV) and Blizzard
+        -- reshuffles criteria between patches -- a stale index hard-errors
+        -- GetAchievementCriteriaInfo and would kill the sweep for every
+        -- other piece (code review 2026-07-13). Out-of-range = piece waits.
+        if pc.criteriaIndex > GetAchievementNumCriteria(pc.achievementID) then return false end
+        local _, _, done = GetAchievementCriteriaInfo(pc.achievementID, pc.criteriaIndex)
+        return done
+    end)
 end
 
 -- Stamps the earned achievement's OWN criteria pieces only (a piece added
 -- manually is extra work the earn does not vouch for); promotion then
 -- follows the one shared rule.
 local function onAchievementEarned(achievementID)
-    for _, prj in ipairs(VWB.Store:GetState().projects.items) do
-        if not prj.completedAt then
-            local touched = false
-            for _, pc in ipairs(prj.pieces) do
-                if not pc.completedAt and pc.achievementID == achievementID then
-                    VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
-                    touched = true
-                end
-            end
-            if touched then promoteIfAllDone(prj) end
-        end
-    end
+    sweepPieces(function(pc) return pc.achievementID == achievementID end)
 end
 
 function P:Initialize()

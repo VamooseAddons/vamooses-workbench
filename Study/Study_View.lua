@@ -39,11 +39,7 @@ local NAME_W, ZONE_W, COST_W = 250, 150, 90
 -- 22px row into its neighbors (live 2026-07-11: cost cells rendering whole
 -- multi-source blobs down the scrollbar). Truncation is fine -- the tooltip
 -- carries the complete text.
-local function singleLine(fs)
-    fs:SetWordWrap(false)
-    fs:SetMaxLines(1)
-    return fs
-end
+local singleLine = ns.ViewKit.singleLine
 
 local function listRowTemplate(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 3, 0)
@@ -99,13 +95,7 @@ function Study.buildView(container)
         EXPANSION_ITEMS[#EXPANSION_ITEMS + 1] = { key = e.display, label = e.display, color = e.color }
     end
 
-    -- Immutable toggle: a NEW set each time so the signal sees a value change.
-    local function toggleExpansion(key)
-        local nxt = {}
-        for k in pairs(filters.expansions()) do nxt[k] = true end
-        if nxt[key] then nxt[key] = nil else nxt[key] = true end
-        filters.expansions(nxt)
-    end
+    local function toggleExpansion(key) VWB.UI.ToggleSetKey(filters.expansions, key) end
     local model = Study.buildModel({
         universe = universe,
         source = { peek = ns.RecipeSources.peek, epoch = ns.RecipeSources.epoch },
@@ -118,12 +108,7 @@ function Study.buildView(container)
 
     local listWidget, navTree, breadcrumbFS, expansionDD
 
-    local function toggleCollapse(key)
-        local next = {}
-        for k, v in pairs(filters.collapsed()) do next[k] = v end
-        next[key] = not next[key]
-        filters.collapsed(next) -- fresh table: value inequality propagates (R3)
-    end
+    local function toggleCollapse(key) VWB.UI.ToggleSetKey(filters.collapsed, key) end
 
     local function onRowEnter(e, rowFrame)
         local tip = ns.UI.Tooltip
@@ -216,7 +201,7 @@ function Study.buildView(container)
                         row.icon:Show()
                         local icon = item.itemID and C_Item.GetItemIconByID(item.itemID) -- exception(boundary): icon can lag a cold item; profession icon stands in
                         row.icon:SetTexture(icon or VWB.Constants.ProfessionIcons[item.profession]
-                            or "Interface\\Icons\\INV_Misc_QuestionMark")
+                            or VWB.Constants.ICON_QUESTION)
                         local name = item.name or ("recipe:" .. tostring(item.recipeID))
                         if e.known then name = ns.UI:ColorCode("green") .. name .. "|r" end -- learned: visible when Missing unticked
                         row.text:SetText(name)
@@ -247,16 +232,7 @@ function Study.buildView(container)
                 onRowEnter = onRowEnter,
                 onRowLeave = function(_, rowFrame) ns.UI.Tooltip:Hide(rowFrame) end,
             })
-            local s = ns.UI:GetScheme()
-            local empty = listWidget:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
-            empty:SetPoint("TOP", 0, -30)
-            empty:SetPoint("LEFT", listWidget, "LEFT", 20, 0)
-            empty:SetPoint("RIGHT", listWidget, "RIGHT", -20, 0)
-            empty:SetJustifyH("CENTER"); empty:SetWordWrap(true)
-            empty:SetTextColor(s.text.r, s.text.g, s.text.b)
-            empty:Hide()
-            listWidget.emptyText = empty
-            VWB.Theme:Register(empty, "DimLabel")
+            ns.UI:AddEmptyOverlayText(listWidget)
             return listWidget
         end
         -- unhandled node -> Layout's default factory renders it
@@ -325,15 +301,8 @@ function Study.buildView(container)
 
     R.effect(function() VWB.Theme.epoch(); navTree:SetData(model.sections()) end, "study:nav")
 
-    -- Closed-trigger label: "All Expansions" / the single pick / a count
-    -- (Stockroom's multi-select idiom).
-    R.effect(function()
-        local sel = filters.expansions()
-        local n, last = 0, nil
-        for k in pairs(sel) do n = n + 1; last = k end
-        local label = (n == 0 and "All Expansions") or (n == 1 and last) or (n .. " expansions")
-        expansionDD:SetTriggerText(label)
-    end, "study:expansionLabel")
+    VWB.UI.BindMultiSelectLabel(expansionDD, filters.expansions,
+        { all = "All Expansions", noun = "expansions", effectName = "study:expansionLabel" })
 
     R.effect(function()
         breadcrumbFS:SetText(string.format("%d recipes to learn  |  %d sources shown",

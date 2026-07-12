@@ -317,6 +317,11 @@ VWB.Constants.ProfessionIcons = {
     Archaeology = "Interface\\Icons\\Trade_Archaeology",
 }
 
+-- THE question-mark fallback icon (hygiene 2026-07-13: was re-declared as a
+-- local in three views, inlined in three more, and aliased numerically as
+-- 134400 -- one constant, one spelling).
+VWB.Constants.ICON_QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
+
 VWB.Constants.ClassificationIcons = {
     All = "Interface\\Buttons\\UI-CheckBox-Check",
     Armor = "Interface\\Icons\\INV_Chest_Plate01",

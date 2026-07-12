@@ -648,7 +648,7 @@ function VWB.UI:BuildQueueRow(row, options)
         self._item = item
         self.data = item -- VirtualizedList idiom alias: handlers read row.data
         local itemIcon = item.itemID and C_Item.GetItemIconByID(item.itemID)
-        self.icon:SetTexture(itemIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
+        self.icon:SetTexture(itemIcon or VWB.Constants.ICON_QUESTION)
         local label = item.name or "Unknown"
         if item.qty and item.qty > 1 then label = label .. " x" .. item.qty end
         self.text:SetText(label)
@@ -822,6 +822,93 @@ function VWB.UI:CreateMultiSelectDropdown(parent, options)
     end)
 
     return dd
+end
+
+-- ============================================================================
+-- SHARED VIEW HELPERS (hygiene pass 2026-07-13 -- each replaced 2-6 copies)
+-- ============================================================================
+
+-- Immutable set-toggle: copy the signal's set, flip the key's membership,
+-- write a NEW table -- the identity change is what fires the signal.
+function VWB.UI.ToggleSetKey(signal, key)
+    local nxt = {}
+    for k in pairs(signal()) do nxt[k] = true end
+    if nxt[key] then nxt[key] = nil else nxt[key] = true end
+    signal(nxt)
+end
+
+-- Closed-trigger label for a multi-select dropdown: "All X" for none, the
+-- single pick's name for one, "N <noun>" for more. labelFor resolves a key's
+-- display name (defaults to the key itself).
+function VWB.UI.BindMultiSelectLabel(dd, signal, opts)
+    VWB.Reactor.effect(function()
+        local sel = signal()
+        local n, last = 0, nil
+        for k in pairs(sel) do n = n + 1; last = k end
+        local label = (n == 0 and opts.all)
+            or (n == 1 and ((opts.labelFor and opts.labelFor(last)) or last))
+            or (n .. " " .. opts.noun)
+        dd:SetTriggerText(label)
+    end, opts.effectName)
+end
+
+-- Bare-corpus CTA card: the one-click "go scan" path every browse tab shows
+-- when the recipe corpus is truly empty (Workbench's original card).
+function VWB.UI:CreateScanGuildCard(parent, opts)
+    opts = opts or {}
+    local card = VWB.UI:CreateEmptyStateCard(parent, {
+        width = opts.width or 320, height = opts.height or 170,
+        icon = opts.icon or "Interface\\Icons\\INV_Misc_Book_09",
+        title = opts.title or "The shelves are bare",
+        body = opts.body or "Scan a profession window, or pull your guild's recipes in one pass.",
+        buttonText = "Scan Guild Recipes",
+        onClick = function()
+            VWB:ShowPage("data")
+            VWB.RecipeHarvest:Start()
+        end,
+    })
+    card:SetPoint("CENTER", parent, "CENTER", 0, 10)
+    card:SetFrameLevel(parent:GetFrameLevel() + 5)
+    card:Hide()
+    return card
+end
+
+-- Collapse-all / expand-all button on a nav label frame: flips whichever
+-- state most sections are in; the label names the action it will take.
+-- navSectionsFn must be live at call time (the bound effect runs immediately).
+function VWB.UI:AddCollapseAllButton(host, navSectionsFn, opts)
+    local btn = VWB.UI:CreateButton(host, "Collapse", 62, (opts and opts.height) or 14)
+    btn:SetPoint("RIGHT", -4, 0)
+    btn:SetScript("OnClick", function()
+        local keys, anyOpen = {}, false
+        for _, s in ipairs(navSectionsFn()) do
+            keys[#keys + 1] = s.key
+            if not s.collapsed then anyOpen = true end
+        end
+        VWB.Store:Dispatch("SET_NAV_COLLAPSED_ALL", { keys = keys, collapsed = anyOpen }) -- any open -> collapse all; else expand all
+    end)
+    VWB.Reactor.effect(function()
+        local anyOpen = false
+        for _, s in ipairs(navSectionsFn()) do if not s.collapsed then anyOpen = true; break end end
+        btn:SetText(anyOpen and "Collapse" or "Expand")
+    end, opts and opts.effectName)
+    return btn
+end
+
+-- Contextual empty-state text overlay for a virtualized list; hidden until
+-- the view's list effect writes it (attached as listWidget.emptyText).
+function VWB.UI:AddEmptyOverlayText(listWidget)
+    local s = VWB.UI:GetScheme()
+    local empty = listWidget:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
+    empty:SetPoint("TOP", 0, -30)
+    empty:SetPoint("LEFT", listWidget, "LEFT", 20, 0)
+    empty:SetPoint("RIGHT", listWidget, "RIGHT", -20, 0)
+    empty:SetJustifyH("CENTER"); empty:SetWordWrap(true)
+    empty:SetTextColor(s.text.r, s.text.g, s.text.b)
+    empty:Hide()
+    listWidget.emptyText = empty
+    VWB.Theme:Register(empty, "DimLabel")
+    return empty
 end
 
 -- ============================================================================

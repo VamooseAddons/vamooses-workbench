@@ -18,7 +18,7 @@ ns.Projects = Projects
 -- VWB.UI.BACKDROP_FLAT (Framework) is the canonical flat backdrop; local was a subset duplicate.
 ---@type backdropInfo
 local FLAT = VWB.UI.BACKDROP_FLAT -- exception(false-positive): indirection loses type; value is backdropInfo
-local ICON_FALLBACK = 134400 -- INV_Misc_QuestionMark; exception(boundary): GetItemIconByID nil on cold item data
+local ICON_FALLBACK = VWB.Constants.ICON_QUESTION -- exception(boundary): GetItemIconByID nil on cold item data
 
 local CARD_W, CARD_H, CARD_GAP = 260, 64, 6 -- rail cards (vertical scroll, left of Plan)
 -- The status PIPELINE (stored keys; "bench" displays as Active). The rail
@@ -887,12 +887,8 @@ function Projects.buildView(container)
                     f.hExpand.txt = f.hExpand:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
                     f.hExpand.txt:SetPoint("CENTER")
                     f.hExpand:SetScript("OnClick", function(self)
-                        local r = f.data
-                        local nxt = {}
-                        for k, v in pairs(expandCollapsed()) do nxt[k] = v end
                         -- expandKey: piece id for piece headers, source key for vendor headers
-                        if nxt[r.expandKey] then nxt[r.expandKey] = nil else nxt[r.expandKey] = true end
-                        expandCollapsed(nxt)
+                        VWB.UI.ToggleSetKey(expandCollapsed, f.data.expandKey)
                     end)
                     f.hIcon = f:CreateTexture(nil, "ARTWORK"); f.hIcon:SetSize(18, 18)
                     f.hIcon:SetPoint("LEFT", 22, 0)
@@ -983,10 +979,7 @@ function Projects.buildView(container)
                             selectedPiece(nil)
                         else
                             -- big-target collapse toggle (same as its +/- button)
-                            local nxt = {}
-                            for k, v in pairs(expandCollapsed()) do nxt[k] = v end
-                            if nxt[r.expandKey] then nxt[r.expandKey] = nil else nxt[r.expandKey] = true end
-                            expandCollapsed(nxt)
+                            VWB.UI.ToggleSetKey(expandCollapsed, r.expandKey)
                         end
                     end
                 end,
