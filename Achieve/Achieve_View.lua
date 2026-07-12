@@ -101,18 +101,18 @@ local function listRowTemplate(frame)
             end
         end
     end)
-    local right = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
+    local right = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall"))
     right:SetWidth(RIGHT_W); right:SetJustifyH("RIGHT") -- anchored in updateRow (leftmost visible control varies)
     frame.right = right
-    local pts = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"))
+    local pts = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall"))
     pts:SetPoint("RIGHT", right, "LEFT", -6, 0); pts:SetWidth(PTS_W); pts:SetJustifyH("RIGHT")
     frame.pts = pts
     VWB.Theme:Register(pts, "DimLabel")
-    local name = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
+    local name = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall"))
     name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 6, -2); name:SetPoint("RIGHT", pts, "LEFT", -8, 0)
     name:SetJustifyH("LEFT")
     frame.name = name
-    local desc = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"))
+    local desc = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall"))
     desc:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 6, 2); desc:SetPoint("RIGHT", pts, "LEFT", -8, 0)
     desc:SetJustifyH("LEFT")
     frame.desc = desc
@@ -185,7 +185,7 @@ function Achieve.buildView(container)
                 filters.hideEarned(checked and true or false)
             end)
         elseif node.id == "navLabel" then
-            local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            local fs = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
             fs:SetText(ns.UI:ColorCode("cyan") .. "Professions|r")
             return fs
         elseif node.id == "navTree" then
@@ -202,7 +202,7 @@ function Achieve.buildView(container)
             })
             return navTree
         elseif node.id == "breadcrumb" then
-            breadcrumbFS = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            breadcrumbFS = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
             VWB.Theme:Register(breadcrumbFS, "DimLabel")
             return breadcrumbFS
         elseif node.id == "list" then
@@ -252,7 +252,7 @@ function Achieve.buildView(container)
                 onRowLeave = function(_, rowFrame) ns.UI.Tooltip:Hide(rowFrame) end,
             })
             local s = ns.UI:GetScheme()
-            local empty = listWidget:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            local empty = listWidget:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
             empty:SetPoint("TOP", 0, -30)
             empty:SetPoint("LEFT", listWidget, "LEFT", 20, 0)
             empty:SetPoint("RIGHT", listWidget, "RIGHT", -20, 0)

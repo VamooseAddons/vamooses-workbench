@@ -86,7 +86,7 @@ end
 
 local function coverageRowTemplate(frame)
     local ED = ns.Data.ExpansionData
-    frame.profText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    frame.profText = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     frame.profText:SetPoint("LEFT", 2, 0)
     frame.profText:SetSize(PROF_COL_W - 2, GRID_ROW_H)
     frame.profText:SetJustifyH("LEFT")
@@ -105,7 +105,7 @@ local function coverageRowTemplate(frame)
         heat:SetColorTexture(1, 1, 1, 1)
         heat:SetVertexColor(1, 1, 1, 0)
         cell.heat = heat
-        local text = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local text = cell:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
         text:SetPoint("CENTER")
         cell.text = text
 
@@ -130,7 +130,7 @@ local function coverageRowTemplate(frame)
         frame.cells[i] = cell
     end
 
-    frame.totalText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.totalText = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     frame.totalText:SetPoint("LEFT", PROF_COL_W + #ED.EXPANSION_ORDER * EXP_COL_W, 0)
     frame.totalText:SetSize(TOTAL_COL_W - 4, GRID_ROW_H)
     frame.totalText:SetJustifyH("CENTER")
@@ -207,14 +207,14 @@ local function buildCoverageExpHeader(parent)
     local header = CreateFrame("Frame", nil, parent)
     header:SetHeight(GRID_ROW_H - 2)
 
-    local lbl = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local lbl = header:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     lbl:SetPoint("LEFT", 2, 0)
     lbl:SetSize(PROF_COL_W - 2, GRID_ROW_H - 2)
     lbl:SetJustifyH("LEFT")
     lbl:SetText(VWB.UI:ColorCode("base01") .. "Profession|r")
 
     for i, exp in ipairs(ED.EXPANSION_ORDER) do
-        local fs = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local fs = header:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         fs:SetPoint("LEFT", PROF_COL_W + (i - 1) * EXP_COL_W, 0)
         fs:SetSize(EXP_COL_W, GRID_ROW_H - 2)
         fs:SetJustifyH("CENTER")
@@ -222,7 +222,7 @@ local function buildCoverageExpHeader(parent)
         fs:SetTextColor(exp.color.r, exp.color.g, exp.color.b)
     end
 
-    local totalLbl = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local totalLbl = header:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     totalLbl:SetPoint("LEFT", PROF_COL_W + #ED.EXPANSION_ORDER * EXP_COL_W, 0)
     totalLbl:SetSize(TOTAL_COL_W, GRID_ROW_H - 2)
     totalLbl:SetJustifyH("CENTER")
@@ -237,7 +237,7 @@ local function buildCoverageTotalsRow(parent)
     local row = CreateFrame("Frame", nil, parent)
     row:SetHeight(GRID_ROW_H)
 
-    row.profText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    row.profText = row:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
     row.profText:SetPoint("LEFT", 2, 0)
     row.profText:SetSize(PROF_COL_W - 2, GRID_ROW_H)
     row.profText:SetJustifyH("LEFT")
@@ -245,14 +245,14 @@ local function buildCoverageTotalsRow(parent)
 
     row.cells = {}
     for i in ipairs(ED.EXPANSION_ORDER) do
-        local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local fs = row:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
         fs:SetPoint("LEFT", PROF_COL_W + (i - 1) * EXP_COL_W, 0)
         fs:SetSize(EXP_COL_W, GRID_ROW_H)
         fs:SetJustifyH("CENTER")
         row.cells[i] = fs
     end
 
-    row.totalText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.totalText = row:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     row.totalText:SetPoint("LEFT", PROF_COL_W + #ED.EXPANSION_ORDER * EXP_COL_W, 0)
     row.totalText:SetSize(TOTAL_COL_W, GRID_ROW_H)
     row.totalText:SetJustifyH("CENTER")
@@ -354,7 +354,7 @@ end
 
 local function historyRowTemplate(frame)
     local UI = VWB.Constants.UI
-    frame.timeText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.timeText = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     frame.timeText:SetPoint("LEFT", 4, 0)
     frame.timeText:SetSize(UI.colWidthTime, HIST_ROW_H)
     frame.timeText:SetJustifyH("LEFT")
@@ -364,17 +364,17 @@ local function historyRowTemplate(frame)
     frame.icon:SetPoint("LEFT", frame.timeText, "RIGHT", 2, 0)
     frame.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93) -- shave the baked-in icon border
 
-    frame.itemText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.itemText = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     frame.itemText:SetPoint("LEFT", frame.timeText, "RIGHT", HIST_ICON_INSET, 0)
     frame.itemText:SetSize(UI.colWidthItem - HIST_ICON_INSET, HIST_ROW_H)
     frame.itemText:SetJustifyH("LEFT")
 
-    frame.qtyText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.qtyText = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     frame.qtyText:SetPoint("LEFT", frame.itemText, "RIGHT", 8, 0)
     frame.qtyText:SetSize(UI.colWidthQty, HIST_ROW_H)
     frame.qtyText:SetJustifyH("LEFT")
 
-    frame.profText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.profText = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     frame.profText:SetPoint("LEFT", frame.qtyText, "RIGHT", 8, 0)
     frame.profText:SetSize(UI.colWidthProfession, HIST_ROW_H)
     frame.profText:SetJustifyH("LEFT")
@@ -405,7 +405,7 @@ local function buildHistoryColHeader(parent)
     header:SetHeight(HIST_ROW_H)
 
     local function col(anchorTo, offset, width, text)
-        local fs = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local fs = header:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         if anchorTo then
             fs:SetPoint("LEFT", anchorTo, "RIGHT", offset, 0)
         else
@@ -506,7 +506,7 @@ function Records.buildView(container)
             header:SetPoint("TOPLEFT", 0, 0)
             header:SetPoint("TOPRIGHT", 0, 0)
 
-            local line = wrap:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            local line = wrap:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
             line:SetPoint("TOPLEFT", 4, -18)
             line:SetPoint("TOPRIGHT", -4, -18)
             line:SetJustifyH("LEFT")
@@ -586,7 +586,7 @@ function Records.buildView(container)
             progressBar:SetPoint("BOTTOMLEFT", 4, 17)
             progressBar:Hide()
 
-            statusText = wrap:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            statusText = wrap:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
             statusText:SetPoint("BOTTOMLEFT", 4, 2)
             statusText:SetPoint("BOTTOMRIGHT", -4, 2)
             statusText:SetJustifyH("LEFT")

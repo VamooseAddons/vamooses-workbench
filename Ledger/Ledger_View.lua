@@ -71,7 +71,7 @@ local function layoutColumns(f, icon, hasLiquidity)
     local cols = {}
     local point, rel, relPoint, x = "RIGHT", f, "RIGHT", -6
     local function addRight(key, width)
-        local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local fs = f:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
         fs:SetWidth(width)
         fs:SetJustifyH("RIGHT")
         fs:SetPoint(point, rel, relPoint, x, 0)
@@ -84,7 +84,7 @@ local function layoutColumns(f, icon, hasLiquidity)
     addRight("cost", COL_W.cost)
     addRight("sell", COL_W.sell)
 
-    local name = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local name = f:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     if icon then
         name:SetPoint("LEFT", icon, "RIGHT", 5, 0)
     else
@@ -518,7 +518,7 @@ function Ledger.buildView(container)
             summaryFrame:SetPoint("BOTTOMLEFT", 0, 0)
             summaryFrame:SetPoint("BOTTOMRIGHT", 0, 0)
             VWB.Theme:Register(summaryFrame, "Panel") -- routes backdrop + colors through Skinner (item 4)
-            summaryFrame.summaryText = summaryFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            summaryFrame.summaryText = summaryFrame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
             summaryFrame.summaryText:SetPoint("CENTER")
             summaryFrame.progressBar = VWB.UI:CreateProgressBar(summaryFrame, { width = 300, height = 16 })
             summaryFrame.progressBar:SetPoint("CENTER")

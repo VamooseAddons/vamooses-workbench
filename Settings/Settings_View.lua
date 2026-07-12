@@ -1,7 +1,7 @@
 -- ============================================================================
 -- VWB Settings - VIEW / controller. Slice: config (theme / priceSource /
 -- materialsMode / showMinimapButton / ambientTooltips / debug / autoExpand /
--- applyAHCut / fontScale / uiScale / bgOpacity) + Clear Queue / Hard Reset.
+-- applyAHCut / uiScale / bgOpacity) + Clear Queue / Hard Reset.
 -- ============================================================================
 -- The 7th nav tab: a port of VPC's Config tab onto VWB's Reactor + box-model
 -- pattern (see LayoutConfig_Settings.lua for the row-by-row layout). Every
@@ -12,9 +12,9 @@
 -- Key-name deviations from VPC's own names, made deliberately to reuse
 -- ALREADY-LIVE consumers instead of introducing a second, parallel, untested
 -- config surface:
---   * fontScale (not "fontSize")   -- UI/ThemeEngine.lua's ApplyFont already
---     reads config.fontScale on every registered widget; Font Size dispatches
---     into that existing path and re-triggers VWB_THEME_UPDATE, same as VPC.
+--   (fontScale was cut 2026-07-13: UI Scale already scales text; a second
+--   font knob was redundant. The VWBFont* objects size from their Blizzard
+--   twins -- see ThemeEngine's FONT OBJECTS block.)
 --   * bgOpacity (not "windowAlpha") -- ThemeEngine's "Panel" skinner already
 --     multiplies its marble-tint alpha by config.bgOpacity on every Panel-
 --     registered widget across the whole addon. Transparency reuses that
@@ -29,11 +29,11 @@
 -- Reactive re-sync: every effect below subscribes ns.Store:Version("config")
 -- (the per-slice signal), NOT the blanket ns.Store:Version() -- so this page
 -- doesn't re-run its own widget syncs on unrelated crafting/recipe dispatches.
--- The three new appearance sliders are the one exception: VWB.UI:CreateSlider
+-- The two appearance sliders are the one exception: VWB.UI:CreateSlider
 -- has no suppressCallbacks guard (unlike CreateFilterButtonRow's SetSelected),
 -- and WoW's Slider:SetValue() re-fires OnValueChanged even when set
 -- programmatically -- wiring a reactive SetValue would re-dispatch SET_CONFIG
--- from inside the effect that just read it. Nothing else writes fontScale/
+-- from inside the effect that just read it. Nothing else writes
 -- uiScale/bgOpacity today, so a build-time default (this task's literal
 -- ask) is sufficient and safe; a real second writer would need the slider
 -- widget itself to grow a suppress guard first.
@@ -60,7 +60,7 @@ local function PriceSourceLabel(key) return PRICE_SOURCE_LABELS[key] or key end
 -- (which sets the themed font) runs AFTER the SetText below, and SetText on a
 -- font-less FontString errors "Font not set".
 local function makeLabel(parent, text)
-    local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local fs = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
     fs:SetJustifyH("LEFT")
     fs:SetText(text)
     VWB.UI:RegisterWidget(fs, "Label")
@@ -269,12 +269,12 @@ function Settings.buildView(container)
         elseif node.id == "setDangerDivider" then
             return VWB.UI:CreateDivider(parent)
         elseif node.id == "setDangerHeader" then
-            dangerHeader = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            dangerHeader = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalLarge")
             dangerHeader:SetJustifyH("LEFT")
             dangerHeader:SetText(VWB.UI:ColorCode("red") .. "Danger Zone|r")
             return dangerHeader
         elseif node.id == "setDangerDesc" then
-            dangerDesc = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            dangerDesc = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
             dangerDesc:SetJustifyH("LEFT")
             dangerDesc:SetText(VWB.UI:ColorCode("base01") ..
                 "Wipes every recipe, queue, character, and setting the Workbench has on file, then reloads the UI. There is no undo.|r")
@@ -298,7 +298,7 @@ function Settings.buildView(container)
             VWB.Theme:Register(btn, "DangerButton")
             return btn
         elseif node.id == "setVersion" then
-            local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall") -- base font: SetText below precedes the DimLabel skinner
+            local fs = parent:CreateFontString(nil, "OVERLAY", "VWBFontDisableSmall") -- base font: SetText below precedes the DimLabel skinner
             fs:SetJustifyH("LEFT")
             local version = C_AddOns.GetAddOnMetadata("VamoosesWorkbench", "Version") or "Dev"
             fs:SetText("Vamoose's Workbench  v" .. version)
@@ -370,7 +370,7 @@ function Settings.buildView(container)
     -- suppressCallbacks guard, and WoW's Slider:SetValue() re-fires
     -- OnValueChanged even when set programmatically, so a reactive SetValue
     -- here would re-dispatch SET_CONFIG from inside the effect that just
-    -- read it. Nothing else writes fontScale/uiScale/bgOpacity today, so the
+    -- read it. Nothing else writesuiScale/bgOpacity today, so the
     -- build-time default passed to CreateSlider above is sufficient.
 
     -- ColorCode() bakes a hex value into the string at call time, so unlike

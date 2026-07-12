@@ -129,27 +129,27 @@ local function rowTemplate(frame)
     frame._selHL = selHL
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(18, 18); icon:SetPoint("LEFT", 4, 0)
     frame.icon = icon
-    local name = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local name = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     name:SetPoint("LEFT", icon, "RIGHT", 6, 0); name:SetWidth(190); name:SetJustifyH("LEFT")
     frame.name = name
-    local idText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local idText = frame:CreateFontString(nil, "OVERLAY", "VWBFontDisableSmall")
     idText:SetPoint("LEFT", name, "RIGHT", 4, 0); idText:SetWidth(50); idText:SetJustifyH("LEFT")
     frame.idText = idText
-    local badge = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local badge = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     badge:SetPoint("LEFT", idText, "RIGHT", 10, 0); badge:SetWidth(130); badge:SetJustifyH("LEFT") -- fits "Refine: Prospecting" on one line; evidence+ cascade right into free space
     frame.badge = badge
     -- Evidence: the diagnostic's core "why" -- how many recipes touch this item
     -- on each side of the classification (VPC parity column).
-    local evidence = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local evidence = frame:CreateFontString(nil, "OVERLAY", "VWBFontDisableSmall")
     evidence:SetPoint("LEFT", badge, "RIGHT", 8, 0); evidence:SetWidth(120); evidence:SetJustifyH("LEFT")
     frame.evidence = evidence
-    local owned = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local owned = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     owned:SetPoint("LEFT", evidence, "RIGHT", 8, 0); owned:SetWidth(50); owned:SetJustifyH("LEFT")
     frame.owned = owned
-    local bop = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local bop = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     bop:SetPoint("LEFT", owned, "RIGHT", 6, 0); bop:SetWidth(35); bop:SetJustifyH("LEFT")
     frame.bop = bop
-    local need = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local need = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     need:SetPoint("LEFT", bop, "RIGHT", 8, 0); need:SetPoint("RIGHT", -6, 0); need:SetJustifyH("LEFT")
     frame.need = need
 end
@@ -161,13 +161,13 @@ local function recipeRowTemplate(frame)
     frame._selHL = selHL
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 2, 0)
     frame.icon = icon
-    local tag = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local tag = frame:CreateFontString(nil, "OVERLAY", "VWBFontDisableSmall")
     tag:SetPoint("RIGHT", -4, 0); tag:SetWidth(38); tag:SetJustifyH("RIGHT")
     frame.tag = tag
-    local qty = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local qty = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     qty:SetPoint("RIGHT", tag, "LEFT", -4, 0); qty:SetWidth(34); qty:SetJustifyH("RIGHT")
     frame.qty = qty
-    local rname = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local rname = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     rname:SetPoint("LEFT", icon, "RIGHT", 5, 0); rname:SetPoint("RIGHT", qty, "LEFT", -4, 0); rname:SetJustifyH("LEFT")
     frame.rname = rname
 end
@@ -453,7 +453,7 @@ function Stockroom.buildView(container)
             -- Empty states: bare (nothing harvested at all) vs no-search-results
             -- (harvested, but the filter/search excludes everything) -- shown/
             -- hidden by the R.effect below, same distinction VPC's PaintList drew.
-            local emptyText = listWidget:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            local emptyText = listWidget:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
             emptyText:SetPoint("CENTER", listWidget, "CENTER", 0, 0)
             emptyText:SetWidth(420)
             emptyText:SetWordWrap(true)

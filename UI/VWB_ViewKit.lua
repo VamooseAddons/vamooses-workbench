@@ -17,7 +17,7 @@ local BACKDROP = VWB.UI.BACKDROP_FLAT -- exception(false-positive): indirection 
 
 local measureFS
 function Kit.measure(node)
-    if not measureFS then local h = CreateFrame("Frame"); h:Hide(); measureFS = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall") end
+    if not measureFS then local h = CreateFrame("Frame"); h:Hide(); measureFS = h:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall") end
     measureFS:SetText(node.id or node.role or "")
     return { w = measureFS:GetUnboundedStringWidth() + 6, h = 14 }
 end
@@ -27,11 +27,11 @@ end
 -- instead of the uniform dim box the old placeholder rendered for everything.
 -- Provides `.label` (the view binds text to it after build) and registers with
 -- the theme so it repaints on a theme switch.
-local ROLE_FONT = { title = "GameFontNormalLarge", section = "GameFontNormal", body = "GameFontHighlightSmall" }
+local ROLE_FONT = { title = "VWBFontNormalLarge", section = "VWBFontNormal", body = "VWBFontHighlightSmall" }
 local ROLE_SKIN = { title = "HeaderLabel", section = "HeaderLabel" } -- others -> "Label"
 function Kit.roleLabel(node, parent)
     local f = CreateFrame("Frame", nil, parent)
-    local fs = f:CreateFontString(nil, "OVERLAY", ROLE_FONT[node.role] or "GameFontNormalSmall")
+    local fs = f:CreateFontString(nil, "OVERLAY", ROLE_FONT[node.role] or "VWBFontNormalSmall")
     fs:SetPoint("TOPLEFT", 2, 0); fs:SetPoint("BOTTOMRIGHT", -2, 0)
     fs:SetJustifyH("LEFT"); fs:SetJustifyV("MIDDLE")
     fs:SetText(node.text or node.id or "") -- shown until the view binds real text; a genuinely unwired node shows its id

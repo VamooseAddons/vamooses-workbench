@@ -48,14 +48,14 @@ end
 local function listRowTemplate(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 3, 0)
     frame.icon = icon
-    local text = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
+    local text = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall"))
     text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetWidth(NAME_W); text:SetJustifyH("LEFT")
     frame.text = text
     -- single-recipe commission convenience (owner: a VISIBLE affordance,
     -- never right-click-only) -- opens the same shared menu
     frame.plus = CreateFrame("Button", nil, frame)
     frame.plus:SetSize(16, 20); frame.plus:SetPoint("RIGHT", -2, 0)
-    frame.plus.txt = frame.plus:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.plus.txt = frame.plus:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
     frame.plus.txt:SetPoint("CENTER"); frame.plus.txt:SetText("+")
     frame.plus:SetScript("OnClick", function(self)
         local e = frame.data
@@ -68,14 +68,14 @@ local function listRowTemplate(frame)
             end,
         })
     end)
-    local cost = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
+    local cost = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall"))
     cost:SetPoint("RIGHT", frame.plus, "LEFT", -4, 0); cost:SetWidth(COST_W); cost:SetJustifyH("RIGHT")
     frame.cost = cost
-    local zone = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"))
+    local zone = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall"))
     zone:SetPoint("RIGHT", cost, "LEFT", -8, 0); zone:SetWidth(ZONE_W); zone:SetJustifyH("RIGHT")
     frame.zone = zone
     VWB.Theme:Register(zone, "DimLabel")
-    local detail = singleLine(frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
+    local detail = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall"))
     detail:SetPoint("LEFT", text, "RIGHT", 8, 0); detail:SetPoint("RIGHT", zone, "LEFT", -8, 0)
     detail:SetJustifyH("LEFT")
     frame.detail = detail
@@ -165,7 +165,7 @@ function Study.buildView(container)
             bar:Select("all")
             return bar
         elseif node.id == "navLabel" then
-            local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            local fs = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
             fs:SetText(ns.UI:ColorCode("cyan") .. "Sources|r")
             return fs
         elseif node.id == "expansionDD" then
@@ -199,7 +199,7 @@ function Study.buildView(container)
             })
             return navTree
         elseif node.id == "breadcrumb" then
-            breadcrumbFS = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            breadcrumbFS = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
             VWB.Theme:Register(breadcrumbFS, "DimLabel")
             return breadcrumbFS
         elseif node.id == "list" then
@@ -248,7 +248,7 @@ function Study.buildView(container)
                 onRowLeave = function(_, rowFrame) ns.UI.Tooltip:Hide(rowFrame) end,
             })
             local s = ns.UI:GetScheme()
-            local empty = listWidget:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            local empty = listWidget:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
             empty:SetPoint("TOP", 0, -30)
             empty:SetPoint("LEFT", listWidget, "LEFT", 20, 0)
             empty:SetPoint("RIGHT", listWidget, "RIGHT", -20, 0)

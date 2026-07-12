@@ -163,12 +163,12 @@ local function createProjectCard(p, onSelect)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     card.icon = icon
 
-    card.name = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    card.name = card:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
     card.name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 6, 0)
     card.name:SetPoint("RIGHT", card, "RIGHT", -8, 0)
     card.name:SetJustifyH("LEFT"); card.name:SetWordWrap(false)
 
-    card.sub = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    card.sub = card:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     card.sub:SetPoint("TOPLEFT", card.name, "BOTTOMLEFT", 0, -2)
     card.sub:SetPoint("RIGHT", card, "RIGHT", -34, 0)
     card.sub:SetJustifyH("LEFT"); card.sub:SetWordWrap(false)
@@ -311,7 +311,7 @@ local CHIP = { -- text + scheme color key per step kind; CRAFT resolves by readi
 }
 
 local function stepRowTemplate(frame)
-    frame.chip = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    frame.chip = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     -- steps are children of a piece header: indent one tree level, chip
     -- aligned under the header's icon (which sits at LEFT 22)
     frame.chip:SetPoint("LEFT", 22, 0); frame.chip:SetWidth(52); frame.chip:SetJustifyH("LEFT")
@@ -360,17 +360,17 @@ local function stepRowTemplate(frame)
     end)
     frame.wh:SetScript("OnLeave", function(self) VWB.UI.Tooltip:Hide(self) end)
 
-    frame.who = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    frame.who = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     frame.who:SetPoint("RIGHT", frame.action, "LEFT", -6, 0); frame.who:SetWidth(120); frame.who:SetJustifyH("RIGHT")
     frame.who:SetWordWrap(false); frame.who:SetMaxLines(1) -- 26px rows: overlong text truncates, never stacks
 
     -- "queued xN" chip: click feedback for the Queue action (the reducer merges
     -- by recipe+char, so without this a second click silently doubles the order).
     -- Single-point FontString sizes to its text; empty = zero width.
-    frame.queued = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    frame.queued = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     frame.queued:SetPoint("RIGHT", frame.who, "LEFT", -6, 0)
 
-    frame.name = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.name = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     frame.name:SetPoint("LEFT", frame.chip, "RIGHT", 4, 0)
     frame.name:SetPoint("RIGHT", frame.queued, "LEFT", -4, 0)
     frame.name:SetJustifyH("LEFT"); frame.name:SetWordWrap(false)
@@ -562,18 +562,18 @@ end
 -- -- mat rows, dim section/piece headers, and full-width acquisition source
 -- lines for study pieces (their supporting detail is WHERE, not what-mats).
 local function matRowTemplate(frame)
-    frame.name = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.name = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     frame.name:SetPoint("LEFT", 4, 0); frame.name:SetWidth(170); frame.name:SetJustifyH("LEFT"); frame.name:SetWordWrap(false)
-    frame.count = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    frame.count = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     frame.count:SetPoint("LEFT", frame.name, "RIGHT", 6, 0); frame.count:SetWidth(70); frame.count:SetJustifyH("RIGHT")
     -- price is CLAMPED between count and the right edge (a five-digit gold
     -- value was overflowing left OVER the count column -- live 2026-07-12)
-    frame.price = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    frame.price = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     frame.price:SetPoint("LEFT", frame.count, "RIGHT", 4, 0)
     frame.price:SetPoint("RIGHT", -4, 0)
     frame.price:SetJustifyH("RIGHT"); frame.price:SetWordWrap(false); frame.price:SetMaxLines(1)
     -- full-width line for source rows / headers (raw colored sourceText)
-    frame.line = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.line = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     frame.line:SetPoint("LEFT", 4, 0); frame.line:SetPoint("RIGHT", -4, 0)
     frame.line:SetJustifyH("LEFT"); frame.line:SetWordWrap(false); frame.line:SetMaxLines(1)
 end
@@ -748,7 +748,7 @@ function Projects.buildView(container)
         })
         search:SetPoint("TOP", 0, -8)
 
-        local hint = nsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local hint = nsPanel:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         hint:SetPoint("BOTTOM", 0, 6)
         VWB.Theme:Register(hint, "DimLabel")
         -- The picker serves TWO flows: new stock project (header button) and
@@ -763,10 +763,10 @@ function Projects.buildView(container)
         local list = VWB.UI:CreateVirtualizedList(listHost, {
             rowHeight = 20,
             rowTemplate = function(f)
-                f.name = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                f.name = f:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
                 f.name:SetPoint("LEFT", 4, 0); f.name:SetPoint("RIGHT", -80, 0)
                 f.name:SetJustifyH("LEFT"); f.name:SetWordWrap(false)
-                f.prof = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                f.prof = f:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
                 f.prof:SetPoint("RIGHT", -4, 0); f.prof:SetJustifyH("RIGHT")
             end,
             updateRow = function(row, r)
@@ -884,7 +884,7 @@ function Projects.buildView(container)
                     -- before the row's select handler.
                     f.hExpand = CreateFrame("Button", nil, f)
                     f.hExpand:SetSize(18, 22); f.hExpand:SetPoint("LEFT", 2, 0)
-                    f.hExpand.txt = f.hExpand:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                    f.hExpand.txt = f.hExpand:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
                     f.hExpand.txt:SetPoint("CENTER")
                     f.hExpand:SetScript("OnClick", function(self)
                         local r = f.data
@@ -896,16 +896,16 @@ function Projects.buildView(container)
                     end)
                     f.hIcon = f:CreateTexture(nil, "ARTWORK"); f.hIcon:SetSize(18, 18)
                     f.hIcon:SetPoint("LEFT", 22, 0)
-                    f.hStatus = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    f.hStatus = f:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
                     f.hStatus:SetPoint("RIGHT", -24, 0); f.hStatus:SetWidth(150); f.hStatus:SetJustifyH("RIGHT")
                     f.hStatus:SetWordWrap(false); f.hStatus:SetMaxLines(1)
-                    f.hName = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                    f.hName = f:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
                     f.hName:SetPoint("LEFT", f.hIcon, "RIGHT", 6, 0)
                     f.hName:SetPoint("RIGHT", f.hStatus, "LEFT", -8, 0)
                     f.hName:SetJustifyH("LEFT"); f.hName:SetWordWrap(false); f.hName:SetMaxLines(1)
                     f.hRemove = CreateFrame("Button", nil, f)
                     f.hRemove:SetSize(16, 22); f.hRemove:SetPoint("RIGHT", -4, 0)
-                    f.hRemove.txt = f.hRemove:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    f.hRemove.txt = f.hRemove:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
                     f.hRemove.txt:SetPoint("CENTER"); f.hRemove.txt:SetText("x")
                     f.hRemove:SetScript("OnClick", function()
                         local r = f.data

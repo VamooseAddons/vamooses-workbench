@@ -42,10 +42,47 @@ VWB.Theme.BACKDROP_CARD = {
 }
 
 -- ============================================================================
+-- FONT OBJECTS -- THE font pipeline (owner 2026-07-13: themes drive fonts).
+-- ============================================================================
+-- Addon-owned twins of the Blizzard font templates. Every VWB FontString is
+-- created with a VWBFont* template, so ONE SetFont here re-fonts the whole
+-- addon live (font objects propagate to attached strings). Face comes from
+-- config.fontFamily via Constants:GetFontFile; size, color, and shadow
+-- inherit from the twin -- sizing is the UI Scale slider's job (owner
+-- 2026-07-13: no separate font-scale knob), colors stay paint-managed.
+
+local FONT_TWINS = {
+    VWBFontNormal         = "GameFontNormal",
+    VWBFontHighlight      = "GameFontHighlight",
+    VWBFontNormalSmall    = "GameFontNormalSmall",
+    VWBFontHighlightSmall = "GameFontHighlightSmall",
+    VWBFontNormalLarge    = "GameFontNormalLarge",
+    VWBFontDisableSmall   = "GameFontDisableSmall",
+}
+local fontBaseSizes = {}
+for name, base in pairs(FONT_TWINS) do
+    local f = CreateFont(name)
+    f:CopyFontObject(base) -- face/size/flags/color/shadow from the Blizzard twin
+    local _, size = _G[base]:GetFont()
+    fontBaseSizes[name] = size
+end
+
+function VWB.Theme:ApplyFontObjects()
+    local file = VWB.Constants:GetFontFile()
+    for name in pairs(FONT_TWINS) do
+        local f = _G[name]
+        local _, _, flags = f:GetFont()
+        f:SetFont(file, fontBaseSizes[name], flags or "")
+    end
+end
+VWB.Theme:ApplyFontObjects() -- file-load pass: themed face before any view builds
+
+-- ============================================================================
 -- INITIALIZATION
 -- ============================================================================
 
 function VWB.Theme:Initialize()
+    self:ApplyFontObjects() -- SavedVariables are live now: persisted family/scale
     -- Store:Initialize ran first (VWB_Init), so state.config aliases the persisted
     -- VWB_DB.config -- read the saved theme strictly.
     local themeKey = VWB.Store:GetState().config.theme or "solarizeddark" -- exception(optional): unset until the user first picks a theme
@@ -63,6 +100,7 @@ function VWB.Theme:Initialize()
         if payload.themeName then -- font/opacity refreshes fire without themeName; keep current scheme
             self.currentScheme = VWB.Colors.Schemes[payload.themeName]
         end
+        self:ApplyFontObjects() -- family/scale config may have changed; propagates to every VWBFont* string
         self:UpdateAll()
         VWB.Reactor.untrack(function() self.epoch(self.epoch() + 1) end) -- after UpdateAll: rows repaint against the NEW scheme
     end)

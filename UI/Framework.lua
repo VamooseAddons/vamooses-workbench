@@ -214,7 +214,7 @@ local function ApplyTertiaryChrome(btn)
         t:SetAllPoints(btn)
     end
     -- y=1: the atlas interior shades upward; nudge text to visual center (HDG).
-    local fs = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local fs = btn:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     fs:SetPoint("CENTER", 0, 1)
     btn:SetFontString(fs)
     btn.text = fs -- legacy alias: pre-unification widgets exposed .text
@@ -258,7 +258,7 @@ function VWB.UI:CreateButton(parent, text, width, height, opts)
         -- one deliberate exception to the tertiary unification).
         local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
         btn:SetSize(width or 100, height or 24)
-        btn:SetNormalFontObject("GameFontHighlight")
+        btn:SetNormalFontObject("VWBFontHighlight")
         btn:SetText(text)
         btn:SetBackdrop(BACKDROP_FLAT)
         local scheme = GetScheme()
@@ -461,7 +461,7 @@ function VWB.UI:CreateScrollBox(parent, options)
                 icon:SetPoint("LEFT", 2, 0)
                 frame.icon = icon
 
-                local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                local text = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
                 text:SetPoint("LEFT", icon, "RIGHT", 4, 0)
                 text:SetPoint("RIGHT", -5, 0)
                 text:SetJustifyH("LEFT")
@@ -580,7 +580,7 @@ function VWB.UI:BuildQueueRow(row, options)
     readyDot:Hide()
     row.readyDot = readyDot
 
-    local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local text = row:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     text:SetPoint("LEFT", icon, "RIGHT", 4, 0)
     text:SetPoint("RIGHT", -72, 0)
     text:SetJustifyH("LEFT")
@@ -591,7 +591,7 @@ function VWB.UI:BuildQueueRow(row, options)
     removeBtn:SetSize(16, 16)
     removeBtn:SetPoint("RIGHT", -3, 0)
     removeBtn:RegisterForClicks("AnyUp")
-    local xText = removeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local xText = removeBtn:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     xText:SetAllPoints()
     xText:SetText("x")
     xText:SetTextColor(scheme.error.r, scheme.error.g, scheme.error.b)
@@ -607,7 +607,7 @@ function VWB.UI:BuildQueueRow(row, options)
         btn:SetSize(14, 16)
         btn:SetPoint("RIGHT", xOff, 0)
         btn:RegisterForClicks("AnyUp")
-        local t = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        local t = btn:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
         t:SetAllPoints()
         t:SetText(label)
         t:SetTextColor(scheme.text.r, scheme.text.g, scheme.text.b)
@@ -931,10 +931,10 @@ function VWB.UI:ShowNewCommissionDialog(ctx)
         d:SetPoint("CENTER", 0, 60)
         d:SetFrameStrata("DIALOG")
         RegisterWidget(d, "Panel")
-        d.title = d:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        d.title = d:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
         d.title:SetPoint("TOPLEFT", 12, -10)
         d.title:SetText("New Commission")
-        d.count = d:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        d.count = d:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         d.count:SetPoint("TOPRIGHT", -12, -12)
         RegisterWidget(d.count, "DimLabel")
         d.edit = CreateFrame("EditBox", nil, d, "BackdropTemplate")
@@ -942,7 +942,7 @@ function VWB.UI:ShowNewCommissionDialog(ctx)
         d.edit:SetBackdropColor(0, 0, 0, 0.5)
         d.edit:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, 1)
         d.edit:SetSize(316, 24); d.edit:SetPoint("TOPLEFT", 12, -32)
-        d.edit:SetAutoFocus(true); d.edit:SetFontObject("GameFontHighlightSmall")
+        d.edit:SetAutoFocus(true); d.edit:SetFontObject("VWBFontHighlightSmall")
         d.edit:SetTextInsets(6, 6, 0, 0)
         d.edit:SetScript("OnEscapePressed", function() d:Hide() end)
         -- destination: two plain toggles (Backlog default set per surface)
@@ -1403,7 +1403,7 @@ function VWB.UI:CreateExportDialog()
     dialog:SetBackdropBorderColor(scheme.border.r, scheme.border.g, scheme.border.b, scheme.border.a)
 
     -- Title
-    local title = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local title = dialog:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
     title:SetPoint("TOP", 0, -8)
     title:SetText("Export")
     title:SetTextColor(scheme.text_header.r, scheme.text_header.g, scheme.text_header.b)
@@ -1415,7 +1415,7 @@ function VWB.UI:CreateExportDialog()
     closeBtn:SetPoint("TOPRIGHT", -2, -2)
     closeBtn:SetBackdrop(BACKDROP_FLAT)
     closeBtn:SetBackdropColor(scheme.button_normal.r, scheme.button_normal.g, scheme.button_normal.b, scheme.button_normal.a)
-    local closeTxt = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local closeTxt = closeBtn:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     closeTxt:SetPoint("CENTER")
     closeTxt:SetText("X")
     closeTxt:SetTextColor(scheme.error.r, scheme.error.g, scheme.error.b)
@@ -1429,7 +1429,7 @@ function VWB.UI:CreateExportDialog()
     local eb = CreateFrame("EditBox", nil, sf)
     eb:SetMultiLine(true)
     eb:SetAutoFocus(false)
-    eb:SetFontObject("GameFontHighlightSmall")
+    eb:SetFontObject("VWBFontHighlightSmall")
     eb:SetWidth(sf:GetWidth() or 440)
     eb:SetTextColor(scheme.text.r, scheme.text.g, scheme.text.b)
     sf:SetScrollChild(eb)
@@ -1542,21 +1542,21 @@ function VWB.UI:CreateCharStatCard(parent, options)
 
     -- Text column right of the icon, stacked top-down so the three lines
     -- never collide: name / professions / scanned-ago.
-    local name = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local name = card:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
     name:SetPoint("TOPLEFT", card, "TOPLEFT", 44, -7)
     name:SetPoint("RIGHT", card, "RIGHT", -8, 0)
     name:SetJustifyH("LEFT")
     name:SetWordWrap(false)
     card.name = name
 
-    local sub = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local sub = card:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     sub:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -1)
     sub:SetPoint("TOPRIGHT", name, "BOTTOMRIGHT", 0, -1)
     sub:SetJustifyH("LEFT")
     sub:SetWordWrap(false)
     card.sub = sub
 
-    local scanned = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local scanned = card:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     scanned:SetPoint("TOPLEFT", sub, "BOTTOMLEFT", 0, -1)
     scanned:SetPoint("TOPRIGHT", sub, "BOTTOMRIGHT", 0, -1)
     scanned:SetJustifyH("LEFT")
@@ -1708,7 +1708,7 @@ function VWB.UI:CreateProfessionTabBar(parent, items, onSelect)
         btn.icon = icon
 
         -- Short label next to icon
-        local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local label = btn:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         label:SetPoint("LEFT", icon, "RIGHT", 4, 0)
         local displayText = item.abbrev or item.label or item.key
         label:SetText(displayText)
@@ -1819,12 +1819,12 @@ function VWB.UI:CreateEmptyStateCard(parent, opts)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     card.icon = icon
 
-    local title = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local title = card:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
     title:SetPoint("TOP", icon, "BOTTOM", 0, -8)
     title:SetText(opts.title or "")
     card.title = title
 
-    local body = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local body = card:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     body:SetPoint("TOP", title, "BOTTOM", 0, -6)
     body:SetPoint("LEFT", card, "LEFT", 16, 0)
     body:SetPoint("RIGHT", card, "RIGHT", -16, 0)
@@ -1906,7 +1906,7 @@ function VWB.UI:CreateNavTree(parent, options)
         header:SetHeight(22)
         header:SetBackdrop(VWB.Theme.BACKDROP_PANEL)
 
-        local arrow = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local arrow = header:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         arrow:SetPoint("LEFT", 4, 0)
         header.arrow = arrow
 
@@ -1926,13 +1926,13 @@ function VWB.UI:CreateNavTree(parent, options)
         accent:SetPoint("LEFT", 14, 0)
         header.accentBar = accent
 
-        local headerText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local headerText = header:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         headerText:SetPoint("LEFT", 22, 0)
         headerText:SetPoint("RIGHT", -30, 0)
         headerText:SetJustifyH("LEFT")
         header.text = headerText
 
-        local countText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local countText = header:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         countText:SetPoint("RIGHT", -4, 0)
         header.countText = countText
 
@@ -1963,13 +1963,13 @@ function VWB.UI:CreateNavTree(parent, options)
         selBar:SetTexture("Interface\\Buttons\\WHITE8x8")
         row.selBar = selBar
 
-        local itemText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local itemText = row:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         itemText:SetPoint("LEFT", 8, 0)
         itemText:SetPoint("RIGHT", -30, 0)
         itemText:SetJustifyH("LEFT")
         row.text = itemText
 
-        local cntText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local cntText = row:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         cntText:SetPoint("RIGHT", -4, 0)
         row.countText = cntText
 

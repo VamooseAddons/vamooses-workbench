@@ -23,7 +23,7 @@ local measureFS
 local function measure(node)
     if not measureFS then
         local h = CreateFrame("Frame"); h:Hide()
-        measureFS = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        measureFS = h:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     end
     measureFS:SetText(node.text or node.id or node.role or "")
     return { w = measureFS:GetUnboundedStringWidth() + 6, h = 14 }
@@ -102,7 +102,7 @@ local function shellMakeFrame(node, parent)
         local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
         f:SetBackdrop(FLAT); f:SetBackdropColor(s.bg.r, s.bg.g, s.bg.b, s.bg.a)
         f:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, s.border.a)
-        local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local fs = f:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         fs:SetPoint("LEFT", 8, 0); fs:SetTextColor(s.text.r, s.text.g, s.text.b)
         f.label = fs
         return f
@@ -133,7 +133,7 @@ local function navMakeFrame(node, parent)
     btn.hl = hl
     btn:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
     btn:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
-    local fs = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local fs = btn:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
     fs:SetPoint("LEFT", 10, 0)
     fs:SetText(node.text or node.id)
     btn.label = fs
@@ -142,7 +142,7 @@ local function navMakeFrame(node, parent)
     pill:SetSize(30, 14); pill:SetPoint("RIGHT", -4, 0)
     pill:SetColorTexture(_d.selected_bar.r, _d.selected_bar.g, _d.selected_bar.b, 0.22); pill:Hide()
     btn.badgePill = pill
-    local bc = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local bc = btn:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     bc:SetPoint("CENTER", pill, "CENTER", 0, 0)
     local _sb = _d.selected_bar
     bc:SetTextColor(_sb.r, _sb.g, _sb.b) -- scheme selection color readable on the pill
@@ -163,7 +163,7 @@ function Shell.openWindow()
     win:EnableMouse(true); win:SetMovable(true); win:RegisterForDrag("LeftButton")
     win:SetScript("OnDragStart", win.StartMoving); win:SetScript("OnDragStop", win.StopMovingOrSizing)
 
-    local title = win:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local title = win:CreateFontString(nil, "OVERLAY", "VWBFontNormalLarge")
     title:SetPoint("TOP", 0, -9); title:SetText("Vamoose's Workbench")
     title:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
     win.title = title -- so the Frame skinner re-colors the title on a theme switch
@@ -352,7 +352,7 @@ function Shell.openWindow()
     matsBtn:SetHeight(14)
     matsBtn:SetPoint("LEFT", status.label, "RIGHT", 12, 0)
     matsBtn:SetPoint("RIGHT", status, "CENTER", 0, 0) -- cap width at center
-    local matsBtnFS = matsBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local matsBtnFS = matsBtn:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     matsBtnFS:SetAllPoints(); matsBtnFS:SetJustifyH("LEFT")
     matsBtn.fs = matsBtnFS
     VWB.Theme:Register(matsBtnFS, "DimLabel")
@@ -392,7 +392,7 @@ function Shell.openWindow()
     -- Delta label: "+N craftable since open"; right-aligned; hidden when delta <= 0.
     -- Both effects read craftableCount() (the named computed above) so the O(queue)
     -- CanCraft scan runs once per flush, not twice.
-    local deltaFS = status:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local deltaFS = status:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     deltaFS:SetPoint("RIGHT", -8, 0)
     R.bindText(deltaFS, function()
         local baseline = craftableBaseline()
@@ -415,7 +415,7 @@ function Shell.openWindow()
     toast:SetPoint("TOP", contentHost, "TOP", 0, -12)
     toast:SetSize(400, 24)
     toast:Hide()
-    local toastFS = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    local toastFS = toast:CreateFontString(nil, "OVERLAY", "VWBFontNormalLarge")
     toastFS:SetAllPoints()
     toastFS:SetJustifyH("CENTER")
     local fade = toast:CreateAnimationGroup()

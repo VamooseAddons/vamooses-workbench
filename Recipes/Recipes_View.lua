@@ -50,12 +50,12 @@ local function rowTemplate(frame)
     for i = 1, CHIP_MAX do
         local bg = frame:CreateTexture(nil, "ARTWORK", nil, 2)
         bg:SetTexture("Interface\\Buttons\\WHITE8x8"); bg:Hide()
-        local t = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local t = frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         t:SetPoint("CENTER", bg, "CENTER", 0, 0); t:Hide()
         frame.chips[i] = { bg = bg, text = t }
     end
 
-    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local text = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetJustifyH("LEFT")
     frame.text = text
 
@@ -231,10 +231,10 @@ end
 local function matRowTemplate(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 3, 0)
     frame.icon = icon
-    local countText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local countText = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     countText:SetPoint("RIGHT", -4, 0); countText:SetJustifyH("RIGHT")
     frame.countText = countText
-    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local text = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetPoint("RIGHT", countText, "LEFT", -6, 0); text:SetJustifyH("LEFT")
     frame.text = text
 end
@@ -963,13 +963,13 @@ function Recipes.buildView(container)
     scopePill:SetBackdropColor(pillScheme.accent.r, pillScheme.accent.g, pillScheme.accent.b, 0.18)
     scopePill:SetBackdropBorderColor(pillScheme.accent.r, pillScheme.accent.g, pillScheme.accent.b, 0.40)
     scopePill:SetFrameLevel(handle.byId.rcpListCol:GetFrameLevel() + 10)
-    local pillLabel = scopePill:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local pillLabel = scopePill:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     pillLabel:SetPoint("LEFT", 6, 0); pillLabel:SetPoint("RIGHT", -26, 0)
     pillLabel:SetJustifyH("LEFT"); pillLabel:SetTextColor(pillScheme.accent.r, pillScheme.accent.g, pillScheme.accent.b)
     scopePill.label = pillLabel
     local pillDismiss = CreateFrame("Button", nil, scopePill)
     pillDismiss:SetSize(16, 16); pillDismiss:SetPoint("RIGHT", -4, 0); pillDismiss:RegisterForClicks("AnyUp")
-    local pillX = pillDismiss:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local pillX = pillDismiss:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     pillX:SetAllPoints(); pillX:SetText("x"); pillX:SetTextColor(pillScheme.accent.r, pillScheme.accent.g, pillScheme.accent.b)
     pillDismiss:SetScript("OnClick", function() ns.Store:Dispatch("CLEAR_SCOPE") end)
     scopePill:Hide()

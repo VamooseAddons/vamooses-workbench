@@ -61,14 +61,14 @@ local function summaryRowTemplate(frame)
     icon:SetSize(16, 16); icon:SetPoint("LEFT", 4, 0)
     frame.icon = icon
 
-    local name = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local name = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     name:SetPoint("LEFT", icon, "RIGHT", 4, 0); name:SetWidth(PROF_COL_WIDTH - 24); name:SetJustifyH("LEFT")
     frame.name = name
 
     frame.cells = {}
     local x = PROF_COL_WIDTH + 8
     for i = 1, #ED.EXPANSION_ORDER do
-        local cell = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local cell = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
         cell:SetPoint("LEFT", x, 0); cell:SetWidth(EXP_COL_WIDTH); cell:SetJustifyH("CENTER")
         frame.cells[i] = cell
         x = x + EXP_COL_WIDTH
@@ -153,13 +153,13 @@ end
 -- Static expansion column header (built once; no per-frame data, never repainted).
 local function buildExpansionHeader(parent)
     local hdr = CreateFrame("Frame", nil, parent)
-    local profLabel = hdr:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local profLabel = hdr:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     profLabel:SetPoint("LEFT", 4, 0); profLabel:SetWidth(PROF_COL_WIDTH); profLabel:SetJustifyH("LEFT")
     profLabel:SetText("Profession")
 
     local x = PROF_COL_WIDTH + 8
     for _, expInfo in ipairs(ED.EXPANSION_ORDER) do
-        local lbl = hdr:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local lbl = hdr:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
         lbl:SetPoint("LEFT", x, 0); lbl:SetWidth(EXP_COL_WIDTH); lbl:SetJustifyH("CENTER")
         lbl:SetText(expInfo.abbr)
         lbl:SetTextColor(expInfo.color.r, expInfo.color.g, expInfo.color.b)
@@ -288,7 +288,7 @@ local function createCharCard(p)
     local removeX = CreateFrame("Button", nil, card)
     removeX:SetSize(16, 16)
     removeX:SetPoint("TOPRIGHT", -2, -2)
-    removeX.txt = removeX:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    removeX.txt = removeX:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
     removeX.txt:SetPoint("CENTER")
     removeX.txt:SetText("x")
     local sErr = VWB.UI:GetScheme().error
@@ -437,7 +437,7 @@ function Roster.buildView(container)
             })
             root.empty:SetPoint("CENTER")
 
-            root.stripHeader = root:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            root.stripHeader = root:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
             root.stripHeader:SetPoint("TOPLEFT", 0, 0)
             root.stripHeader:SetText("Character Roster")
 
@@ -458,7 +458,7 @@ function Roster.buildView(container)
             stripView:SetPanExtent(STRIP_HEIGHT + CARD_GAP)
             stripScroll:Init(stripView)
 
-            root.summaryHeader = root:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            root.summaryHeader = root:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
             root.summaryHeader:SetPoint("TOPLEFT", root, "TOPLEFT", CARD_W + 12, 0)
             root.summaryHeader:SetText("Account Summary")
 

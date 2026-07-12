@@ -51,14 +51,14 @@ local function AcquireLine(i)
     local L = lines[i]
     if not L then
         L = {
-            left = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"),
-            right = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"),
+            left = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall"),
+            right = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall"),
         }
         L.left:SetJustifyH("LEFT")
         L.right:SetJustifyH("RIGHT")
         lines[i] = L
     end
-    L.left:SetFontObject("GameFontHighlightSmall")
+    L.left:SetFontObject("VWBFontHighlightSmall")
     L.left:SetText("")
     L.right:SetText("")
     L.hasRight = false
@@ -132,7 +132,7 @@ end
 function Tooltip:AddTitle(text, r, g, b)
     used = used + 1
     local L = AcquireLine(used)
-    L.left:SetFontObject("GameFontNormal")
+    L.left:SetFontObject("VWBFontNormal")
     L.left:SetText(text or "")
     if type(r) == "number" then
         L.left:SetTextColor(r, g or 1, b or 1)

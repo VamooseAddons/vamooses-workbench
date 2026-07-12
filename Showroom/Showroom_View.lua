@@ -175,7 +175,7 @@ local function listRowTemplate(frame)
     frame.icon = icon
     local tick = frame:CreateTexture(nil, "OVERLAY"); tick:SetSize(14, 14); tick:SetPoint("RIGHT", -4, 0); tick:SetTexture(TICK_TEXTURE); tick:Hide()
     frame.tick = tick
-    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local text = frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall")
     text:SetPoint("LEFT", icon, "RIGHT", 5, 0); text:SetPoint("RIGHT", tick, "LEFT", -4, 0); text:SetJustifyH("LEFT")
     frame.text = text
     -- Item 6a: shimmer attached once at factory time (AnimationGroups must not be
@@ -287,7 +287,7 @@ function Showroom.buildView(container)
             return bar
         elseif node.id == "navLabel" then
             local f = CreateFrame("Frame", nil, parent)
-            local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            local fs = f:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
             fs:SetText(ns.UI:ColorCode("cyan") .. "Categories|r")
             fs:SetPoint("LEFT", 4, 0)
             -- Expand-all / collapse-all: one button that flips whichever state
@@ -356,7 +356,7 @@ function Showroom.buildView(container)
                 onRowLeave = function(_, rowFrame) ns.UI.Tooltip:Hide(rowFrame) end,
             })
             local s = ns.UI:GetScheme()
-            local empty = listWidget:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            local empty = listWidget:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
             empty:SetPoint("TOP", 0, -30)
             empty:SetPoint("LEFT", listWidget, "LEFT", 20, 0)
             empty:SetPoint("RIGHT", listWidget, "RIGHT", -20, 0)
@@ -383,7 +383,7 @@ function Showroom.buildView(container)
             return modelSceneFrame
         elseif node.id == "controlsHint" then
             local s = ns.UI:GetScheme()
-            local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            local fs = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
             fs:SetText("Drag to rotate - scroll to zoom")
             fs:SetJustifyH("CENTER") -- spans the model area (fill width); centre the text within it
             fs:SetTextColor(s.text.r, s.text.g, s.text.b)
@@ -391,13 +391,13 @@ function Showroom.buildView(container)
             return fs
         elseif node.id == "itemName" then
             local s = ns.UI:GetScheme()
-            itemNameFS = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            itemNameFS = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalLarge")
             itemNameFS:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
             VWB.Theme:Register(itemNameFS, "HeaderLabel")
             return itemNameFS
         elseif node.id == "itemDetails" then
             local s = ns.UI:GetScheme()
-            itemDetailsFS = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            itemDetailsFS = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
             itemDetailsFS:SetTextColor(s.text.r, s.text.g, s.text.b)
             VWB.Theme:Register(itemDetailsFS, "Label")
             return itemDetailsFS
