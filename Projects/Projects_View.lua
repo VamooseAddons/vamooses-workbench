@@ -446,6 +446,33 @@ local function paintVendorHdr(row, r, s)
     row.action:SetPoint("RIGHT", row.wh, "LEFT", -4, 0)
 end
 
+-- Piece header row: icon + name + status + expand/remove child buttons.
+local function paintPieceHdrRow(row, r, s)
+    row.hExpand.txt:SetText(r.expanded and "-" or "+")
+    row.hExpand.txt:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
+    row.hIcon:SetTexture((r.piece.itemID and C_Item.GetItemIconByID(r.piece.itemID)) or ICON_FALLBACK)
+    row.hName:SetText(r.name)
+    if r.selected then
+        row.hName:SetTextColor(s.warning.r, s.warning.g, s.warning.b)
+    else
+        row.hName:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
+    end
+    row.hRemove.txt:SetTextColor(s.error.r, s.error.g, s.error.b)
+    local pp = r.piecePlan
+    if pp.status == "complete" then
+        row.hStatus:SetText("done"); row.hStatus:SetTextColor(s.success.r, s.success.g, s.success.b)
+    elseif r.piece.kind == "stock" then
+        local c = pp.status == "dormant" and s.success or s.warning
+        row.hStatus:SetText(string.format("par %d -- %d on hand", pp.par or 1, pp.level or 0))
+        row.hStatus:SetTextColor(c.r, c.g, c.b)
+    elseif pp.unresolved then
+        row.hStatus:SetText("recipe not scanned"); row.hStatus:SetTextColor(s.text.r, s.text.g, s.text.b)
+    else
+        row.hStatus:SetText(string.format("%d/%d steps", pp.done, pp.total))
+        row.hStatus:SetTextColor(s.text.r, s.text.g, s.text.b)
+    end
+end
+
 -- Recipe row under a source header: still THE PIECE -- selectable (filters
 -- the Sources panel), removable, stamped by the learn sweep.
 local function paintVendorRecipe(row, r, s)
@@ -932,33 +959,7 @@ function Projects.buildView(container)
                         row.hName:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
                         return
                     end
-                    if r.pieceHdr then
-                        row.hExpand.txt:SetText(r.expanded and "-" or "+")
-                        row.hExpand.txt:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
-                        row.hIcon:SetTexture((r.piece.itemID and C_Item.GetItemIconByID(r.piece.itemID)) or ICON_FALLBACK)
-                        row.hName:SetText(r.name)
-                        if r.selected then
-                            row.hName:SetTextColor(s.warning.r, s.warning.g, s.warning.b)
-                        else
-                            row.hName:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
-                        end
-                        row.hRemove.txt:SetTextColor(s.error.r, s.error.g, s.error.b)
-                        local pp = r.piecePlan
-                        if pp.status == "complete" then
-                            row.hStatus:SetText("done"); row.hStatus:SetTextColor(s.success.r, s.success.g, s.success.b)
-                        elseif r.piece.kind == "stock" then
-                            local c = pp.status == "dormant" and s.success or s.warning
-                            row.hStatus:SetText(string.format("par %d -- %d on hand", pp.par or 1, pp.level or 0))
-                            row.hStatus:SetTextColor(c.r, c.g, c.b)
-                        elseif pp.unresolved then
-                            row.hStatus:SetText("recipe not scanned"); row.hStatus:SetTextColor(s.text.r, s.text.g, s.text.b)
-                        else
-                            row.hStatus:SetText(string.format("%d/%d steps", pp.done, pp.total))
-                            row.hStatus:SetTextColor(s.text.r, s.text.g, s.text.b)
-                        end
-                        row:SetAlpha(1)
-                        return
-                    end
+                    if r.pieceHdr then paintPieceHdrRow(row, r, s); return end
                     paintStepRow(row, r)
                     -- ruling 6A: execution steps gate on Active (vendor
                     -- headers -- research -- return above, before this gate)
@@ -1149,6 +1150,128 @@ function Projects.buildView(container)
         stripScroll:FullUpdate(ScrollBoxConstants.UpdateImmediately)
     end, "projects:strip")
 
+    -- SOURCES / MATERIALS rows: mats first (actionable now), then per-piece
+    -- acquisition source blocks for the scope's study pieces.
+    local function buildMatRows(e, pieceIdx, scope)
+        local mats = {}
+        for _, m in ipairs(scope.mats) do mats[#mats + 1] = withLiveName(m) end
+        local pieceRange = pieceIdx and { e.p.pieces[pieceIdx] } or e.p.pieces
+        local blocks = {}
+        for _, pc in ipairs(pieceRange) do
+            if pc.kind == "study" and not pc.completedAt then
+                local desc = VWB.RecipeSources.Describe(pc.recipeID)
+                if desc and #desc.lines > 0 then
+                    blocks[#blocks + 1] = { pc = pc, lines = desc.lines }
+                end
+            end
+        end
+        if #blocks > 0 then
+            if #mats > 0 then
+                table.insert(mats, 1, { kind = "hdr", label = "Materials" })
+                mats[#mats + 1] = { kind = "hdr", label = "Sources" }
+            end
+            for _, b in ipairs(blocks) do
+                if #blocks > 1 then
+                    mats[#mats + 1] = { kind = "hdr", label = liveName(b.pc.itemID, b.pc.name) }
+                end
+                for _, ln in ipairs(b.lines) do
+                    mats[#mats + 1] = { kind = "src", line = ln }
+                end
+            end
+        end
+        return mats
+    end
+
+    -- THE TREE rows: non-study pieces render piece -> steps; study pieces
+    -- group by SOURCE across the commission (owner 2026-07-12: the unit of
+    -- work is the vendor trip, one code path for all study pieces). Step rows
+    -- are always fresh copies (the derived plan rows are shared computed
+    -- values -- never mutate them with row-local flags).
+    local function buildStepRows(e)
+        local rows = {}
+        local canWork = e.p.status == "bench"
+        local collapsed = expandCollapsed()
+        local selId = selectedPiece()
+        local removable = e.p.status ~= "done" -- sealed
+        local groups, order = {}, {} -- source key -> group; first-seen emit order
+        local function groupFor(key, title, st)
+            local g = groups[key]
+            if not g then
+                g = { title = title, name = st and st.name, zone = st and st.zone,
+                    npc = st and st.npc, pin = nil, recipes = {} }
+                groups[key] = g
+                order[#order + 1] = key
+            end
+            return g
+        end
+        for i, pc in ipairs(e.p.pieces) do
+            local pp = e.plan.pieces[i]
+            if pc.kind == "study" then
+                if pc.completedAt then
+                    local g = groupFor("\1learned", "Learned")
+                    g.recipes[#g.recipes + 1] = { pc = pc, pp = pp }
+                elseif pp.unresolved then
+                    local g = groupFor("\2unknown", "Source unknown -- recipe not scanned")
+                    g.recipes[#g.recipes + 1] = { pc = pc, pp = pp }
+                else
+                    for _, st in ipairs(pp.steps) do -- LEARN steps: one per source
+                        local key = st.name .. "|" .. (st.zone or "")
+                        local g = groupFor(key, st.name .. (st.zone and ("  --  " .. st.zone) or ""), st)
+                        if not g.pin then
+                            -- async row field lives in the envelope: tracked
+                            -- latch read, so the ATT pin arriving re-runs
+                            -- this effect (a paint-time read never repaints)
+                            g.pin = VWB.NpcCoords.ForRecipe(st.recipeID, st.npc, st.zone)
+                        end
+                        g.recipes[#g.recipes + 1] = { pc = pc, pp = pp, st = st }
+                    end
+                end
+            else
+                local expanded = not collapsed[pc.id]
+                rows[#rows + 1] = { pieceHdr = true, piece = pc, piecePlan = pp, expandKey = pc.id,
+                    name = liveName(pc.itemID, pc.name), expanded = expanded,
+                    selected = selId == pc.id, removable = removable, projectId = e.p.id }
+                if expanded then
+                    for _, st in ipairs(pp.steps) do
+                        local r = {}
+                        for k, v in pairs(st) do r[k] = v end
+                        r.name = liveName(st.itemID, st.name)
+                        r._canWork = canWork
+                        r._dim = selId ~= nil and selId ~= pc.id
+                        rows[#rows + 1] = r
+                    end
+                end
+            end
+        end
+        -- sources in first-seen order; Learned/unknown groups (\1/\2 keys) trail
+        local emit = {}
+        for _, key in ipairs(order) do if key:byte(1) > 2 then emit[#emit + 1] = key end end
+        for _, key in ipairs(order) do if key:byte(1) <= 2 then emit[#emit + 1] = key end end
+        for _, key in ipairs(emit) do
+            local g = groups[key]
+            local expandKey = "v:" .. key
+            local expanded = not collapsed[expandKey]
+            rows[#rows + 1] = { vendorHdr = true, expandKey = expandKey, expanded = expanded,
+                title = g.title, name = g.name or g.title, zone = g.zone, npc = g.npc,
+                kind = "LEARN", pin = g.pin, count = #g.recipes,
+                learnedGroup = key == "\1learned" }
+            if expanded then
+                for _, rec in ipairs(g.recipes) do
+                    rows[#rows + 1] = { vendorRecipe = true, piece = rec.pc, piecePlan = rec.pp,
+                        name = liveName(rec.pc.itemID, rec.pc.name),
+                        cost = rec.st and rec.st.cost, faction = rec.st and rec.st.faction,
+                        done = rec.pc.completedAt ~= nil,
+                        selected = selId == rec.pc.id, removable = removable, projectId = e.p.id,
+                        _dim = selId ~= nil and selId ~= rec.pc.id }
+                end
+            end
+        end
+        if #e.p.pieces < VWB.Constants.Projects.MAX_PIECES and e.p.status ~= "done" then
+            rows[#rows + 1] = { addRow = true, projectId = e.p.id }
+        end
+        return rows
+    end
+
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled step/mat rows on switch
         ns.Store:Version("crafting") -- queue edits repaint the "queued xN" step chips
@@ -1156,128 +1279,8 @@ function Projects.buildView(container)
         -- Names resolve through nameRes INSIDE this tracked effect: a cold row
         -- subscribes its key, and the load result re-runs the effect with the
         -- real name -- no manual re-derive plumbing.
-        -- SOURCES / MATERIALS: mats first (actionable now), then per-piece
-        -- acquisition source blocks for the scope's study pieces.
-        local mats = {}
-        if e then
-            for _, m in ipairs(scope.mats) do mats[#mats + 1] = withLiveName(m) end
-            local pieceRange = pieceIdx and { e.p.pieces[pieceIdx] } or e.p.pieces
-            local blocks = {}
-            for _, pc in ipairs(pieceRange) do
-                if pc.kind == "study" and not pc.completedAt then
-                    local desc = VWB.RecipeSources.Describe(pc.recipeID)
-                    if desc and #desc.lines > 0 then
-                        blocks[#blocks + 1] = { pc = pc, lines = desc.lines }
-                    end
-                end
-            end
-            if #blocks > 0 then
-                if #mats > 0 then
-                    table.insert(mats, 1, { kind = "hdr", label = "Materials" })
-                    mats[#mats + 1] = { kind = "hdr", label = "Sources" }
-                end
-                for _, b in ipairs(blocks) do
-                    if #blocks > 1 then
-                        mats[#mats + 1] = { kind = "hdr", label = liveName(b.pc.itemID, b.pc.name) }
-                    end
-                    for _, ln in ipairs(b.lines) do
-                        mats[#mats + 1] = { kind = "src", line = ln }
-                    end
-                end
-            end
-        end
-        matsList:SetData(mats)
-
-        -- THE TREE: one mixed-row list. Non-study pieces render piece ->
-        -- steps; study pieces group by SOURCE across the commission (owner
-        -- 2026-07-12: the unit of work is the vendor trip, one code path for
-        -- all study pieces). Step rows are always fresh copies (the derived
-        -- plan rows are shared computed values -- never mutate them with
-        -- row-local flags).
-        local rows = {}
-        if e then
-            local canWork = e.p.status == "bench"
-            local collapsed = expandCollapsed()
-            local selId = selectedPiece()
-            local removable = e.p.status ~= "done" -- sealed
-            local groups, order = {}, {} -- source key -> group; first-seen emit order
-            local function groupFor(key, title, st)
-                local g = groups[key]
-                if not g then
-                    g = { title = title, name = st and st.name, zone = st and st.zone,
-                        npc = st and st.npc, pin = nil, recipes = {} }
-                    groups[key] = g
-                    order[#order + 1] = key
-                end
-                return g
-            end
-            for i, pc in ipairs(e.p.pieces) do
-                local pp = e.plan.pieces[i]
-                if pc.kind == "study" then
-                    if pc.completedAt then
-                        local g = groupFor("\1learned", "Learned")
-                        g.recipes[#g.recipes + 1] = { pc = pc, pp = pp }
-                    elseif pp.unresolved then
-                        local g = groupFor("\2unknown", "Source unknown -- recipe not scanned")
-                        g.recipes[#g.recipes + 1] = { pc = pc, pp = pp }
-                    else
-                        for _, st in ipairs(pp.steps) do -- LEARN steps: one per source
-                            local key = st.name .. "|" .. (st.zone or "")
-                            local g = groupFor(key, st.name .. (st.zone and ("  --  " .. st.zone) or ""), st)
-                            if not g.pin then
-                                -- async row field lives in the envelope: tracked
-                                -- latch read, so the ATT pin arriving re-runs
-                                -- this effect (a paint-time read never repaints)
-                                g.pin = VWB.NpcCoords.ForRecipe(st.recipeID, st.npc, st.zone)
-                            end
-                            g.recipes[#g.recipes + 1] = { pc = pc, pp = pp, st = st }
-                        end
-                    end
-                else
-                    local expanded = not collapsed[pc.id]
-                    rows[#rows + 1] = { pieceHdr = true, piece = pc, piecePlan = pp, expandKey = pc.id,
-                        name = liveName(pc.itemID, pc.name), expanded = expanded,
-                        selected = selId == pc.id, removable = removable, projectId = e.p.id }
-                    if expanded then
-                        for _, st in ipairs(pp.steps) do
-                            local r = {}
-                            for k, v in pairs(st) do r[k] = v end
-                            r.name = liveName(st.itemID, st.name)
-                            r._canWork = canWork
-                            r._dim = selId ~= nil and selId ~= pc.id
-                            rows[#rows + 1] = r
-                        end
-                    end
-                end
-            end
-            -- sources in first-seen order; Learned/unknown groups (\1/\2 keys) trail
-            local emit = {}
-            for _, key in ipairs(order) do if key:byte(1) > 2 then emit[#emit + 1] = key end end
-            for _, key in ipairs(order) do if key:byte(1) <= 2 then emit[#emit + 1] = key end end
-            for _, key in ipairs(emit) do
-                local g = groups[key]
-                local expandKey = "v:" .. key
-                local expanded = not collapsed[expandKey]
-                rows[#rows + 1] = { vendorHdr = true, expandKey = expandKey, expanded = expanded,
-                    title = g.title, name = g.name or g.title, zone = g.zone, npc = g.npc,
-                    kind = "LEARN", pin = g.pin, count = #g.recipes,
-                    learnedGroup = key == "\1learned" }
-                if expanded then
-                    for _, rec in ipairs(g.recipes) do
-                        rows[#rows + 1] = { vendorRecipe = true, piece = rec.pc, piecePlan = rec.pp,
-                            name = liveName(rec.pc.itemID, rec.pc.name),
-                            cost = rec.st and rec.st.cost, faction = rec.st and rec.st.faction,
-                            done = rec.pc.completedAt ~= nil,
-                            selected = selId == rec.pc.id, removable = removable, projectId = e.p.id,
-                            _dim = selId ~= nil and selId ~= rec.pc.id }
-                    end
-                end
-            end
-            if #e.p.pieces < VWB.Constants.Projects.MAX_PIECES and e.p.status ~= "done" then
-                rows[#rows + 1] = { addRow = true, projectId = e.p.id }
-            end
-        end
-        stepsList:SetData(rows)
+        matsList:SetData(e and buildMatRows(e, pieceIdx, scope) or {})
+        stepsList:SetData(e and buildStepRows(e) or {})
     end, "projects:detail")
 
     return handle

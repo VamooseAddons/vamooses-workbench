@@ -31,6 +31,22 @@ local function IsGuildOrOtherPlayerSession()
     return C_TradeSkillUI.IsTradeSkillGuild() or C_TradeSkillUI.IsTradeSkillGuildMember()
 end
 
+-- Coverage payload for UPDATE_COVERAGE: one record per profession::expansion
+-- scanned this pass, stamped as an "own" scan.
+local function buildCoveragePayload(expansionCounts, profName)
+    local coverage = {}
+    for expName, count in pairs(expansionCounts) do
+        coverage[profName .. "::" .. expName] = {
+            professionName = profName,
+            expansionName = expName,
+            count = count,
+            lastScan = time(),
+            source = "own",
+        }
+    end
+    return coverage
+end
+
 local function HarvestOwnProfession(recipeIDs, profName)
     ownHarvestToken = ownHarvestToken + 1
     local token = ownHarvestToken
@@ -100,17 +116,7 @@ local function HarvestOwnProfession(recipeIDs, profName)
             VWB.Store:Dispatch("ADD_SALVAGE_RECIPES", { records = newSalvage })
         end
         if next(expansionCounts) then
-            local coverage = {}
-            for expName, count in pairs(expansionCounts) do
-                coverage[profName .. "::" .. expName] = {
-                    professionName = profName,
-                    expansionName = expName,
-                    count = count,
-                    lastScan = time(),
-                    source = "own",
-                }
-            end
-            VWB.Store:Dispatch("UPDATE_COVERAGE", { coverage = coverage }) -- scan status; no reclassify
+            VWB.Store:Dispatch("UPDATE_COVERAGE", { coverage = buildCoveragePayload(expansionCounts, profName) }) -- scan status; no reclassify
         end
     end
 
