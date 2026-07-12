@@ -46,6 +46,30 @@ StaticPopupDialogs["VWB_REMOVE_PIECE"] = {
     timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
 }
 
+-- WoW can't open a browser: the copy-box editbox is the standard link pattern.
+StaticPopupDialogs["VWB_COPY_URL"] = {
+    text = "Ctrl+C to copy",
+    button1 = "Close",
+    hasEditBox = true, editBoxWidth = 340,
+    OnShow = function(self, url)
+        self.EditBox:SetText(url) -- 12.0.5: editBox renamed EditBox
+        self.EditBox:HighlightText()
+        self.EditBox:SetFocus()
+    end,
+    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
+
+-- Wowhead link for a LEARN source: precise npc page when ATT matched the
+-- NPC, name search otherwise (works with no ATT at all).
+local function wowheadURL(st)
+    if st.pin and st.pin.npcID then
+        return "https://www.wowhead.com/npc=" .. st.pin.npcID
+    end
+    local q = st.npc:gsub("[^%w%-]", function(c) return string.format("%%%02X", string.byte(c)) end)
+    return "https://www.wowhead.com/search?q=" .. q
+end
+
 -- ============================================================================
 -- Project card (pooled via VWB.UI:AcquireRow on the horizontal strip)
 -- ============================================================================
@@ -284,15 +308,28 @@ end
 local CHIP = { -- text + scheme color key per step kind; CRAFT resolves by readiness
     BUY = { text = "BUY", color = "accent" }, FARM = { text = "FARM", color = "text" },
     STAGE = { text = "STAGE", color = "warning" }, BLOCKED = { text = "NO ALT", color = "error" },
-    LEARN = { text = "LEARN", color = "accent" }, -- study pieces: acquisition sources, not crafts
 }
 
 local function stepRowTemplate(frame)
     frame.chip = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    frame.chip:SetPoint("LEFT", 4, 0); frame.chip:SetWidth(52); frame.chip:SetJustifyH("LEFT")
+    -- steps are children of a piece header: indent one tree level, chip
+    -- aligned under the header's icon (which sits at LEFT 22)
+    frame.chip:SetPoint("LEFT", 22, 0); frame.chip:SetWidth(52); frame.chip:SetJustifyH("LEFT")
 
     frame.action = VWB.UI:CreateButton(frame, "", 64, 18)
     frame.action:SetPoint("RIGHT", -4, 0)
+    -- the ONE disabled state this button has is Map-without-ATT (Queue/Ask
+    -- hide instead) -- the grey button teaches the capability exists
+    frame.action:SetMotionScriptsWhileDisabled(true)
+    frame.action:SetScript("OnEnter", function(self)
+        if self:IsEnabled() then return end
+        local T = VWB.UI.Tooltip
+        T:Begin(self, "RIGHT")
+        T:AddTitle("Source waypoints")
+        T:AddLine("Install the AllTheThings addon to map recipe sources -- it carries the vendor and trainer positions.")
+        T:Show()
+    end)
+    frame.action:SetScript("OnLeave", function(self) VWB.UI.Tooltip:Hide(self) end)
     frame.action:SetScript("OnClick", function(self)
         local st = self:GetParent().data
         if st.kind == "CRAFT" then
@@ -302,13 +339,30 @@ local function stepRowTemplate(frame)
             local sent, info = VWB.GuildCrafters:WhisperCrafter(st.recipeID)
             VWB.Log:Print(sent and ("Asked " .. info) or info)
         elseif st.kind == "LEARN" then
-            local pin = VWB.NpcCoords.ForRecipe(st.recipeID)
-            if pin then VWB.NpcCoords.Waypoint(pin, st.name) end -- exception(nullable): button only shows when the pin resolved
+            if st.pin and st.pin.uiMapID then VWB.NpcCoords.Waypoint(st.pin, st.name) end -- exception(nullable): button only shows when the pin resolved
         end
     end)
 
+    -- Wowhead lookup for LEARN sources (copy-box; precise npc= when ATT
+    -- matched, name search otherwise -- covers unpinnable vendors like the
+    -- Underbelly's Kaye Toogie where a waypoint can't exist)
+    frame.wh = VWB.UI:CreateButton(frame, "|TInterface\\AddOns\\VamoosesWorkbench\\textures\\wowhead_logo:14:14|t", 26, 18)
+    frame.wh:SetPoint("RIGHT", -4, 0)
+    frame.wh:SetScript("OnClick", function(self)
+        StaticPopup_Show("VWB_COPY_URL", nil, nil, wowheadURL(self:GetParent().data))
+    end)
+    frame.wh:SetScript("OnEnter", function(self)
+        local T = VWB.UI.Tooltip
+        T:Begin(self, "RIGHT")
+        T:AddTitle("Wowhead")
+        T:AddLine("Copy a Wowhead link for this source.")
+        T:Show()
+    end)
+    frame.wh:SetScript("OnLeave", function(self) VWB.UI.Tooltip:Hide(self) end)
+
     frame.who = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     frame.who:SetPoint("RIGHT", frame.action, "LEFT", -6, 0); frame.who:SetWidth(120); frame.who:SetJustifyH("RIGHT")
+    frame.who:SetWordWrap(false); frame.who:SetMaxLines(1) -- 26px rows: overlong text truncates, never stacks
 
     -- "queued xN" chip: click feedback for the Queue action (the reducer merges
     -- by recipe+char, so without this a second click silently doubles the order).
@@ -351,17 +405,6 @@ local function paintStepRow(row, st)
         local c = s[chip.color]
         row.chip:SetText(chip.text); row.chip:SetTextColor(c.r, c.g, c.b)
         row.queued:SetText("") -- pooled row may have painted a CRAFT chip last cycle
-        if st.kind == "LEARN" then -- a source, not a quantity
-            row.name:SetText(st.name)
-            row.who:SetText(st.zone or "")
-            -- ATT bridge: waypoint the vendor when ATT knows the pin (owner
-            -- ruling: bridge-only -- absence renders as no button, honestly)
-            local pin = VWB.NpcCoords.ForRecipe(st.recipeID)
-            row.action:SetText("Map")
-            row.action:SetShown(pin ~= nil)
-            row.name:SetTextColor(1, 1, 1)
-            return
-        end
         row.name:SetText(string.format("%dx %s", st.need, st.name))
         if st.kind == "BUY" then
             row.who:SetText(VWB.UI:FormatMoney(st.unitPrice * st.need))
@@ -379,10 +422,99 @@ local function paintStepRow(row, st)
     if st.kind == "CRAFT" and st.done then row.name:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b) end
 end
 
+-- Study grouping (owner 2026-07-12: the unit of work is the vendor TRIP --
+-- one code path for all study pieces). Header row = the source: Map/WH/
+-- coords live here, once per vendor. Painted before the work gate on
+-- purpose: waypointing is research (ruling 6A gates execution only) and
+-- stays live on Backlog commissions.
+local function paintVendorHdr(row, r, s)
+    row.hExpand.txt:SetText(r.expanded and "-" or "+")
+    row.hExpand.txt:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
+    row.hName:SetText(r.title)
+    row.hName:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
+    -- pin may be npcID-only (ATT matched the NPC but has no coords).
+    local mappable = r.pin and r.pin.uiMapID
+    local available = VWB.NpcCoords.Available()
+    row.who:SetText(mappable and string.format("%.1f, %.1f", r.pin.x, r.pin.y) or "")
+    row.wh:SetShown(r.npc ~= nil)
+    row.action:SetText("Map")
+    -- ATT absent: grey Map on NPC sources teaches the capability; ATT
+    -- present with no pin: no button, nothing to map
+    row.action:SetShown((mappable ~= nil) or (not available and r.npc ~= nil))
+    row.action:SetEnabled(mappable ~= nil)
+    row.action:ClearAllPoints()
+    row.action:SetPoint("RIGHT", row.wh, "LEFT", -4, 0)
+end
+
+-- Recipe row under a source header: still THE PIECE -- selectable (filters
+-- the Sources panel), removable, stamped by the learn sweep.
+local function paintVendorRecipe(row, r, s)
+    row.name:SetText(r.done and (r.name .. "  (learned)") or r.name)
+    if r.selected then
+        row.name:SetTextColor(s.warning.r, s.warning.g, s.warning.b)
+    elseif r.done then
+        row.name:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
+    else
+        row.name:SetTextColor(1, 1, 1)
+    end
+    row.who:SetText(r.cost or "")
+    row.hRemove.txt:SetTextColor(s.error.r, s.error.g, s.error.b)
+    row:SetAlpha(r._dim and 0.45 or 1)
+end
+
+-- Blizzard's own answer to "where does this come from": the item's flavor
+-- description ("Recycled using parts by Quel'Thalas Engineers..."), shown
+-- VERBATIM -- no parsing, no invention, fully localized (owner 2026-07-12;
+-- docs/VWB_SALVAGE_SOURCES_RESEARCH_2026-07-12.md). Identified as the first
+-- tooltip line opening with a quote glyph (enUS " / typographic curly / deDE
+-- low-9 / frFR-ruRU guillemet).
+local FLAVOR_OPENERS = { "\"", "\226\128\156", "\226\128\158", "\194\171" }
+local function itemFlavorText(itemID)
+    local data = C_TooltipInfo.GetItemByID(itemID) -- exception(boundary): nil/partial until the item cache warms
+    if not (data and data.lines) then return nil end
+    for _, ln in ipairs(data.lines) do
+        local t = ln.leftText
+        if t and not issecretvalue(t) then -- exception(boundary): 12.0.5 secret tooltip text
+            for _, q in ipairs(FLAVOR_OPENERS) do
+                if t:sub(1, #q) == q then return t end
+            end
+        end
+    end
+end
+
+-- AddLine doesn't wrap: emit the flavor per sentence so the tooltip stays
+-- sane. Quote glyphs strip (the closing quote otherwise dangles as its own
+-- line -- live 2026-07-12) and the lines paint flavor-gold.
+local QUOTE_GLYPHS = { "\"", "\226\128\156", "\226\128\157", "\226\128\158", "\194\171", "\194\187" }
+local function addFlavorSentences(T, flavor)
+    for _, q in ipairs(QUOTE_GLYPHS) do
+        if flavor:sub(1, #q) == q then flavor = flavor:sub(#q + 1) end
+        if flavor:sub(-#q) == q then flavor = flavor:sub(1, -#q - 1) end
+    end
+    local s = VWB.UI:GetScheme()
+    for sentence in flavor:gmatch("[^.]+%.?") do
+        local line = sentence:gsub("^%s+", "")
+        if line:match("%w") then T:AddLine(line, s.warning.r, s.warning.g, s.warning.b) end
+    end
+end
+
 local function onStepRowEnter(st, rowFrame)
     local T = VWB.UI.Tooltip
     T:Begin(rowFrame, "RIGHT")
-    if st.kind == "CRAFT" then
+    if st.vendorHdr then
+        T:AddTitle(st.name)
+        if st.zone then T:AddLine("Zone: " .. st.zone) end
+        T:AddLine(string.format("%d recipe%s%s.", st.count, st.count == 1 and "" or "s",
+            st.learnedGroup and " learned" or " to learn here"))
+        if st.npc and not VWB.NpcCoords.Available() then
+            T:AddLine("Install AllTheThings to map sources like this one.")
+        end
+    elseif st.vendorRecipe then
+        T:AddTitle(st.name)
+        T:AddLine("Learn the recipe to complete this piece.")
+        if st.cost then T:AddLine("Cost: " .. st.cost) end
+        if st.faction then T:AddLine("Requires: " .. st.faction) end
+    elseif st.kind == "CRAFT" then
         T:AddTitle(st.name)
         T:AddLine(string.format("Need %d (own %d of %d)", st.need, st.owned, st.required))
         local names = VWB.KnownRecipes:KnownByList(st.recipeID)
@@ -401,12 +533,6 @@ local function onStepRowEnter(st, rowFrame)
         else
             T:AddLine("No guild crafters online right now")
         end
-    elseif st.kind == "LEARN" then
-        T:AddTitle(st.name)
-        T:AddLine("Learn the recipe to complete this piece.")
-        if st.zone then T:AddLine("Zone: " .. st.zone) end
-        if st.cost then T:AddLine("Cost: " .. st.cost) end
-        if st.faction then T:AddLine("Requires: " .. st.faction) end
     elseif st.kind == "BUY" then
         T:AddTitle(st.name)
         T:AddLine(string.format("%d short -- %s each", st.need, VWB.UI:FormatMoney(st.unitPrice)))
@@ -417,6 +543,8 @@ local function onStepRowEnter(st, rowFrame)
     else
         T:AddTitle(st.name)
         T:AddLine("Farm or gather -- no market price on any source")
+        local flavor = itemFlavorText(st.itemID)
+        if flavor then addFlavorSentences(T, flavor) end
     end
     T:Show()
 end
@@ -745,7 +873,8 @@ function Projects.buildView(container)
                         local r = f.data
                         local nxt = {}
                         for k, v in pairs(expandCollapsed()) do nxt[k] = v end
-                        if nxt[r.piece.id] then nxt[r.piece.id] = nil else nxt[r.piece.id] = true end
+                        -- expandKey: piece id for piece headers, source key for vendor headers
+                        if nxt[r.expandKey] then nxt[r.expandKey] = nil else nxt[r.expandKey] = true end
                         expandCollapsed(nxt)
                     end)
                     f.hIcon = f:CreateTexture(nil, "ARTWORK"); f.hIcon:SetSize(18, 18)
@@ -770,13 +899,20 @@ function Projects.buildView(container)
                 updateRow = function(row, r)
                     local s = VWB.UI:GetScheme()
                     local isHdr = r.pieceHdr or r.addRow
-                    -- one pooled frame serves three row kinds: hide the other set
-                    row.chip:SetShown(not isHdr); row.name:SetShown(not isHdr)
-                    row.who:SetShown(not isHdr); row.queued:SetShown(not isHdr)
-                    row.action:SetShown(false)
-                    row.hExpand:SetShown(r.pieceHdr or false); row.hIcon:SetShown(isHdr or false)
-                    row.hName:SetShown(isHdr or false); row.hStatus:SetShown(r.pieceHdr or false)
-                    row.hRemove:SetShown((r.pieceHdr and r.removable) or false)
+                    -- one pooled frame serves five row kinds: reset the shared
+                    -- widgets, each branch shows its own set
+                    row.chip:SetShown(not (isHdr or r.vendorHdr or r.vendorRecipe))
+                    row.name:SetShown(not isHdr and not r.vendorHdr)
+                    row.who:SetShown(not isHdr)
+                    row.queued:SetShown(not (isHdr or r.vendorHdr or r.vendorRecipe))
+                    row.action:SetShown(false); row.wh:SetShown(false)
+                    row.action:ClearAllPoints(); row.action:SetPoint("RIGHT", -4, 0); row.action:SetEnabled(true)
+                    row.hExpand:SetShown((r.pieceHdr or r.vendorHdr) or false); row.hIcon:SetShown(isHdr or false)
+                    row.hName:SetShown((isHdr or r.vendorHdr) or false); row.hStatus:SetShown(r.pieceHdr or false)
+                    row.hRemove:SetShown(((r.pieceHdr or r.vendorRecipe) and r.removable) or false)
+                    row:SetAlpha(1)
+                    if r.vendorHdr then paintVendorHdr(row, r, s); return end
+                    if r.vendorRecipe then paintVendorRecipe(row, r, s); return end
                     if r.addRow then
                         row.hIcon:SetTexture("Interface\\Buttons\\UI-PlusButton-Up")
                         row.hName:SetText("Add piece...")
@@ -811,18 +947,30 @@ function Projects.buildView(container)
                         return
                     end
                     paintStepRow(row, r)
-                    -- ruling 6A gates EXECUTION only -- waypointing a LEARN
-                    -- source is research and stays live on Backlog commissions
-                    if not r._canWork and r.kind ~= "LEARN" then row.action:SetShown(false) end
+                    -- ruling 6A: execution steps gate on Active (vendor
+                    -- headers -- research -- return above, before this gate)
+                    if not r._canWork then row.action:SetShown(false) end
                     row:SetAlpha(r._dim and 0.45 or 1)
                 end,
                 onRowClick = function(r)
                     if r.addRow then
                         addPieceTarget(r.projectId)
                         newStockOpen(true)
-                    elseif r.pieceHdr then
+                    elseif r.pieceHdr or r.vendorRecipe then
                         -- body click = SELECT toggle (expand/remove are child buttons)
                         selectedPiece(selectedPiece() == r.piece.id and nil or r.piece.id)
+                    elseif r.vendorHdr then
+                        if selectedPiece() ~= nil then
+                            -- a piece filter is active: header click restores the
+                            -- full Sources view first (owner 2026-07-12)
+                            selectedPiece(nil)
+                        else
+                            -- big-target collapse toggle (same as its +/- button)
+                            local nxt = {}
+                            for k, v in pairs(expandCollapsed()) do nxt[k] = v end
+                            if nxt[r.expandKey] then nxt[r.expandKey] = nil else nxt[r.expandKey] = true end
+                            expandCollapsed(nxt)
+                        end
                     end
                 end,
                 onRowEnter = function(r, rowFrame)
@@ -834,6 +982,18 @@ function Projects.buildView(container)
             local host = CreateFrame("Frame", nil, parent)
             matsList = VWB.UI:CreateVirtualizedList(host, {
                 rowHeight = 20, rowTemplate = matRowTemplate, updateRow = paintMatRow,
+                onRowEnter = function(m, rowFrame)
+                    -- mat rows only (hdr/src lines paint their own text): the
+                    -- item's flavor description IS the "where from" answer
+                    if m.kind or not m.itemID then return end
+                    local flavor = itemFlavorText(m.itemID)
+                    if not flavor then return end -- nothing to add: name/counts are already on the row
+                    local T = VWB.UI.Tooltip
+                    T:Begin(rowFrame, "RIGHT")
+                    T:AddTitle(m.name or "")
+                    addFlavorSentences(T, flavor)
+                    T:Show()
+                end,
             })
             return host
         end
@@ -881,17 +1041,20 @@ function Projects.buildView(container)
     R.bindText(handle.byId.prjPlanLabel.label, function()
         local e = selectedEntry()
         if not e then return "Plan" end -- exception(nullable): no selection
-        local txt = string.format("%s  (%d/%d done)", e.p.name, e.plan.done, e.plan.total)
+        -- commission name + done counts live on the selected card; repeating
+        -- them here just truncated (owner 2026-07-12). The label carries only
+        -- the states the card can't: the piece filter and the workflow note.
+        local parts = {}
         local i = effectivePiece(e)
         if i then
-            txt = txt .. "  --  " .. liveName(e.p.pieces[i].itemID, e.p.pieces[i].name) .. " only"
+            parts[#parts + 1] = liveName(e.p.pieces[i].itemID, e.p.pieces[i].name) .. " only"
         end
         if e.p.status == "backlog" then
-            txt = txt .. "   " .. ns.UI:ColorCode("yellow") .. "Backlog -- move to Active to work it|r"
+            parts[#parts + 1] = ns.UI:ColorCode("yellow") .. "Backlog -- move to Active to work it|r"
         elseif e.p.status == "done" then
-            txt = txt .. "   " .. ns.UI:ColorCode("green") .. "Done|r"
+            parts[#parts + 1] = ns.UI:ColorCode("green") .. "Done|r"
         end
-        return txt
+        return table.concat(parts, "   ")
     end)
 
     -- Ruling 6A: execution is Active-only -- the same rule the reducer
@@ -1015,29 +1178,88 @@ function Projects.buildView(container)
         end
         matsList:SetData(mats)
 
-        -- THE TREE: piece headers with their steps beneath, in ONE list.
-        -- Step rows are always fresh copies (the derived plan rows are shared
-        -- computed values -- never mutate them with row-local flags).
+        -- THE TREE: one mixed-row list. Non-study pieces render piece ->
+        -- steps; study pieces group by SOURCE across the commission (owner
+        -- 2026-07-12: the unit of work is the vendor trip, one code path for
+        -- all study pieces). Step rows are always fresh copies (the derived
+        -- plan rows are shared computed values -- never mutate them with
+        -- row-local flags).
         local rows = {}
         if e then
             local canWork = e.p.status == "bench"
             local collapsed = expandCollapsed()
             local selId = selectedPiece()
             local removable = e.p.status ~= "done" -- sealed
+            local groups, order = {}, {} -- source key -> group; first-seen emit order
+            local function groupFor(key, title, st)
+                local g = groups[key]
+                if not g then
+                    g = { title = title, name = st and st.name, zone = st and st.zone,
+                        npc = st and st.npc, pin = nil, recipes = {} }
+                    groups[key] = g
+                    order[#order + 1] = key
+                end
+                return g
+            end
             for i, pc in ipairs(e.p.pieces) do
                 local pp = e.plan.pieces[i]
-                local expanded = not collapsed[pc.id]
-                rows[#rows + 1] = { pieceHdr = true, piece = pc, piecePlan = pp,
-                    name = liveName(pc.itemID, pc.name), expanded = expanded,
-                    selected = selId == pc.id, removable = removable, projectId = e.p.id }
+                if pc.kind == "study" then
+                    if pc.completedAt then
+                        local g = groupFor("\1learned", "Learned")
+                        g.recipes[#g.recipes + 1] = { pc = pc, pp = pp }
+                    elseif pp.unresolved then
+                        local g = groupFor("\2unknown", "Source unknown -- recipe not scanned")
+                        g.recipes[#g.recipes + 1] = { pc = pc, pp = pp }
+                    else
+                        for _, st in ipairs(pp.steps) do -- LEARN steps: one per source
+                            local key = st.name .. "|" .. (st.zone or "")
+                            local g = groupFor(key, st.name .. (st.zone and ("  --  " .. st.zone) or ""), st)
+                            if not g.pin then
+                                -- async row field lives in the envelope: tracked
+                                -- latch read, so the ATT pin arriving re-runs
+                                -- this effect (a paint-time read never repaints)
+                                g.pin = VWB.NpcCoords.ForRecipe(st.recipeID, st.npc, st.zone)
+                            end
+                            g.recipes[#g.recipes + 1] = { pc = pc, pp = pp, st = st }
+                        end
+                    end
+                else
+                    local expanded = not collapsed[pc.id]
+                    rows[#rows + 1] = { pieceHdr = true, piece = pc, piecePlan = pp, expandKey = pc.id,
+                        name = liveName(pc.itemID, pc.name), expanded = expanded,
+                        selected = selId == pc.id, removable = removable, projectId = e.p.id }
+                    if expanded then
+                        for _, st in ipairs(pp.steps) do
+                            local r = {}
+                            for k, v in pairs(st) do r[k] = v end
+                            r.name = liveName(st.itemID, st.name)
+                            r._canWork = canWork
+                            r._dim = selId ~= nil and selId ~= pc.id
+                            rows[#rows + 1] = r
+                        end
+                    end
+                end
+            end
+            -- sources in first-seen order; Learned/unknown groups (\1/\2 keys) trail
+            local emit = {}
+            for _, key in ipairs(order) do if key:byte(1) > 2 then emit[#emit + 1] = key end end
+            for _, key in ipairs(order) do if key:byte(1) <= 2 then emit[#emit + 1] = key end end
+            for _, key in ipairs(emit) do
+                local g = groups[key]
+                local expandKey = "v:" .. key
+                local expanded = not collapsed[expandKey]
+                rows[#rows + 1] = { vendorHdr = true, expandKey = expandKey, expanded = expanded,
+                    title = g.title, name = g.name or g.title, zone = g.zone, npc = g.npc,
+                    kind = "LEARN", pin = g.pin, count = #g.recipes,
+                    learnedGroup = key == "\1learned" }
                 if expanded then
-                    for _, st in ipairs(pp.steps) do
-                        local r = {}
-                        for k, v in pairs(st) do r[k] = v end
-                        r.name = liveName(st.itemID, st.name)
-                        r._canWork = canWork
-                        r._dim = selId ~= nil and selId ~= pc.id
-                        rows[#rows + 1] = r
+                    for _, rec in ipairs(g.recipes) do
+                        rows[#rows + 1] = { vendorRecipe = true, piece = rec.pc, piecePlan = rec.pp,
+                            name = liveName(rec.pc.itemID, rec.pc.name),
+                            cost = rec.st and rec.st.cost, faction = rec.st and rec.st.faction,
+                            done = rec.pc.completedAt ~= nil,
+                            selected = selId == rec.pc.id, removable = removable, projectId = e.p.id,
+                            _dim = selId ~= nil and selId ~= rec.pc.id }
                     end
                 end
             end
