@@ -27,7 +27,7 @@ local ED = VWB.Data.ExpansionData
 
 -- ============================================================================
 -- StaticPopup: remove a character from the roster (tester request).
--- OnAccept receives charKey as the second arg (StaticPopup_Show data param).
+-- OnAccept's second arg = StaticPopup_Show's FOURTH arg (the data param).
 -- ============================================================================
 StaticPopupDialogs["VWB_REMOVE_CHARACTER"] = {
     text = "Remove %s from the roster?\nA profession scan on that character will re-add them.",
@@ -280,24 +280,46 @@ local function createCharCard(p)
     bar:SetPoint("TOP", card, "BOTTOM", 0, -BAR_GAP)
     wrapper.bar = bar
 
+    -- Visible remove affordance (owner 2026-07-12, replaces the right-click
+    -- path -- right-click menus are invisible; ReganB only found Remove via
+    -- the tooltip hint). Hover-reveal x, top-right; same confirm popup.
+    -- Hidden on the CURRENT character: the next scan re-adds them instantly,
+    -- so removal is a no-op there.
+    local removeX = CreateFrame("Button", nil, card)
+    removeX:SetSize(16, 16)
+    removeX:SetPoint("TOPRIGHT", -2, -2)
+    removeX.txt = removeX:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    removeX.txt:SetPoint("CENTER")
+    removeX.txt:SetText("x")
+    local sErr = VWB.UI:GetScheme().error
+    removeX.txt:SetTextColor(sErr.r, sErr.g, sErr.b)
+    removeX:Hide()
+    removeX:SetScript("OnClick", function()
+        local displayName = card._entry and card._entry.name or card._charKey
+        -- StaticPopup_Show(which, text_arg1, text_arg2, data) -- data is the
+        -- FOURTH arg; the old right-click passed charKey third (the unused
+        -- text_arg2 slot), so OnAccept dispatched charKey=nil, a silent
+        -- no-op (tester ReganB 2026-07-12: "hit Remove, nothing happens")
+        StaticPopup_Show("VWB_REMOVE_CHARACTER", displayName, nil, card._charKey)
+    end)
+    removeX:SetScript("OnLeave", function()
+        if not card:IsMouseOver() then removeX:Hide() end
+    end)
+
     -- Wired directly on the card (not through the strip's own scroll frame --
     -- the card is an opaque Button covering the wrapper, so it owns its own
     -- mouse events), mirroring VPC's CreateCharCard row factory.
     card:HookScript("OnEnter", function(self)
+        if self._charKey ~= VWB.CharacterData:GetCharacterKey() then removeX:Show() end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         characterTooltipBody(self._entry)
         GameTooltip:Show()
     end)
-    card:HookScript("OnLeave", function() GameTooltip:Hide() end)
-
-    -- Right-click: confirm remove. The card is a Button registered for AnyUp;
-    -- button3 = right mouse. StaticPopup_Show("VWB_REMOVE_CHARACTER", nil, data)
-    -- third arg is data passed to OnAccept as its second parameter.
-    card:HookScript("OnClick", function(self, btn)
-        if btn == "RightButton" then
-            local displayName = self._entry and self._entry.name or self._charKey
-            StaticPopup_Show("VWB_REMOVE_CHARACTER", displayName, self._charKey)
-        end
+    card:HookScript("OnLeave", function(self)
+        -- moving onto the x fires this (child capture) but the cursor is
+        -- still inside the card bounds -- keep the x alive for its click
+        if not self:IsMouseOver() then removeX:Hide() end
+        GameTooltip:Hide()
     end)
 
     return wrapper
