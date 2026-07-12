@@ -398,10 +398,16 @@ local function sweepAchievementCriteria()
             local touched = false
             for _, pc in ipairs(prj.pieces) do
                 if not pc.completedAt and pc.achievementID and pc.criteriaIndex then
-                    local _, _, done = GetAchievementCriteriaInfo(pc.achievementID, pc.criteriaIndex)
-                    if done then
-                        VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
-                        touched = true
+                    -- exception(boundary): criteriaIndex is PERSISTED (SV) and Blizzard
+                    -- reshuffles criteria between patches -- a stale index hard-errors
+                    -- GetAchievementCriteriaInfo and would kill the sweep for every
+                    -- other piece (code review 2026-07-13). Out-of-range = piece waits.
+                    if pc.criteriaIndex <= GetAchievementNumCriteria(pc.achievementID) then
+                        local _, _, done = GetAchievementCriteriaInfo(pc.achievementID, pc.criteriaIndex)
+                        if done then
+                            VWB.Store:Dispatch("COMPLETE_PIECE", { projectId = prj.id, pieceId = pc.id })
+                            touched = true
+                        end
                     end
                 end
             end

@@ -1,10 +1,10 @@
 ## Interface: 120007, 120100
 ## Title: Vamoose's Workbench
-## Notes: Reactor-based crafting workbench (in development)
+## Notes: Plans your crafts, tallies your margins, and keeps every alt's trade skills straight.
 ## Author: Vamoose
 ## Version: 0.1.0
 ## SavedVariables: VWB_DB
-## X-Category: Development
+## Category-enUS: Professions
 ## DefaultState: enabled
 ## IconTexture: Interface\Icons\Trade_Engineering
 ## AddonCompartmentFunc: VWB_OnAddonCompartmentClick

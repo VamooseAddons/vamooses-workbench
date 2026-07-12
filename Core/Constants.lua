@@ -295,27 +295,6 @@ VWB.Constants.UI = {
 }
 
 -- ============================================================================
--- 5b. PAGE DEFINITIONS
--- ============================================================================
-
--- Rail pages (primary content, left rail icons)
-VWB.Constants.RailPages = {
-    -- ids are persisted in VWB_DB.ui.activePage -- labels changed in the Workshop
-    -- naming pass (2026-07-04), ids deliberately kept stable
-    -- hint = the plain-language function, shown dim next to the workshop name
-    -- in the rail flyout so the cute labels never obscure what a page does
-    { id = "recipes",  icon = "Interface\\Icons\\Trade_BlackSmithing", label = "Workbench", hint = "recipes & queue" },
-    { id = "preview",  icon = "Interface\\Icons\\INV_Misc_Spyglass_03", label = "Showroom", hint = "3D preview" },
-    { id = "profit",   icon = "Interface\\Icons\\INV_Misc_Coin_17", label = "Ledger", hint = "profit" },
-    { id = "reagents", icon = "Interface\\Icons\\INV_Crate_01", label = "Stockroom", hint = "reagents" },
-    { id = "alts",     icon = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend", label = "Roster", hint = "your characters" },
-    { id = "data",     icon = "Interface\\Icons\\INV_Misc_Note_06", label = "Records", hint = "scans & stats" },
-    { id = "config",   icon = "Interface\\Icons\\INV_Misc_Gear_01", label = "Settings", hint = "options" },
-}
-
--- Bottom tabs (secondary/utility, under frame)
-
--- ============================================================================
 -- 6. PROFESSION ICONS
 -- ============================================================================
 

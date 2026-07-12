@@ -23,7 +23,7 @@ local navPanel = {
     children = {
         { type = "stack", dir = "row", gap = "sm", align = "center", size = { h = 20 }, children = {
             { type = "item", id = "navLabel", role = "section", grow = true, size = { h = 16 } },
-            { type = "item", id = "missingToggle", size = { w = 84, h = 20 } }, -- "Missing" checkbox: include no-source-data recipes
+            { type = "item", id = "missingToggle", size = { w = 110, h = 20 } }, -- "Unlearned only" pill
         } },
         { type = "item", id = "navTree", grow = true }, -- CreateNavTree target
     },

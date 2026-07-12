@@ -117,6 +117,7 @@ function Store:LoadFromSavedVariables()
     VWB_DB.crafting.queuedRecipes = VWB_DB.crafting.queuedRecipes or {}
     VWB_DB.config         = VWB_DB.config or {}
     if VWB_DB.config.materialsMode == nil then VWB_DB.config.materialsMode = "raw" end
+    if VWB_DB.config.ambientTooltips == nil then VWB_DB.config.ambientTooltips = false end -- opt-in (owner 2026-07-13)
     VWB_DB.craftingHistory = VWB_DB.craftingHistory or {}
     VWB_DB.minimap        = VWB_DB.minimap or { minimapPos = 220 }
     VWB_DB.ui             = VWB_DB.ui or {}

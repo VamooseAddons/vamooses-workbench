@@ -39,7 +39,7 @@ end
 -- siblings, kept adjacent), passive reference, then meta. { divider = true }
 -- entries render as separator lines between the blocks.
 local VIEWS = {
-    { id = "projects",  text = "Projects",  subtitle = "Pin items and plan your collection",
+    { id = "projects",  text = "Commissions",  subtitle = "Pin items and plan your collection",
       build = function(c) return ns.Projects.buildView(c) end,
       -- ACTIVE project count. The first cut counted below-par stock only
       -- ("needs attention" per the spec) -- live verdict 2026-07-11: the owner
@@ -69,12 +69,12 @@ local VIEWS = {
       badge = function() return ns.Collectibles.UncollectedCount() end },
     { id = "study",     text = "Study",     subtitle = "Unlearned recipes and where to get them",
       build = function(c) return ns.Study.buildView(c) end },
-    { id = "achieve",   text = "Achieve",   subtitle = "Profession achievements and progress",
+    { id = "achieve",   text = "Achievements",   subtitle = "Profession achievements and progress",
       build = function(c) return ns.Achieve.buildView(c) end },
     { divider = true },
     { id = "ledger",    text = "Ledger",    subtitle = "Profit and AH pricing",
       build = function(c) return ns.Ledger.buildView(c) end },
-    { id = "roster",    text = "Roster",    subtitle = "Your characters professions",
+    { id = "roster",    text = "Roster",    subtitle = "Your characters' professions",
       build = function(c) return ns.Roster.buildView(c) end },
     { id = "records",   text = "Records",   subtitle = "Scan coverage and history",
       build = function(c) return ns.Records.buildView(c) end },

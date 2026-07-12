@@ -64,7 +64,7 @@ end
 -- signal so views can react. Requires PSL to fire the proposed
 -- "ProfessionShoppingList.OnTrackedRecipesChanged" event (see docs/PSL_CALLBACK_PROPOSAL.md);
 -- INERT if PSL lacks it -- an unfired EventRegistry string is simply never called.
-VWB.PSLBridge.debug = true -- prototype: print each incoming change (flip false to silence)
+VWB.PSLBridge.debug = false -- prototype diagnostics; flip true to print each incoming change
 
 function VWB.PSLBridge:Initialize()
     if not self:IsAvailable() then return end

@@ -9,8 +9,9 @@ VWB.AmbientTooltips = {}
 --   * item craftable per the store   -> "craftable by <chars>" (+ uncollected
 --     decor flag when the housing catalog says so)
 -- Effect-focused and at most two lines; silent for items VWB knows nothing
--- about. Config-gated on config.ambientTooltips (only an explicit false
--- disables, so the gate works before the Settings toggle writes the key).
+-- about. Config-gated on config.ambientTooltips, DEFAULT OFF (owner ruling
+-- 2026-07-13: hooking every game tooltip is opt-in -- a fresh install must
+-- not add mystery lines to item tooltips). Store seeds the key false.
 -- Our own VWB.UI.Tooltip surface is not GameTooltip, so in-window hovers
 -- never double up.
 -- ============================================================================
@@ -51,7 +52,7 @@ end
 
 local function OnItemTooltip(tooltip, data)
     if tooltip ~= _G.GameTooltip then return end -- exception(boundary): post-call fires for every tooltip frame incl. shopping tooltips
-    if VWB.Store:GetState().config.ambientTooltips == false then return end
+    if not VWB.Store:GetState().config.ambientTooltips then return end -- opt-in: default off
     -- exception(boundary): 12.0.5 tooltip data can carry secret strings; numeric id is the only safe read
     if not (type(data) == "table" and type(data.id) == "number") then return end
     local itemID = data.id

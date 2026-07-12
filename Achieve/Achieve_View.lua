@@ -178,7 +178,10 @@ function Achieve.buildView(container)
             return ns.UI:CreateSearchBox(parent, { placeholder = "Search achievements...",
                 onChange = function(text) filters.search((text or ""):lower()) end })
         elseif node.id == "hideEarned" then
-            return ns.UI:CreateCheckbox(parent, "Hide earned", function(checked)
+            -- pill, not checkbox (binary row filters are pills addon-wide);
+            -- "Unearned only" says the affirmative direction, matching Study's
+            -- "Unlearned only" and Showroom's "Missing" (review 2026-07-13)
+            return ns.UI:CreateFilterPill(parent, "Unearned only", function(checked)
                 filters.hideEarned(checked and true or false)
             end)
         elseif node.id == "navLabel" then

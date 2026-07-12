@@ -116,7 +116,7 @@ function Study.buildView(container)
         filters = filters,
     })
 
-    local listWidget, navTree, breadcrumbFS
+    local listWidget, navTree, breadcrumbFS, expansionDD
 
     local function toggleCollapse(key)
         local next = {}
@@ -169,19 +169,22 @@ function Study.buildView(container)
             fs:SetText(ns.UI:ColorCode("cyan") .. "Sources|r")
             return fs
         elseif node.id == "expansionDD" then
-            return ns.UI:CreateMultiSelectDropdown(parent, {
+            expansionDD = ns.UI:CreateMultiSelectDropdown(parent, {
                 width = node.size.w, height = node.size.h,
                 allLabel = "All Expansions", items = EXPANSION_ITEMS,
                 isAll = function() return next(filters.expansions()) == nil end,
                 isSelected = function(key) return filters.expansions()[key] == true end,
                 onAll = function() filters.expansions({}) end,
                 onToggle = toggleExpansion })
+            return expansionDD
         elseif node.id == "missingToggle" then
-            local cb = ns.UI:CreateCheckbox(parent, "Missing", function(checked)
+            -- pill, not checkbox (binary row filters are pills addon-wide);
+            -- "Unlearned only" says the affirmative direction (review 2026-07-13)
+            local pill = ns.UI:CreateFilterPill(parent, "Unlearned only", function(checked)
                 filters.missingOnly(checked and true or false)
             end)
-            cb.button:SetChecked(true)
-            return cb
+            pill:SetChecked(true)
+            return pill
         elseif node.id == "navTree" then
             navTree = ns.UI:CreateNavTree(parent, {
                 onHeaderClick = toggleCollapse,
@@ -321,6 +324,16 @@ function Study.buildView(container)
     end, "study:list")
 
     R.effect(function() VWB.Theme.epoch(); navTree:SetData(model.sections()) end, "study:nav")
+
+    -- Closed-trigger label: "All Expansions" / the single pick / a count
+    -- (Stockroom's multi-select idiom).
+    R.effect(function()
+        local sel = filters.expansions()
+        local n, last = 0, nil
+        for k in pairs(sel) do n = n + 1; last = k end
+        local label = (n == 0 and "All Expansions") or (n == 1 and last) or (n .. " expansions")
+        expansionDD:SetTriggerText(label)
+    end, "study:expansionLabel")
 
     R.effect(function()
         breadcrumbFS:SetText(string.format("%d recipes to learn  |  %d sources shown",

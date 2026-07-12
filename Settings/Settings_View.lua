@@ -208,7 +208,7 @@ function Settings.buildView(container)
             ambientCb.button:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetText("Add Workbench lines to item tooltips everywhere -- queue needs on reagents, craftable-by on crafted items.", 1, 1, 1, 1, true)
-                GameTooltip:AddLine("Inert until AmbientTooltips.lua is enabled for this build.", 0.7, 0.7, 0.7, true)
+                GameTooltip:AddLine("Off by default.", 0.7, 0.7, 0.7, true)
                 GameTooltip:Show()
             end)
             ambientCb.button:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -348,7 +348,7 @@ function Settings.buildView(container)
 
     R.effect(function()
         ns.Store:Version("config")
-        ambientCb:SetChecked(ns.Store:GetState().config.ambientTooltips ~= false) -- exception(optional): unset means enabled, mirrors Modules/AmbientTooltips.lua's own gate
+        ambientCb:SetChecked(ns.Store:GetState().config.ambientTooltips) -- opt-in: Store seeds false, mirrors AmbientTooltips.lua gate
     end, "settings:ambient")
 
     R.effect(function()

@@ -68,7 +68,7 @@ function VWB.Minimap:Initialize()
                 MenuUtil.CreateContextMenu(minimapButton, function(_, rootDescription)
                     rootDescription:CreateTitle("Vamoose's Workbench")
                     rootDescription:CreateButton("Open Window", function() VWB:ToggleWindow() end)
-                    rootDescription:CreateButton("Records / Guild Rescan", function()
+                    rootDescription:CreateButton("Records", function()
                         if not (VWB.MainFrame and VWB.MainFrame:IsShown()) then VWB:ToggleWindow() end
                         VWB:ShowPage("data")
                     end)

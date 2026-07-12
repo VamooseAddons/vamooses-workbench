@@ -487,9 +487,14 @@ end
 -- line -- live 2026-07-12) and the lines paint flavor-gold.
 local QUOTE_GLYPHS = { "\"", "\226\128\156", "\226\128\157", "\226\128\158", "\194\171", "\194\187" }
 local function addFlavorSentences(T, flavor)
+    -- strip at most ONE glyph per side: the sequential loop could eat an
+    -- extra byte when the stripped text itself began with another quote
+    -- sequence (code review 2026-07-13)
     for _, q in ipairs(QUOTE_GLYPHS) do
-        if flavor:sub(1, #q) == q then flavor = flavor:sub(#q + 1) end
-        if flavor:sub(-#q) == q then flavor = flavor:sub(1, -#q - 1) end
+        if flavor:sub(1, #q) == q then flavor = flavor:sub(#q + 1); break end
+    end
+    for _, q in ipairs(QUOTE_GLYPHS) do
+        if flavor:sub(-#q) == q then flavor = flavor:sub(1, -#q - 1); break end
     end
     local s = VWB.UI:GetScheme()
     for sentence in flavor:gmatch("[^.]+%.?") do
@@ -790,11 +795,23 @@ function Projects.buildView(container)
         })
         R.effect(function() list:SetData(stockMatches()) end, "projects:stockMatches")
         R.bindShown(nsPanel, newStockOpen)
+        -- Escape dismisses the overlay instead of closing the whole window
+        -- (consistency review 2026-07-13: standard WoW overlay trap). Only
+        -- ESCAPE is eaten; every other key propagates untouched.
+        nsPanel:EnableKeyboard(true)
+        nsPanel:SetScript("OnKeyDown", function(self, key)
+            if key == "ESCAPE" then
+                self:SetPropagateKeyboardInput(false)
+                newStockOpen(false)
+            else
+                self:SetPropagateKeyboardInput(true)
+            end
+        end)
     end
 
     local function makeFrame(node, parent)
         if node.id == "prjNewStock" then
-            local btn = VWB.UI:CreateButton(parent, "New Stock Project", 150, 22)
+            local btn = VWB.UI:CreateButton(parent, "New Commission", 150, 22)
             btn:SetScript("OnClick", function()
                 addPieceTarget(nil) -- header button always creates a NEW commission
                 newStockOpen(not R.untrack(newStockOpen))
@@ -1081,7 +1098,7 @@ function Projects.buildView(container)
     -- title carries the board summary
     R.bindText(handle.byId.prjTitle.label, function()
         local ps = plans()
-        return string.format("Projects  (%d active, %d backlog, %d done)",
+        return string.format("Commissions  (%d active, %d backlog, %d done)",
             #ps.bench, #ps.backlog, #ps.done)
     end)
 

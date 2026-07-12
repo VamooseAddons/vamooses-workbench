@@ -528,16 +528,32 @@ function Stockroom.buildView(container)
         end
     end)
 
+    -- Truly-cold corpus gets the one-click card instead of directions-only
+    -- text (Workbench's pattern -- consistency review 2026-07-13).
+    local emptyCard = VWB.UI:CreateEmptyStateCard(listWidget, {
+        width = 320, height = 170,
+        icon = "Interface\\Icons\\INV_Crate_01",
+        title = "The stockroom is bare",
+        body = "Nobody's catalogued a single reagent yet. Scan a profession window, or pull your guild's recipes in one pass.",
+        buttonText = "Scan Guild Recipes",
+        onClick = function()
+            ns:ShowPage("data")
+            ns.RecipeHarvest:Start()
+        end,
+    })
+    emptyCard:SetPoint("CENTER", listWidget, "CENTER", 0, 10)
+    emptyCard:SetFrameLevel(listWidget:GetFrameLevel() + 5)
+    emptyCard:Hide()
+
     -- List data + empty states in one effect: bare vs no-search-results get
     -- distinct copy, same distinction VPC's PaintList drew.
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
         local list = items()
         listWidget:SetData(list)
+        emptyCard:SetShown(#classified() == 0)
         if #classified() == 0 then
-            listWidget.emptyText:SetText(VWB.UI:ColorCode("base01") ..
-                "The stockroom is bare - nobody's catalogued a single reagent yet. Run a guild rescan on the Records page, or open a profession window to start filling the shelves.|r")
-            listWidget.emptyText:Show()
+            listWidget.emptyText:Hide()
         elseif #list == 0 then
             listWidget.emptyText:SetText(VWB.UI:ColorCode("base01") ..
                 "Nothing on the shelf matches that. Try a different filter or clear the search.|r")

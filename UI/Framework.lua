@@ -803,15 +803,21 @@ function VWB.UI:CreateMultiSelectDropdown(parent, options)
         root:CreateCheckbox(options.allLabel or "All", options.isAll, options.onAll)
         root:CreateDivider()
         for _, item in ipairs(options.items) do
-            local label = item.label
-            if item.color then
-                label = string.format("|cff%02x%02x%02x%s|r",
-                    math.floor(item.color.r * 255 + 0.5), math.floor(item.color.g * 255 + 0.5),
-                    math.floor(item.color.b * 255 + 0.5), item.label)
+            if item.divider then -- section separator (Ledger's player-first profession split)
+                root:CreateDivider()
+            elseif item.title then -- section header, non-interactive
+                root:CreateTitle(item.title)
+            else
+                local label = item.label
+                if item.color then
+                    label = string.format("|cff%02x%02x%02x%s|r",
+                        math.floor(item.color.r * 255 + 0.5), math.floor(item.color.g * 255 + 0.5),
+                        math.floor(item.color.b * 255 + 0.5), item.label)
+                end
+                local key = item.key
+                root:CreateCheckbox(label, function() return options.isSelected(key) end,
+                    function() options.onToggle(key) end)
             end
-            local key = item.key
-            root:CreateCheckbox(label, function() return options.isSelected(key) end,
-                function() options.onToggle(key) end)
         end
     end)
 
@@ -891,6 +897,18 @@ function VWB.UI:CreateCommissionDropdown(parent, opts)
     dd.resizeToTextMaxWidth = w
     dd:SetWidth(w); dd:SetHeight(opts.height or 22)
     dd:SetupMenu(function(_, root) commissionMenu(root, opts.context()) end)
+    -- First-encounter tooltip on the addon's signature control (consistency
+    -- review 2026-07-13): "Commission" needs a learning surface -- one line,
+    -- every instance. HookScript: the dropdown template owns OnEnter already.
+    dd:HookScript("OnEnter", function(self)
+        local T = VWB.UI.Tooltip
+        T:Begin(self, "RIGHT")
+        T:AddTitle("Commission")
+        T:AddLine("Save these as a commission on the board -- pieces, mats, and")
+        T:AddLine("progress tracked across all your characters.")
+        T:Show()
+    end)
+    dd:HookScript("OnLeave", function(self) VWB.UI.Tooltip:Hide(self) end)
     return dd
 end
 

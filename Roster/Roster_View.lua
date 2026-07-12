@@ -305,6 +305,8 @@ local function createCharCard(p)
     removeX:SetScript("OnLeave", function()
         if not card:IsMouseOver() then removeX:Hide() end
     end)
+    card.removeX = removeX -- the strip repaint hides it: pooled cards rebind to
+    -- other characters mid-hover (scan re-sorts) and OnLeave alone can't catch that
 
     -- Wired directly on the card (not through the strip's own scroll frame --
     -- the card is an opaque Button covering the wrapper, so it owns its own
@@ -424,10 +426,16 @@ function Roster.buildView(container)
         if node.id == "rosGrid" then
             root = CreateFrame("Frame", nil, parent)
 
-            root.empty = root:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            -- Cold-state card (consistency review 2026-07-13). Deliberately
+            -- BUTTONLESS: the fix is opening profession windows on each alt --
+            -- no one-click action exists, and a button here would lie.
+            root.empty = VWB.UI:CreateEmptyStateCard(root, {
+                width = 380, height = 120,
+                icon = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend",
+                title = "No characters scanned yet",
+                body = "Open a profession window on each alt to start tracking their skill levels.",
+            })
             root.empty:SetPoint("CENTER")
-            root.empty:SetJustifyH("CENTER")
-            root.empty:SetText("No characters scanned yet.\nOpen a profession window on each alt to start tracking their skill levels.")
 
             root.stripHeader = root:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             root.stripHeader:SetPoint("TOPLEFT", 0, 0)
@@ -521,6 +529,7 @@ function Roster.buildView(container)
             local wrapper = VWB.UI:AcquireRow(stripContent, "charcard", createCharCard)
             wrapper:SetPoint("TOPLEFT", stripContent, "TOPLEFT", 0, -(i - 1) * (STRIP_HEIGHT + CARD_GAP))
             wrapper.card:SetData(c.charKey, c.entry, c.charKey == currentCharKey, now)
+            wrapper.card.removeX:Hide() -- pooled reuse: a hover-revealed x must not carry to the rebound character
             wrapper.bar:SetProgress(computeMastery(c.entry.professions))
             wrapper:SetSelected(c.charKey == scopedChar)
         end

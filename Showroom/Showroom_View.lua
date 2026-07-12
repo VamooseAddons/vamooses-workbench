@@ -151,10 +151,19 @@ end)
 local recipes = ns.Reactor.named("showroom:categoryItems", function()
     ns.Store:Version("nav")
     local navItem = ns.Store:GetState().ui.navSelectedItem
+    -- nav keys are "<expansion>::<category>": match BOTH halves. Matching the
+    -- category alone showed Devices from every expansion against a per-
+    -- expansion tree count (tester 2026-07-12: "Devices says 5, list shows
+    -- 28"). "*" is the section's All item (whole expansion); "Uncategorized"
+    -- mirrors the tree's nil-category label.
+    local exp = navItem and navItem:match("^(.-)::")
     local categoryName = navItem and navItem:match("::(.+)$")
     local out = {}
     for _, item in ipairs(universe()) do
-        if not categoryName or item.categoryName == categoryName then out[#out + 1] = item end
+        if not navItem or (item.expansion == exp
+            and (categoryName == "*" or (item.categoryName or "Uncategorized") == categoryName)) then
+            out[#out + 1] = item
+        end
     end
     table.sort(out, function(a, b) return (a.name or "") < (b.name or "") end)
     return out
@@ -215,6 +224,8 @@ function Showroom.buildView(container)
     -- item list (profession/search/type/missing) but WITHOUT the nav's own
     -- category pick -- so choosing a category doesn't collapse its siblings
     -- out from under it. Mirrors VPC Preview.lua's RefreshNavTree.
+    local navSections -- memoized sections computed; assigned below, used by the collapse-all click closure
+
     local function buildNavSections()
         ns.Store:Version("nav") -- navSelected/navCollapsed slice
         kindRes.epoch() -- O(1) classification dep; passesTypeAndMissing peeks per item
@@ -244,6 +255,9 @@ function Showroom.buildView(container)
                 total = total + cats[cat]
                 items[#items + 1] = { key = exp .. "::" .. cat, label = cat, count = cats[cat] }
             end
+            -- leading "All" selects the whole expansion (Study's section
+            -- pattern; owner 2026-07-12) -- key "<exp>::*"
+            table.insert(items, 1, { key = exp .. "::*", label = "All", count = total })
             local info = ED.GetExpansionInfo(exp)
             sections[#sections + 1] = {
                 key = exp, label = info and info.display or exp, color = ED.GetColor(exp),
@@ -272,9 +286,25 @@ function Showroom.buildView(container)
             bar:Select("all")
             return bar
         elseif node.id == "navLabel" then
-            local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            local f = CreateFrame("Frame", nil, parent)
+            local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             fs:SetText(ns.UI:ColorCode("cyan") .. "Categories|r")
-            return fs
+            fs:SetPoint("LEFT", 4, 0)
+            -- Expand-all / collapse-all: one button that flips whichever state
+            -- most sections are in (Workbench's rcpNavLabel pattern; owner
+            -- 2026-07-12). Label reflects the action (effect below).
+            local collapseBtn = ns.UI:CreateButton(f, "Collapse", 62, 14)
+            collapseBtn:SetPoint("RIGHT", -4, 0)
+            collapseBtn:SetScript("OnClick", function()
+                local keys, anyOpen = {}, false
+                for _, s in ipairs(navSections()) do
+                    keys[#keys + 1] = s.key
+                    if not s.collapsed then anyOpen = true end
+                end
+                ns.Store:Dispatch("SET_NAV_COLLAPSED_ALL", { keys = keys, collapsed = anyOpen }) -- any open -> collapse all; else expand all
+            end)
+            f.collapseBtn = collapseBtn
+            return f
         elseif node.id == "navTree" then
             navTree = ns.UI:CreateNavTree(parent, {
                 onHeaderClick = function(key)
@@ -435,11 +465,30 @@ function Showroom.buildView(container)
     -- rows appear as classification resolves -- no click-away, no manual refresh.
     -- Also owns the empty-state caption: a blank list is ambiguous (nothing
     -- here? filters too tight? a bug?) -- name the reason instead of going quiet.
+    -- Truly-cold corpus: the text empty-states below explain FILTER misses;
+    -- a fresh install needs the one-click fix instead (Workbench's card
+    -- pattern -- consistency review 2026-07-13).
+    local emptyCard = ns.UI:CreateEmptyStateCard(listWidget, {
+        width = 320, height = 170,
+        icon = "Interface\\Icons\\INV_Misc_Book_09",
+        title = "The shelves are bare",
+        body = "Scan a profession window, or pull your guild's recipes in one pass.",
+        buttonText = "Scan Guild Recipes",
+        onClick = function()
+            ns:ShowPage("data")
+            ns.RecipeHarvest:Start()
+        end,
+    })
+    emptyCard:SetPoint("CENTER", listWidget, "CENTER", 0, 10)
+    emptyCard:SetFrameLevel(listWidget:GetFrameLevel() + 5)
+    emptyCard:Hide()
+
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled rows on switch
         local items = model.filteredItems()
         listWidget:SetData(items)
-        if #items > 0 then
+        emptyCard:SetShown(#items == 0 and #universe() == 0)
+        if #items > 0 or #universe() == 0 then
             listWidget.emptyText:Hide()
         else
             local msg
@@ -471,8 +520,18 @@ function Showroom.buildView(container)
     R.effect(function() VWB.Theme.epoch(); collectedRes.epoch(); listWidget:Refresh() end, "showroom:collectionTick") -- theme epoch: repaint on switch
 
     -- Nav tree data: rebuilds whenever the recipe universe, profession/type/
-    -- missing/search scope, classification, or collapse state changes.
-    R.effect(function() VWB.Theme.epoch(); navTree:SetData(buildNavSections()) end, "showroom:nav") -- theme epoch: repaint on switch
+    -- missing/search scope, classification, or collapse state changes. Memoized:
+    -- the tree effect, the collapse-all label, and the button click all share
+    -- one walk.
+    navSections = R.named("showroom:navSections", buildNavSections)
+    R.effect(function() VWB.Theme.epoch(); navTree:SetData(navSections()) end, "showroom:nav") -- theme epoch: repaint on switch
+
+    -- Collapse-all button label reflects the action it will take (Workbench pattern).
+    R.effect(function()
+        local anyOpen = false
+        for _, s in ipairs(navSections()) do if not s.collapsed then anyOpen = true; break end end
+        handle.byId.navLabel.collapseBtn:SetText(anyOpen and "Collapse" or "Expand")
+    end, "showroom:collapseAllLabel")
 
     -- Recent-previews strip: persisted ring (Store ui.recentPreviewed), chips
     -- rebuilt whenever it changes. Pooled buttons -- ported from VPC's

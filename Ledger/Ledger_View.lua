@@ -271,7 +271,14 @@ function Ledger.buildView(container)
 
     local search = R.signal("")
     local sortMode = R.signal("profit")
-    local filterProfession = R.signal(nil)
+    local selectedProfessions = R.signal({}) -- set of profession keys; empty = all (Stockroom's multi-select semantics)
+    -- Immutable toggle: a NEW set each time so the signal sees an identity change
+    local function toggleProfession(key)
+        local nxt = {}
+        for k in pairs(selectedProfessions()) do nxt[k] = true end
+        if nxt[key] then nxt[key] = nil else nxt[key] = true end
+        selectedProfessions(nxt)
+    end
     -- 3-state: "all" / "me" / "account" (item 3)
     local knownMode = R.signal("all")
     local showCraftableOnly = R.signal(false)
@@ -279,15 +286,32 @@ function Ledger.buildView(container)
     local hideUnprofitable = R.signal(true) -- CRITICAL default: open filtered like VPC, don't dump ~8600 rows
     local profitRows = R.signal({}) -- built rows; see rebuildProfitRows below
     local hasLiquidity = ns.PriceIntegration:HasTSM()
-    local listWidget, summaryFrame, scanBtn
+    local listWidget, summaryFrame, scanBtn, profDropdown
 
-    -- Build profession list from HARVESTED professions only (item 1):
-    -- RecipeQuery:GetProfessions() returns only professions with harvested recipes,
-    -- same as the Workbench tab bar -- prevents all 12 static professions
-    -- showing for a 2-profession player.
-    local professionItems = { { key = nil, label = "All Professions" } }
+    -- Profession list from HARVESTED professions only (item 1), SECTIONED
+    -- player-first (owner 2026-07-13): the account's own professions lead;
+    -- professions that exist only via the guild catalog harvest trail with a
+    -- dim (guild) tag -- the player/guild split made visible in the control.
+    local accountProfs = {}
+    for _, entry in pairs(ns.Store:GetState().account.characters) do
+        for profName in pairs(entry.professions) do accountProfs[profName] = true end
+    end
+    local mineItems, guildItems = {}, {}
     for _, prof in ipairs(VWB.RecipeQuery:GetProfessions()) do
-        professionItems[#professionItems + 1] = { key = prof.key, label = prof.label }
+        if accountProfs[prof.key] then
+            mineItems[#mineItems + 1] = { key = prof.key, label = prof.label }
+        else
+            guildItems[#guildItems + 1] = { key = prof.key, label = prof.label .. "  |cff8a8a8e(guild)|r" }
+        end
+    end
+    local professionItems = {}
+    if #mineItems > 0 then
+        professionItems[#professionItems + 1] = { title = "Your professions" }
+        for _, it in ipairs(mineItems) do professionItems[#professionItems + 1] = it end
+    end
+    if #guildItems > 0 then
+        professionItems[#professionItems + 1] = { title = "Guild catalog" }
+        for _, it in ipairs(guildItems) do professionItems[#professionItems + 1] = it end
     end
 
     -- Chunked, cache-until-invalidated build over the whole known-recipe
@@ -372,7 +396,8 @@ function Ledger.buildView(container)
     local filtered = R.named("ledger:filtered", function()
         local q = search()
         local mode = sortMode()
-        local prof = filterProfession()
+        local selProfs = selectedProfessions()
+        local allProfs = next(selProfs) == nil
         local kMode = knownMode()
         local matsOnly = showCraftableOnly()
         local hideUnp = hideUnprofitable()
@@ -393,7 +418,7 @@ function Ledger.buildView(container)
             -- Decor: Missing filter -- skip when catalog cold to avoid false negatives (item 2)
             local passesDecor = (not decorMissing) or (not decorColdBlock and ns.DecorOwnership:IsUncollected(d.itemID) == true)
             local passes = (q == "" or (d.name and d.name:lower():find(q, 1, true)))
-                and (not prof or d.profession == prof)
+                and (allProfs or selProfs[d.profession] == true)
                 and passesKnown
                 and (not matsOnly or ns.RecipeQuery:CanCraft(d.recipeID))
                 and passesDecor
@@ -437,12 +462,15 @@ function Ledger.buildView(container)
             filterStrip:SetPoint("TOPLEFT", 0, 0)
             filterStrip:SetPoint("TOPRIGHT", 0, 0)
 
-            local profDropdown = VWB.UI:CreateDropdown(filterStrip, {
-                width = 140, items = professionItems,
-                onSelect = function(key) filterProfession(key) end,
+            profDropdown = VWB.UI:CreateMultiSelectDropdown(filterStrip, {
+                width = 140, height = 20,
+                allLabel = "All Professions", items = professionItems,
+                isAll = function() return next(selectedProfessions()) == nil end,
+                isSelected = function(key) return selectedProfessions()[key] == true end,
+                onAll = function() selectedProfessions({}) end,
+                onToggle = toggleProfession,
             })
             profDropdown:SetPoint("LEFT", 0, 0)
-            profDropdown:SetSelected(nil, "All Professions")
 
             -- 3-state Known control (item 3): All / Me / Account.
             -- "Account" rows show crafter name in tooltip via KnownByList.
@@ -458,18 +486,22 @@ function Ledger.buildView(container)
             })
             knownToggle:SetPoint("LEFT", profDropdown, "RIGHT", 12, 0)
 
-            local matsCb = VWB.UI:CreateCheckbox(filterStrip, "Have Mats", function(checked)
+            -- Binary row filters are PILLS addon-wide (consistency review
+            -- 2026-07-13: Workbench/Showroom taught pills; Ledger's checkboxes
+            -- for the same concept were drift). Affirmative wording:
+            -- "Profitable only" replaces the inverted "Hide Unprofitable".
+            local matsCb = VWB.UI:CreateFilterPill(filterStrip, "Have Mats", function(checked)
                 showCraftableOnly(checked)
             end)
             matsCb:SetPoint("LEFT", knownToggle, "RIGHT", 12, 0)
 
             -- Decor: Missing -- collector-profit hero query (item 2)
-            local decorCb = VWB.UI:CreateCheckbox(filterStrip, "Decor: Missing", function(checked)
+            local decorCb = VWB.UI:CreateFilterPill(filterStrip, "Decor: Missing", function(checked)
                 showDecorMissing(checked)
             end)
             decorCb:SetPoint("LEFT", matsCb, "RIGHT", 12, 0)
 
-            local hideUnpCb = VWB.UI:CreateCheckbox(filterStrip, "Hide Unprofitable", function(checked)
+            local hideUnpCb = VWB.UI:CreateFilterPill(filterStrip, "Profitable only", function(checked)
                 hideUnprofitable(checked)
             end)
             hideUnpCb:SetPoint("LEFT", decorCb, "RIGHT", 12, 0)
@@ -606,6 +638,16 @@ function Ledger.buildView(container)
         VWB.Theme.epoch() -- theme epoch: repaint on switch (summary reads scheme colors)
         paintSummary(summaryFrame, filtered())
     end, "ledger:summary")
+
+    -- Closed-trigger label: "All Professions" / the single pick / a count
+    -- (Stockroom's multi-select idiom).
+    R.effect(function()
+        local sel = selectedProfessions()
+        local n, last = 0, nil
+        for k in pairs(sel) do n = n + 1; last = k end
+        local label = (n == 0 and "All Professions") or (n == 1 and last) or (n .. " professions")
+        profDropdown:SetTriggerText(label)
+    end, "ledger:professionLabel")
 
     R.bindText(handle.byId.ldgKpiProfit.label, function()
         VWB.Theme.epoch() -- theme epoch: repaint on switch
