@@ -121,6 +121,7 @@ end
 -- ATT offered instead.
 local function namedAncestorPin(obj, npcName, zoneName, seen)
     local node, unresolved, matchedNpcID = obj, false, nil
+    local coordPin = nil -- nearest coords in this source's chain, name-agnostic (feeds the single-source fallback)
     while node do
         local name = node.name -- exception(boundary): triggers ATT's async name query; nil until the tooltip answers
         local hasCoords = type(node.coords) == "table"
@@ -134,7 +135,7 @@ local function namedAncestorPin(obj, npcName, zoneName, seen)
                     local uiMapID, x, y = firstPin(c.coords)
                     if uiMapID then
                         uiMapID, x, y = normalizePin(uiMapID, x, y, zoneName)
-                        return { uiMapID = uiMapID, x = x, y = y, npcID = matchedNpcID }, false
+                        return { uiMapID = uiMapID, x = x, y = y, npcID = matchedNpcID }, false, nil
                     end
                 end
                 c = c.sourceParent or c.parent
@@ -146,9 +147,16 @@ local function namedAncestorPin(obj, npcName, zoneName, seen)
         elseif hasCoords then
             seen[#seen + 1] = tostring(name)
         end
+        if not coordPin and hasCoords then -- this source's coords, whatever ATT names the NPC
+            local m, x, y = firstPin(node.coords)
+            if m then
+                m, x, y = normalizePin(m, x, y, zoneName)
+                coordPin = { uiMapID = m, x = x, y = y, npcID = node.npcID }
+            end
+        end
         node = node.sourceParent or node.parent
     end
-    return nil, unresolved, matchedNpcID
+    return nil, unresolved, matchedNpcID, coordPin
 end
 
 -- Boundary write half (Constitution R2/R4, ItemData shape): acquisition rides
@@ -160,21 +168,39 @@ local RETRY_DELAYS = { 0.5, 1, 2 }
 
 local function resolve(key, spellID, npcName, zoneName, attempt)
     -- defer/timer context: latching is legal here, never inside a computed
-    local anyUnresolved, seen, namedID = false, {}, nil
+    local anyUnresolved, seen, namedID, candidates = false, {}, nil, {}
     local results = _G.ATTC.SearchForField("spellID", spellID)
     for _, obj in ipairs(results or {}) do -- exception(boundary): ATT returns nil for unknown ids
-        local pin, unresolved, npcID = namedAncestorPin(obj, npcName, zoneName, seen)
+        local pin, unresolved, npcID, coordPin = namedAncestorPin(obj, npcName, zoneName, seen)
         if pin then latch:latch(key, pin); return end
         anyUnresolved = anyUnresolved or unresolved
         namedID = namedID or npcID
+        if coordPin then
+            local dup = false -- dedupe co-located sources (same vendor across hits) by map + rounded coords
+            local lockey = coordPin.uiMapID .. ":" .. math.floor(coordPin.x + 0.5) .. ":" .. math.floor(coordPin.y + 0.5)
+            for _, c in ipairs(candidates) do if c._loc == lockey then dup = true; break end end
+            if not dup then coordPin._loc = lockey; candidates[#candidates + 1] = coordPin end
+        end
     end
     if anyUnresolved and RETRY_DELAYS[attempt] then
         VWB.ReactorWoW.after(RETRY_DELAYS[attempt], function() resolve(key, spellID, npcName, zoneName, attempt + 1) end)
-        return -- key stays PENDING
+        return -- key stays PENDING (an exact name match may still resolve)
     end
     if namedID then -- NPC identified but unpinnable (Underbelly-class vendors): Wowhead link, no Map
         VWB.Log:Debug(string.format("NpcCoords: '%s' matched (npc %d) but no coords in ATT", npcName, namedID))
         latch:latch(key, { npcID = namedID })
+        return
+    end
+    -- Single-source fallback: ATT lists exactly ONE coord-bearing vendor and
+    -- our harvested name matched none of them (ATT's NPC name differs -- e.g.
+    -- co-located Aithlyn/Liawyn in Ardenweald, owner 2026-07-13). One source =
+    -- no ambiguity, so use it. MULTIPLE distinct sources fall through to the
+    -- miss -- the name-match is what disambiguates them (Kaye/Winterspring),
+    -- and guessing there is exactly the bug that matching prevents.
+    if #candidates == 1 then
+        candidates[1]._loc = nil
+        VWB.Log:Debug(string.format("NpcCoords: '%s' -> ATT's single source (name differs)", npcName))
+        latch:latch(key, candidates[1])
         return
     end
     -- terminal miss is never mute: say what ATT offered so a mismatch
