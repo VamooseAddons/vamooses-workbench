@@ -6,7 +6,7 @@ VWB = VWB or {}
 VWB.Minimap = {}
 
 local minimapButton = nil
-local ICON = "Interface/Icons/Trade_Engineering"
+local ICON = "Interface\\AddOns\\VamoosesWorkbench\\textures\\Vamoose_VWB_400"
 
 -- ============================================================================
 -- MINIMAP SHAPE DETECTION

@@ -2,11 +2,12 @@
 ## Title: Vamoose's Workbench
 ## Notes: Plans your crafts, tallies your margins, and keeps every alt's trade skills straight.
 ## Author: Vamoose
+## X-Credits: Title artwork by Boggle; logo by Madailein
 ## Version: 0.1.0
 ## SavedVariables: VWB_DB
 ## Category-enUS: Professions
 ## DefaultState: enabled
-## IconTexture: Interface\Icons\Trade_Engineering
+## IconTexture: Interface\AddOns\VamoosesWorkbench\textures\Vamoose_VWB_400
 ## AddonCompartmentFunc: VWB_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: VWB_OnAddonCompartmentEnter
 ## AddonCompartmentFuncOnLeave: VWB_OnAddonCompartmentLeave

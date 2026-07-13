@@ -163,10 +163,15 @@ function Shell.openWindow()
     win:EnableMouse(true); win:SetMovable(true); win:RegisterForDrag("LeftButton")
     win:SetScript("OnDragStart", win.StartMoving); win:SetScript("OnDragStop", win.StopMovingOrSizing)
 
-    local title = win:CreateFontString(nil, "OVERLAY", "VWBFontNormalLarge")
-    title:SetPoint("TOP", 0, -9); title:SetText("Vamoose's Workbench")
-    title:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
-    win.title = title -- so the Frame skinner re-colors the title on a theme switch
+    -- Title wordmark (art by Boggle): 1363x154 art on a 2048x256 pot canvas,
+    -- cropped by texcoord, drawn at its native aspect. NOT win.title -- the
+    -- Frame skinner's title re-color path expects a FontString; art is
+    -- theme-independent.
+    local title = win:CreateTexture(nil, "OVERLAY")
+    title:SetTexture("Interface\\AddOns\\VamoosesWorkbench\\textures\\workbench_title")
+    title:SetTexCoord(0, 1363 / 2048, 0, 154 / 256)
+    title:SetSize(230, 26)
+    title:SetPoint("TOP", 0, -5)
     local close = CreateFrame("Button", nil, win, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
 
