@@ -186,12 +186,19 @@ function VWB.Constants:GetDerivedColors(scheme)
     local w = scheme.warning   -- golden amber in all 11 themes
     local p = scheme.panel
     local b = scheme.border
+    -- sunken: one perceptual step BELOW bg for inset scroll areas (HDG's
+    -- per-theme "sunken" role, derived here so all 11 themes get it without
+    -- new data). Light themes step down gently; dark themes drop to crust.
+    local g = scheme.bg
+    local luma = 0.299 * g.r + 0.587 * g.g + 0.114 * g.b
+    local k = luma > 0.5 and 0.93 or 0.55
     return {
         selected_glow = { r = w.r, g = w.g, b = w.b, a = 0.60 },
         selected_fill = { r = w.r, g = w.g, b = w.b, a = 0.18 },
         marble_tint   = { r = p.r, g = p.g, b = p.b, a = 0.35 },
         border_glow   = { r = math.min(b.r * 1.4, 1), g = math.min(b.g * 1.4, 1), b = math.min(b.b * 1.4, 1), a = 1.0 },
         selected_bar  = { r = w.r, g = w.g, b = w.b, a = 1.0 },
+        sunken        = { r = g.r * k, g = g.g * k, b = g.b * k, a = 1.0 },
     }
 end
 

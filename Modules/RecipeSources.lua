@@ -55,6 +55,11 @@ local SOURCE_LABELS = { "Profession Trainer", "World Quest", "Vendor", "Trainer"
     "Profession", "Drop", "Discovery", "Quest", "Specialization", "Recipe" }
 local FIELD_LABELS = { Zone = "zone", Cost = "cost", Faction = "faction", Requires = "requires" }
 
+-- Kinds whose detail is a standing NPC you can walk to -- the only sources
+-- Map/waypoint makes sense for (a Drop or World Quest has no fixed pin).
+local NPC_SOURCE_KINDS = { ["Vendor"] = true, ["Trainer"] = true, ["Profession Trainer"] = true }
+function VWB.RecipeSources.IsNpcSource(kind) return NPC_SOURCE_KINDS[kind] == true end
+
 local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
 -- All "Label:" hits in a stripped line, position-sorted, overlaps masked

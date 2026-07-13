@@ -339,13 +339,27 @@ function VWB.UI:CreateVirtualizedList(parent, options)
         spacing   = options.spacing or 0,
         factory   = function(frame)
             if rowTemplate then rowTemplate(frame) end
+            -- zebra stripe (BACKGROUND -1: under the hover wash and any
+            -- rowTemplate art), HDG's row-chrome treatment
+            local zebra = frame:CreateTexture(nil, "BACKGROUND", nil, -1)
+            zebra:SetAllPoints(); zebra:Hide()
+            frame._zebra = zebra
             -- shared hover highlight, created once per pooled row
             local hl = frame:CreateTexture(nil, "BACKGROUND")
             hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.07); hl:Hide()
             frame._hoverHL = hl
         end,
-        initializer = function(row, elementData)
+        initializer = function(row, elementData, scheme)
             row.data = elementData -- factory's own click/hover handlers read row.data; latch it so callers need not
+            -- zebra parity: even data rows tint a half-step back toward bg;
+            -- odd rows let the sunken well show through (HDG's stripe model)
+            local idx = row.GetOrderIndex and row:GetOrderIndex() -- exception(boundary): ScrollBox mixin method, absent under the headless test mock
+            if idx and idx % 2 == 0 then
+                row._zebra:SetColorTexture(scheme.bg.r, scheme.bg.g, scheme.bg.b, 0.45)
+                row._zebra:Show()
+            else
+                row._zebra:Hide()
+            end
             if updateRow then updateRow(row, elementData, nil) end
             if not row._rowHooked then
                 row:EnableMouse(true)
@@ -389,13 +403,14 @@ function VWB.UI:CreateScrollBox(parent, options)
     local container = CreateFrame("Frame", listName .. "_Container", parent)
     container:SetAllPoints()
 
-    -- Background panel (marble texture)
+    -- Background panel: sunken (one step below bg) -- scroll wells read as
+    -- inset against the surrounding panels, HDG's per-theme treatment
     local bg = CreateFrame("Frame", nil, container, "BackdropTemplate")
     bg:SetAllPoints()
     bg:SetBackdrop(VWB.Theme.BACKDROP_PANEL)
     local scheme = GetScheme()
     local dColors = VWB.Constants:GetDerivedColors(scheme)
-    bg:SetBackdropColor(dColors.marble_tint.r, dColors.marble_tint.g, dColors.marble_tint.b, dColors.marble_tint.a)
+    bg:SetBackdropColor(dColors.sunken.r, dColors.sunken.g, dColors.sunken.b, dColors.sunken.a)
     bg:SetBackdropBorderColor(scheme.border.r, scheme.border.g, scheme.border.b, scheme.border.a)
     bg:SetFrameLevel(container:GetFrameLevel())
     container.bg = bg
@@ -525,7 +540,7 @@ function VWB.UI:CreateScrollBox(parent, options)
         VWB.EventBus:Register("VWB_THEME_UPDATE", function()
             local c = GetScheme()
             local dc = VWB.Constants:GetDerivedColors(c)
-            bg:SetBackdropColor(dc.marble_tint.r, dc.marble_tint.g, dc.marble_tint.b, dc.marble_tint.a)
+            bg:SetBackdropColor(dc.sunken.r, dc.sunken.g, dc.sunken.b, dc.sunken.a)
             bg:SetBackdropBorderColor(c.border.r, c.border.g, c.border.b, c.border.a)
             container:Refresh()
         end)

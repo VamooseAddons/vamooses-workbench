@@ -430,6 +430,14 @@ end
 local function paintVendorHdr(row, r, s)
     row.hExpand.txt:SetText(r.expanded and "-" or "+")
     row.hExpand.txt:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
+    -- headers have no icon and no hStatus: reclaim the icon indent and run
+    -- the title to the coords column instead of the phantom 182px hStatus
+    -- reservation (owner 2026-07-13: "Profession: Battle for Azeroth
+    -- Engine..." was truncating with the pane half empty)
+    row.hName:ClearAllPoints()
+    row.hName:SetPoint("LEFT", 24, 0)
+    row.hName:SetPoint("RIGHT", row.who, "LEFT", -6, 0)
+    row.who:SetWidth(64) -- coords ("48.4, 50.4") never need the step rows' 120
     row.hName:SetText(r.title)
     row.hName:SetTextColor(s.text_header.r, s.text_header.g, s.text_header.b)
     -- pin may be npcID-only (ATT matched the NPC but has no coords).
@@ -438,9 +446,9 @@ local function paintVendorHdr(row, r, s)
     row.who:SetText(mappable and string.format("%.1f, %.1f", r.pin.x, r.pin.y) or "")
     row.wh:SetShown(r.npc ~= nil)
     row.action:SetText("Map")
-    -- ATT absent: grey Map on NPC sources teaches the capability; ATT
-    -- present with no pin: no button, nothing to map
-    row.action:SetShown((mappable ~= nil) or (not available and r.npc ~= nil))
+    -- Map only on Vendor/Trainer sources (owner 2026-07-13). ATT absent:
+    -- grey Map teaches the capability; ATT present with no pin: no button
+    row.action:SetShown(r.npcSource and ((mappable ~= nil) or not available) or false)
     row.action:SetEnabled(mappable ~= nil)
     row.action:ClearAllPoints()
     row.action:SetPoint("RIGHT", row.wh, "LEFT", -4, 0)
@@ -947,6 +955,11 @@ function Projects.buildView(container)
                     row.queued:SetShown(not (isHdr or r.vendorHdr or r.vendorRecipe))
                     row.action:SetShown(false); row.wh:SetShown(false)
                     row.action:ClearAllPoints(); row.action:SetPoint("RIGHT", -4, 0); row.action:SetEnabled(true)
+                    -- vendorHdr re-anchors these; restore the piece-header geometry
+                    row.hName:ClearAllPoints()
+                    row.hName:SetPoint("LEFT", row.hIcon, "RIGHT", 6, 0)
+                    row.hName:SetPoint("RIGHT", row.hStatus, "LEFT", -8, 0)
+                    row.who:SetWidth(120)
                     row.hExpand:SetShown((r.pieceHdr or r.vendorHdr) or false); row.hIcon:SetShown(isHdr or false)
                     row.hName:SetShown((isHdr or r.vendorHdr) or false); row.hStatus:SetShown(r.pieceHdr or false)
                     row.hRemove:SetShown(((r.pieceHdr or r.vendorRecipe) and r.removable) or false)
@@ -1198,7 +1211,8 @@ function Projects.buildView(container)
             local g = groups[key]
             if not g then
                 g = { title = title, name = st and st.name, zone = st and st.zone,
-                    npc = st and st.npc, pin = nil, recipes = {} }
+                    npc = st and st.npc, pin = nil, recipes = {},
+                    npcSource = st ~= nil and VWB.RecipeSources.IsNpcSource(st.sourceKind) }
                 groups[key] = g
                 order[#order + 1] = key
             end
@@ -1217,7 +1231,7 @@ function Projects.buildView(container)
                     for _, st in ipairs(pp.steps) do -- LEARN steps: one per source
                         local key = st.name .. "|" .. (st.zone or "")
                         local g = groupFor(key, st.name .. (st.zone and ("  --  " .. st.zone) or ""), st)
-                        if not g.pin then
+                        if not g.pin and g.npcSource then -- Map is Vendor/Trainer-only (owner 2026-07-13): a Drop/Quest "detail" is not an NPC name, don't ask ATT to pin it
                             -- async row field lives in the envelope: tracked
                             -- latch read, so the ATT pin arriving re-runs
                             -- this effect (a paint-time read never repaints)
@@ -1253,7 +1267,7 @@ function Projects.buildView(container)
             local expanded = not collapsed[expandKey]
             rows[#rows + 1] = { vendorHdr = true, expandKey = expandKey, expanded = expanded,
                 title = g.title, name = g.name or g.title, zone = g.zone, npc = g.npc,
-                kind = "LEARN", pin = g.pin, count = #g.recipes,
+                kind = "LEARN", pin = g.pin, count = #g.recipes, npcSource = g.npcSource,
                 learnedGroup = key == "\1learned" }
             if expanded then
                 for _, rec in ipairs(g.recipes) do
