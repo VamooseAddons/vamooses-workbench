@@ -90,9 +90,19 @@ function Debug:SetEpoch()
 end
 
 -- Append a chronological mark. No-op until epoch is set + debug enabled; stops
--- at the cap so the boot chain (front of the ring) is never evicted.
+-- at the cap so the boot chain (front of the ring) is never evicted. A RUN of
+-- identical consecutive marks coalesces into one entry with a count -- the
+-- item-data broker fires ITEM_DATA_LOAD_RESULT hundreds of times per second
+-- during warmup, and one "xN" line beats 400 lines of 0.00ms noise. t stays at
+-- the run's START so the gap-from-previous still reads as the wait before it.
 local function tlMark(label, ms, kind)
     if not (enabled and epoch) then return end
+    local last = timeline[#timeline]
+    if last and last.label == label and last.kind == kind then
+        last.count = (last.count or 1) + 1
+        last.ms = (last.ms or 0) + (ms or 0)
+        return
+    end
     if #timeline >= TIMELINE_CAP then return end
     timeline[#timeline + 1] = { t = clock() - epoch, label = label, ms = ms, kind = kind }
 end
@@ -305,9 +315,10 @@ function Debug:TimelineReport()
         -- <waited>: a big wall-clock gap the step's own CPU can't explain -> we
         -- were idle/async between marks (login stalls, character-select sit).
         local waited = (gap > 50 and (not m.ms or m.ms < gap * 0.25)) and "  <waited>" or ""
+        local label = m.count and (m.label .. "  x" .. m.count) or m.label
         lines[#lines + 1] = string.format("  t+%9.1fms (+%7.1f)  [%7s]  [%s] %s%s",
             m.t, gap, m.ms and string.format("%.2fms", m.ms) or "  --  ",
-            KIND[m.kind] or "     ?", tostring(m.label), waited)
+            KIND[m.kind] or "     ?", tostring(label), waited)
         prevT = m.t
     end
     lines[#lines + 1] = string.format("  --- %.1fms total from epoch to last mark (%d marks%s) ---",
