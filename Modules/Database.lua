@@ -13,6 +13,7 @@ VWB.Database = {}
 -- Modules/ReagentSource.lua -- nothing is baked into the recipe record.
 
 local itemIDIndex = nil -- Lazy-built index: [itemID] = recipeID (highest priority recipe)
+local itemIDAllIndex = nil -- [itemID] = { recipeID, ... } ALL recipes producing it (known-status must union across them)
 
 function VWB.Database:GetRecipe(recipeID)
     return VWB.Store:GetState().recipeStore[recipeID]
@@ -50,6 +51,7 @@ end
 local function BuildItemIDIndex()
     if itemIDIndex then return end
     itemIDIndex = {}
+    itemIDAllIndex = {}
 
     -- Priority scores: Mining > other professions > Alchemy Transmute
     local function GetPriority(recipe)
@@ -73,16 +75,30 @@ local function BuildItemIDIndex()
         end
     end
 
-    -- Second pass: select highest priority recipe for each itemID
+    -- Second pass: select highest priority recipe for each itemID, and keep
+    -- the FULL list per item (known-status checks must union across every
+    -- recipe that produces the item -- an item craftable two ways is "known"
+    -- if you know EITHER recipe, owner 2026-07-13).
     for itemID, recipeList in pairs(candidates) do
         local best = recipeList[1]
+        local all = { best.recipeID }
         for i = 2, #recipeList do
+            all[i] = recipeList[i].recipeID
             if recipeList[i].priority > best.priority then
                 best = recipeList[i]
             end
         end
         itemIDIndex[itemID] = best.recipeID
+        itemIDAllIndex[itemID] = all
     end
+end
+
+-- Every recipeID that produces this item (empty when none). Callers that ask
+-- "can any character make this" must union over this, not the single priority
+-- pick from GetRecipeByItemID.
+function VWB.Database:GetRecipeIDsByItemID(itemID)
+    BuildItemIDIndex()
+    return itemIDAllIndex[itemID] or {} -- exception(nullable): most items are not recipe outputs
 end
 
 -- Find recipe by output itemID (with priority: Mining > other > Alchemy Transmute)

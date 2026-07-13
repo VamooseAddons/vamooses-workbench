@@ -33,10 +33,19 @@ local function QueueNeedFor(itemID)
 end
 
 local function CraftersText(itemID)
-    local recipeID = VWB.Database:GetRecipeByItemID(itemID)
-    if not recipeID then return nil end -- exception(nullable): most hovered items are not store outputs
+    local recipeIDs = VWB.Database:GetRecipeIDsByItemID(itemID)
+    if #recipeIDs == 0 then return nil end -- exception(nullable): most hovered items are not store outputs
 
-    local names = VWB.KnownRecipes:KnownByList(recipeID)
+    -- Union crafters across EVERY recipe that produces the item -- an item
+    -- craftable two ways is known if you know either (owner 2026-07-13: a
+    -- single priority-picked recipe read "no one knows it" when a scanned
+    -- character knew a different producing recipe).
+    local names, seen = {}, {}
+    for _, recipeID in ipairs(recipeIDs) do
+        for _, name in ipairs(VWB.KnownRecipes:KnownByList(recipeID)) do
+            if not seen[name] then seen[name] = true; names[#names + 1] = name end
+        end
+    end
     if #names == 0 then return "in the recipe book (no scanned character knows it)" end
 
     local shown = {}
