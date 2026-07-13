@@ -15,6 +15,7 @@ boot:SetScript("OnEvent", function(self, event, name)
     if event == "ADDON_LOADED" then
         if name ~= "VamoosesWorkbench" then return end
         self:UnregisterEvent("ADDON_LOADED")
+        ns.Debug:SetEpoch() -- t-zero for the boot timeline, before anything derives
         VWB_DB = VWB_DB or {}
         -- Signals store FIRST: aliases VWB_DB slices onto state.config. Must precede
         -- Theme:Initialize -- otherwise Theme reads the Store's empty default config

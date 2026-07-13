@@ -34,13 +34,15 @@ function Debug.buildView(container)
     -- screen was yanked back to the top every REFRESH_INTERVAL.
     local function render(toTop)
         local off = toTop and 0 or scroll:GetVerticalScroll()
-        eb:SetText(mode == "perf" and Debug:PerfReport() or Debug:DebugReport())
+        local text = mode == "boot" and Debug:TimelineReport()
+            or (mode == "perf" and Debug:PerfReport() or Debug:DebugReport())
+        eb:SetText(text)
         scroll:SetVerticalScroll(off)
     end
 
     local toggle = VWB.UI:CreateSegmentedToggle(root, {
-        width = 150, height = 22,
-        segments = { { key = "perf", label = "Perf" }, { key = "debug", label = "Debug" } },
+        width = 210, height = 22,
+        segments = { { key = "perf", label = "Perf" }, { key = "debug", label = "Debug" }, { key = "boot", label = "Boot" } },
         default = "perf",
         onSelect = function(key) mode = key; render(true) end,
     })

@@ -50,6 +50,19 @@ local eventCounts = {}
 local wowEvents = {}  -- wow event name -> { count, total, max } (handler cost, NOT recompute)
 local enabled = false
 
+-- Boot timeline (HDG's HDGR_Perf model ported to Reactor): a CHRONOLOGICAL
+-- list of marks from a boot epoch, so "what runs from login to first window,
+-- and when" is readable. The bucket accumulators above answer "what's hot";
+-- this answers "what happened, in order". Each mark = { t = ms-since-epoch,
+-- label, ms = step CPU (nil for pure markers), kind }. Filled by the SAME
+-- probes (dispatch / wow-event / flush), so it costs nothing extra when debug
+-- is off. Capped: once full we STOP appending -- the boot chain is at the
+-- front and is what matters (steady-state churn would only push it out).
+local TIMELINE_CAP = 500
+local FLUSH_FLOOR_MS = 0.08 -- skip trivial flushes so the timeline reads as boot steps, not reactive noise
+local timeline = {}
+local epoch -- clock() at boot (SetEpoch); nil until set
+
 -- Recording (hot path -- keep allocation-free after first sight of a key) ------
 local function recordNode(node, ms)
     local s = nodeStats[node]
@@ -69,6 +82,22 @@ local function instrumentWrap(node, thunk)
     return r
 end
 
+-- SetEpoch: t-zero for the boot timeline. Called at ADDON_LOADED (VWB_Init) so
+-- t+ is measured from true boot even though marks only append once Enable()
+-- installs the probes. Idempotent -- a mid-session /vwb debug keeps boot's zero.
+function Debug:SetEpoch()
+    if not epoch then epoch = clock() end
+end
+
+-- Append a chronological mark. No-op until epoch is set + debug enabled; stops
+-- at the cap so the boot chain (front of the ring) is never evicted.
+local function tlMark(label, ms, kind)
+    if not (enabled and epoch) then return end
+    if #timeline >= TIMELINE_CAP then return end
+    timeline[#timeline + 1] = { t = clock() - epoch, label = label, ms = ms, kind = kind }
+end
+Debug.Mark = function(_, label, ms) tlMark(label, ms, "op") end -- public: modules can mark a notable op
+
 local function flushBegin()
     local t0 = clock()
     return function(effects)
@@ -77,6 +106,7 @@ local function flushBegin()
         flushAccum.effects = flushAccum.effects + effects
         flushAccum.total = flushAccum.total + ms
         if ms > flushAccum.max then flushAccum.max = ms end
+        if ms >= FLUSH_FLOOR_MS then tlMark(effects .. " effect(s)", ms, "flush") end
     end
 end
 
@@ -91,6 +121,7 @@ local function wowEventBegin(event)
         s.count = s.count + 1
         s.total = s.total + ms
         if ms > s.max then s.max = ms end
+        tlMark(event, ms, "wow") -- WoW-event handler fan-out: the boot triggers (SKILL_LINES_CHANGED, GUILD_ROSTER_UPDATE, ...)
     end
 end
 
@@ -113,6 +144,7 @@ local origLog = {}
 function Debug:Enable()
     if enabled then return end
     enabled = true
+    self:SetEpoch() -- if VWB_Init hasn't stamped boot yet (mid-session toggle), t-zero is now
 
     Reactor.setInstrument(instrumentWrap)
     Reactor.setFlushObserver(flushBegin)
@@ -123,9 +155,11 @@ function Debug:Enable()
         local t0 = clock()
         local r = origDispatch(store, action, payload)
         if not NOISY[action] then
+            local dt = clock() - t0
             local detail = (type(payload) == "table" and payload.key ~= nil)
                 and (tostring(payload.key) .. "=" .. tostring(payload.value)) or nil
-            pushAction(action, clock() - t0, detail)
+            pushAction(action, dt, detail)
+            tlMark(detail and (action .. " " .. detail) or action, dt, "op") -- state change: reducer name + cost
             -- Loop-source diagnostic: capture WHO dispatched the latest SET_CONFIG.
             -- Level 1 is this wrapper closure; level 2 is the direct Dispatch caller,
             -- so start there and walk up the chain (through effects/handlers that
@@ -185,6 +219,7 @@ function Debug:Reset()
     for k in pairs(wowEvents) do wowEvents[k] = nil end
     for i = #actionLog, 1, -1 do actionLog[i] = nil end
     for i = #logRing, 1, -1 do logRing[i] = nil end -- clear the log ring too (was asymmetric)
+    for i = #timeline, 1, -1 do timeline[i] = nil end -- epoch NOT cleared: fixed t-zero for the session
     lastSetConfigStack = nil
 end
 
@@ -246,6 +281,37 @@ function Debug:PerfReport()
         local e = ev[i]
         lines[#lines + 1] = string.format("%-40s %7d %8.1f %8.2f", e.name:sub(1, 40), e.s.n, e.s.total, e.s.max)
     end
+    return table.concat(lines, "\n")
+end
+
+-- Boot timeline: t+ = wall-clock since epoch (includes idle/async gaps between
+-- steps); [cost] = that step's CPU. A big gap with a cheap step = we WAITED on
+-- async/idle (the login burst, or you sitting at the character screen), not
+-- our cost. Ported from HDG's HDGR_Perf boot timeline.
+function Debug:TimelineReport()
+    local lines = { "Boot timeline (epoch = ADDON_LOADED; t+ = wall-clock, [..] = step cost):" }
+    if not epoch then
+        lines[#lines + 1] = "  (no epoch -- /vwb debug then /reload to capture from boot)"
+        return table.concat(lines, "\n")
+    end
+    if #timeline == 0 then
+        lines[#lines + 1] = "  (no marks yet -- open the window / play to capture boot steps)"
+        return table.concat(lines, "\n")
+    end
+    local KIND = { wow = "  event", op = "     op", flush = "  flush" }
+    local prevT = 0
+    for _, m in ipairs(timeline) do
+        local gap = m.t - prevT
+        -- <waited>: a big wall-clock gap the step's own CPU can't explain -> we
+        -- were idle/async between marks (login stalls, character-select sit).
+        local waited = (gap > 50 and (not m.ms or m.ms < gap * 0.25)) and "  <waited>" or ""
+        lines[#lines + 1] = string.format("  t+%9.1fms (+%7.1f)  [%7s]  [%s] %s%s",
+            m.t, gap, m.ms and string.format("%.2fms", m.ms) or "  --  ",
+            KIND[m.kind] or "     ?", tostring(m.label), waited)
+        prevT = m.t
+    end
+    lines[#lines + 1] = string.format("  --- %.1fms total from epoch to last mark (%d marks%s) ---",
+        prevT, #timeline, #timeline >= TIMELINE_CAP and ", CAPPED" or "")
     return table.concat(lines, "\n")
 end
 
