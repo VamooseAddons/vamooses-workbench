@@ -17,7 +17,7 @@ ns.Achieve = Achieve
 
 local ROW_H = 36
 local RIGHT_W, PTS_W = 110, 44
-local TOOLTIP_CRITERIA_CAP = 15 -- "know each of..." lists run long; tooltip stays a summary
+local CRIT_ROW_H = 16
 
 local singleLine = ns.ViewKit.singleLine
 
@@ -58,47 +58,14 @@ local function buildCriteriaPieces(rec)
     return pieces
 end
 
+-- Slim rows (detail-column pass 2026-07-13): Track + Commission moved to the
+-- detail panel -- one proper button each instead of a column of identical
+-- per-row buttons; rows are icon | name+description | points | progress.
 local function listRowTemplate(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(28, 28); icon:SetPoint("LEFT", 4, 0)
     frame.icon = icon
-    -- the shared control, per row; DISABLED explains itself (spec 5b: the
-    -- Elusive Beasts case -- no craftable criteria, nothing to plan)
-    frame.track = VWB.UI:CreateCommissionDropdown(frame, {
-        width = 104,
-        context = function()
-            local rec = frame.data
-            if not rec then return nil end -- exception(boundary): SetupMenu pre-generates at row-template creation, before any data row is bound
-            return {
-                name = rec.name, count = #buildCriteriaPieces(rec),
-                defaultStatus = "backlog", -- an import is an intention; promote when ready
-                source = { type = "achievement", id = rec.id },
-                pieces = function() return buildCriteriaPieces(rec) end,
-            }
-        end,
-    })
-    frame.track:SetPoint("RIGHT", -6, 0)
-    -- Blizzard objectives-tracker toggle (owner 2026-07-12): un-earned
-    -- achievements get Track/Untrack via C_ContentTracking; anchored
-    -- dynamically in updateRow (left of Commission, or the right edge when
-    -- the Commission button is hidden).
-    frame.trackBliz = VWB.UI:CreateButton(frame, "Track", 62, 20)
-    frame.trackBliz:SetScript("OnClick", function(self)
-        local rec = frame.data
-        local t = Enum.ContentTrackingType.Achievement
-        if C_ContentTracking.IsTracking(t, rec.id) then
-            C_ContentTracking.StopTracking(t, rec.id, Enum.ContentTrackingStopType.Manual)
-            self:SetText("Track")
-        else
-            local err = C_ContentTracking.StartTracking(t, rec.id)
-            if err then -- exception(boundary): Blizzard refuses past the tracking cap
-                VWB.Log:Print("Blizzard declined to track this achievement (the tracker caps at 10)")
-            else
-                self:SetText("Untrack")
-            end
-        end
-    end)
     local right = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall"))
-    right:SetWidth(RIGHT_W); right:SetJustifyH("RIGHT") -- anchored in updateRow (leftmost visible control varies)
+    right:SetWidth(RIGHT_W); right:SetJustifyH("RIGHT"); right:SetPoint("RIGHT", -6, 0)
     frame.right = right
     local pts = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall"))
     pts:SetPoint("RIGHT", right, "LEFT", -6, 0); pts:SetWidth(PTS_W); pts:SetJustifyH("RIGHT")
@@ -132,9 +99,26 @@ function Achieve.buildView(container)
     })
 
     local listWidget, navTree, breadcrumbFS
+    local detHeader, detDesc, detProgress, detTrack, detCommission, critList
+
+    -- click-selected achievement id; drives the detail column (sticky --
+    -- survives the selection filtering out of the list)
+    local selected = R.signal(nil)
+
+    -- Detail rec straight off the latch, NOT model.rows(): epoch-tracked so
+    -- live criteria progress repaints the panel, and peek-by-id keeps the
+    -- panel up when filters drop the row.
+    local detailRec = R.named("achieve:detailRec", function()
+        local id = selected()
+        if not id then return nil end
+        ns.ProfAchievements.epoch()
+        return ns.ProfAchievements.peek(id) -- exception(nullable): id can outlive a re-walk
+    end)
 
     local function toggleCollapse(key) VWB.UI.ToggleSetKey(filters.collapsed, key) end
 
+    -- Hover stays a SUMMARY (name/points/desc/reward); the criteria wall that
+    -- used to run off-screen lives in the detail column now (owner 2026-07-13).
     local function onRowEnter(rec, rowFrame)
         local tip = ns.UI.Tooltip
         tip:Begin(rowFrame)
@@ -143,23 +127,6 @@ function Achieve.buildView(container)
         if rec.description and rec.description ~= "" then tip:AddLine(rec.description) end
         if rec.rewardText and rec.rewardText ~= "" then
             tip:AddLine(ns.UI:ColorCode("yellow") .. rec.rewardText .. "|r")
-        end
-        if #rec.criteria > 0 then
-            tip:AddLine(" ")
-            for i = 1, math.min(#rec.criteria, TOOLTIP_CRITERIA_CAP) do
-                local c = rec.criteria[i]
-                local line = c.text or ""
-                if c.bar then line = line .. " " .. (c.quantity or 0) .. "/" .. (c.req or 0) end
-                if c.done then
-                    tip:AddLine(ns.UI:ColorCode("green") .. line .. "|r")
-                else
-                    tip:AddLine(ns.UI:ColorCode("base01") .. line .. "|r")
-                end
-            end
-            if #rec.criteria > TOOLTIP_CRITERIA_CAP then
-                tip:AddLine(ns.UI:ColorCode("base01") .. "... and "
-                    .. (#rec.criteria - TOOLTIP_CRITERIA_CAP) .. " more|r")
-            end
         end
         tip:Show()
     end
@@ -205,34 +172,15 @@ function Achieve.buildView(container)
                 updateRow = function(row, rec)
                     row.data = rec
                     row.icon:SetTexture(rec.icon)
-                    -- hidden, not greyed: no criteria will EVER be craftable for
-                    -- skill/slay achievements, so a permanent grey button is
-                    -- noise (owner 2026-07-12; contrast the ATT-absent Map
-                    -- button, which greys because installing ATT fixes it)
-                    local hasCommission = not rec.completed and #buildCriteriaPieces(rec) > 0
-                    row.track:SetShown(hasCommission)
-                    row.trackBliz:SetShown(not rec.completed)
-                    if not rec.completed then
-                        row.trackBliz:SetText(C_ContentTracking.IsTracking(Enum.ContentTrackingType.Achievement, rec.id)
-                            and "Untrack" or "Track")
-                    end
-                    -- right-edge flow: [progress] [Track] [Commission?] -- anchor
-                    -- each to the next visible control
-                    row.trackBliz:ClearAllPoints()
-                    if hasCommission then
-                        row.trackBliz:SetPoint("RIGHT", row.track, "LEFT", -6, 0)
+                    local s = VWB.UI:GetScheme()
+                    row.name:SetText(rec.name)
+                    if rec.id == selected() then
+                        row.name:SetTextColor(s.warning.r, s.warning.g, s.warning.b)
+                    elseif rec.completed then
+                        row.name:SetTextColor(s.success.r, s.success.g, s.success.b)
                     else
-                        row.trackBliz:SetPoint("RIGHT", -6, 0)
+                        row.name:SetTextColor(1, 1, 1)
                     end
-                    row.right:ClearAllPoints()
-                    if not rec.completed then
-                        row.right:SetPoint("RIGHT", row.trackBliz, "LEFT", -8, 0)
-                    else
-                        row.right:SetPoint("RIGHT", -6, 0)
-                    end
-                    local name = rec.name
-                    if rec.completed then name = ns.UI:ColorCode("green") .. name .. "|r" end
-                    row.name:SetText(name)
                     row.desc:SetText(rec.description or "")
                     row.pts:SetText(rec.points > 0 and (rec.points .. "p") or "")
                     if rec.completed then
@@ -241,11 +189,93 @@ function Achieve.buildView(container)
                         row.right:SetText(ns.UI:ColorCode("base01") .. rec.progressText .. "|r")
                     end
                 end,
+                onRowClick = function(rec)
+                    selected(selected() == rec.id and nil or rec.id)
+                end,
                 onRowEnter = onRowEnter,
                 onRowLeave = function(_, rowFrame) ns.UI.Tooltip:Hide(rowFrame) end,
             })
             ns.UI:AddEmptyOverlayText(listWidget)
             return listWidget
+        elseif node.id == "detHeader" then
+            local f = CreateFrame("Frame", nil, parent)
+            f.icon = f:CreateTexture(nil, "ARTWORK")
+            f.icon:SetSize(26, 26); f.icon:SetPoint("LEFT", 0, 0)
+            f.pts = singleLine(f:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall"))
+            f.pts:SetPoint("RIGHT", -2, 0); f.pts:SetJustifyH("RIGHT")
+            VWB.Theme:Register(f.pts, "DimLabel")
+            f.name = singleLine(f:CreateFontString(nil, "OVERLAY", "VWBFontNormal"))
+            f.name:SetPoint("LEFT", f.icon, "RIGHT", 8, 0)
+            f.name:SetPoint("RIGHT", f.pts, "LEFT", -6, 0)
+            f.name:SetJustifyH("LEFT")
+            detHeader = f
+            return f
+        elseif node.id == "detDesc" then
+            detDesc = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
+            detDesc:SetJustifyH("LEFT"); detDesc:SetJustifyV("TOP") -- wraps to the slot's 2 lines
+            VWB.Theme:Register(detDesc, "DimLabel")
+            return detDesc
+        elseif node.id == "detProgress" then
+            detProgress = singleLine(parent:CreateFontString(nil, "OVERLAY", "VWBFontHighlightSmall"))
+            detProgress:SetJustifyH("LEFT")
+            return detProgress
+        elseif node.id == "detTrack" then
+            detTrack = VWB.UI:CreateButton(parent, "Track", 70, 20)
+            detTrack:SetScript("OnClick", function(self)
+                local rec = detailRec()
+                if not rec then return end -- exception(nullable): button hidden without a selection; belt for a race
+                local t = Enum.ContentTrackingType.Achievement
+                if C_ContentTracking.IsTracking(t, rec.id) then
+                    C_ContentTracking.StopTracking(t, rec.id, Enum.ContentTrackingStopType.Manual)
+                    self:SetText("Track")
+                else
+                    local err = C_ContentTracking.StartTracking(t, rec.id)
+                    if err then -- exception(boundary): Blizzard refuses past the tracking cap
+                        VWB.Log:Print("Blizzard declined to track this achievement (the tracker caps at 10)")
+                    else
+                        self:SetText("Untrack")
+                    end
+                end
+            end)
+            return detTrack
+        elseif node.id == "detCommission" then
+            detCommission = VWB.UI:CreateCommissionDropdown(parent, {
+                width = 104,
+                context = function()
+                    local rec = detailRec()
+                    if not rec then return nil end -- exception(nullable): SetupMenu pre-generates before any selection
+                    return {
+                        name = rec.name, count = #buildCriteriaPieces(rec),
+                        defaultStatus = "backlog", -- an import is an intention; promote when ready
+                        source = { type = "achievement", id = rec.id },
+                        pieces = function() return buildCriteriaPieces(rec) end,
+                    }
+                end,
+            })
+            return detCommission
+        elseif node.id == "detCriteria" then
+            critList = ns.UI:CreateVirtualizedList(parent, {
+                rowHeight = CRIT_ROW_H,
+                rowTemplate = function(frame)
+                    local cnt = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall"))
+                    cnt:SetPoint("RIGHT", -6, 0); cnt:SetWidth(70); cnt:SetJustifyH("RIGHT")
+                    frame.cnt = cnt
+                    local txt = singleLine(frame:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall"))
+                    txt:SetPoint("LEFT", 6, 0); txt:SetPoint("RIGHT", cnt, "LEFT", -6, 0)
+                    txt:SetJustifyH("LEFT")
+                    frame.txt = txt
+                end,
+                updateRow = function(row, c)
+                    local s = VWB.UI:GetScheme()
+                    local col = c.done and s.success or s.text
+                    row.txt:SetText(c.text or "")
+                    row.txt:SetTextColor(col.r, col.g, col.b)
+                    row.cnt:SetText(c.bar and ((c.quantity or 0) .. "/" .. (c.req or 0)) or (c.done and "done" or ""))
+                    row.cnt:SetTextColor(col.r, col.g, col.b)
+                end,
+            })
+            ns.UI:AddEmptyOverlayText(critList)
+            return critList
         end
         -- unhandled node -> Layout's default factory renders it
     end
@@ -277,6 +307,52 @@ function Achieve.buildView(container)
         breadcrumbFS:SetText(string.format("%d of %d earned  |  %d shown",
             t.earned, t.total, #model.rows()))
     end, "achieve:breadcrumb")
+
+    -- Detail column: the click-selected achievement's full record. Buttons
+    -- hide without a selection (and Commission hides when nothing's plannable
+    -- -- the Elusive Beasts rule, same as the old per-row gating).
+    R.effect(function()
+        VWB.Theme.epoch()
+        local s = VWB.UI:GetScheme()
+        local d = VWB.Constants:GetDerivedColors(s)
+        local rec = detailRec()
+        if not rec then
+            detHeader.icon:SetTexture(nil)
+            detHeader.name:SetText(""); detHeader.pts:SetText("")
+            detDesc:SetText(""); detProgress:SetText("")
+            detTrack:Hide(); detCommission:Hide()
+            critList:SetData({})
+            critList.emptyText:SetText("Select an achievement to see its criteria.")
+            critList.emptyText:Show()
+            return
+        end
+        detHeader.icon:SetTexture(rec.icon)
+        detHeader.name:SetText(rec.name)
+        detHeader.name:SetTextColor(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b)
+        detHeader.pts:SetText(rec.points > 0 and (rec.points .. " points") or "")
+        detDesc:SetText(rec.description or "")
+        if rec.rewardText and rec.rewardText ~= "" then
+            detDesc:SetText((rec.description or "") .. "  " .. ns.UI:ColorCode("yellow") .. rec.rewardText .. "|r")
+        end
+        if rec.completed then
+            detProgress:SetText(ns.UI:ColorCode("green") .. rec.progressText .. "|r")
+        else
+            detProgress:SetText(ns.UI:ColorCode("base01") .. rec.progressText .. "|r")
+        end
+        detTrack:SetShown(not rec.completed)
+        if not rec.completed then
+            detTrack:SetText(C_ContentTracking.IsTracking(Enum.ContentTrackingType.Achievement, rec.id)
+                and "Untrack" or "Track")
+        end
+        detCommission:SetShown(not rec.completed and #buildCriteriaPieces(rec) > 0)
+        critList:SetData(rec.criteria)
+        if #rec.criteria == 0 then
+            critList.emptyText:SetText("No listed criteria.")
+            critList.emptyText:Show()
+        else
+            critList.emptyText:Hide()
+        end
+    end, "achieve:detail")
 
     handle.model = model
     return handle
