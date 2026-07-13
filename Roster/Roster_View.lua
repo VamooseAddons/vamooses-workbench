@@ -472,11 +472,13 @@ function Roster.buildView(container)
             root.detail:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", 0, 0)
             root.detail.title = root.detail:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
             root.detail.title:SetPoint("TOPLEFT", 10, -8)
-            root.detail.hint = root.detail:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
-            root.detail.hint:SetPoint("TOPLEFT", 10, -10)
             root.detail.rowHost = CreateFrame("Frame", nil, root.detail)
             root.detail.rowHost:SetPoint("TOPLEFT", 0, -30)
             root.detail.rowHost:SetPoint("BOTTOMRIGHT", 0, 6)
+            -- hint lives in the row area, BELOW the title line -- the no-scans
+            -- state keeps its icon+name title, so the two must never overlap
+            root.detail.hint = root.detail:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
+            root.detail.hint:SetPoint("TOPLEFT", root.detail.rowHost, "TOPLEFT", 10, -2)
 
             summaryList = VWB.UI:CreateVirtualizedList(root.summaryHost, {
                 rowHeight = 20, rowTemplate = summaryRowTemplate,
