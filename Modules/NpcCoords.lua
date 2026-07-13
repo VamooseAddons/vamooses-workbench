@@ -121,7 +121,6 @@ end
 -- ATT offered instead.
 local function namedAncestorPin(obj, npcName, zoneName, seen)
     local node, unresolved, matchedNpcID = obj, false, nil
-    local zoneFallback = nil -- coords that land in zoneName's map under a DIFFERENT name (renamed/faction-variant vendor)
     while node do
         local name = node.name -- exception(boundary): triggers ATT's async name query; nil until the tooltip answers
         local hasCoords = type(node.coords) == "table"
@@ -135,7 +134,7 @@ local function namedAncestorPin(obj, npcName, zoneName, seen)
                     local uiMapID, x, y = firstPin(c.coords)
                     if uiMapID then
                         uiMapID, x, y = normalizePin(uiMapID, x, y, zoneName)
-                        return { uiMapID = uiMapID, x = x, y = y, npcID = matchedNpcID }, false, nil, nil
+                        return { uiMapID = uiMapID, x = x, y = y, npcID = matchedNpcID }, false
                     end
                 end
                 c = c.sourceParent or c.parent
@@ -147,22 +146,9 @@ local function namedAncestorPin(obj, npcName, zoneName, seen)
         elseif hasCoords then
             seen[#seen + 1] = tostring(name)
         end
-        -- Zone-anchored fallback: any coord-bearing node whose chain reaches
-        -- zoneName's map (owner 2026-07-13: ATT files some recipes' coords
-        -- under a renamed/faction-variant vendor -- Liawyn vs Aithlyn -- so
-        -- the exact-name match missed real, correct coords). Gated to
-        -- zoneName's map, so a DIFFERENT-zone vendor selling the same recipe
-        -- (Kaye/Winterspring) is never accepted -- zoneNamedAncestor rejects it.
-        if not zoneFallback and hasCoords and zoneName then
-            local uiMapID, x, y = firstPin(node.coords)
-            if uiMapID then
-                local zid, zx, zy = zoneNamedAncestor(uiMapID, x, y, zoneName)
-                if zid then zoneFallback = { uiMapID = zid, x = zx, y = zy, npcID = node.npcID } end
-            end
-        end
         node = node.sourceParent or node.parent
     end
-    return nil, unresolved, matchedNpcID, zoneFallback
+    return nil, unresolved, matchedNpcID
 end
 
 -- Boundary write half (Constitution R2/R4, ItemData shape): acquisition rides
@@ -174,27 +160,21 @@ local RETRY_DELAYS = { 0.5, 1, 2 }
 
 local function resolve(key, spellID, npcName, zoneName, attempt)
     -- defer/timer context: latching is legal here, never inside a computed
-    local anyUnresolved, seen, namedID, zoneFb = false, {}, nil, nil
+    local anyUnresolved, seen, namedID = false, {}, nil
     local results = _G.ATTC.SearchForField("spellID", spellID)
     for _, obj in ipairs(results or {}) do -- exception(boundary): ATT returns nil for unknown ids
-        local pin, unresolved, npcID, zfb = namedAncestorPin(obj, npcName, zoneName, seen)
+        local pin, unresolved, npcID = namedAncestorPin(obj, npcName, zoneName, seen)
         if pin then latch:latch(key, pin); return end
         anyUnresolved = anyUnresolved or unresolved
         namedID = namedID or npcID
-        zoneFb = zoneFb or zfb
     end
     if anyUnresolved and RETRY_DELAYS[attempt] then
         VWB.ReactorWoW.after(RETRY_DELAYS[attempt], function() resolve(key, spellID, npcName, zoneName, attempt + 1) end)
-        return -- key stays PENDING (an exact name match may still resolve; preferred over the zone fallback)
+        return -- key stays PENDING
     end
     if namedID then -- NPC identified but unpinnable (Underbelly-class vendors): Wowhead link, no Map
         VWB.Log:Debug(string.format("NpcCoords: '%s' matched (npc %d) but no coords in ATT", npcName, namedID))
         latch:latch(key, { npcID = namedID })
-        return
-    end
-    if zoneFb then -- no exact name match, but ATT put coords in our source's zone: same vendor, different ATT name
-        VWB.Log:Debug(string.format("NpcCoords: '%s' -> zone-anchored pin in %s (ATT name differs)", npcName, zoneName or "?"))
-        latch:latch(key, zoneFb)
         return
     end
     -- terminal miss is never mute: say what ATT offered so a mismatch
@@ -360,6 +340,32 @@ function VWB.NpcCoords.WowheadURL(npc, pin)
     end
     local q = (npc or ""):gsub("[^%w%-]", function(c) return string.format("%%%02X", string.byte(c)) end)
     return "https://www.wowhead.com/search?q=" .. q
+end
+
+-- Debug dump: ATT's chain for a recipe, so an npcID/name/coord mismatch is
+-- inspectable in-game. /run VWB.NpcCoords.DumpATT(spellID) -- prints each ATT
+-- hit's parent chain (runtime-resolved name, npcID, mapID, first coords).
+-- Names resolve async; run twice if the first pass shows nil names.
+function VWB.NpcCoords.DumpATT(spellID)
+    if not attReady() then VWB.Log:Print("ATT not available"); return end
+    local results = _G.ATTC.SearchForField("spellID", spellID)
+    VWB.Log:Print(string.format("|cff2aa198ATT spell %d:|r %d hit(s)", spellID, results and #results or 0))
+    for i, obj in ipairs(results or {}) do
+        VWB.Log:Print("hit " .. i .. ":")
+        local n = obj
+        while n do
+            local nm = n.name -- exception(boundary): async name query; may be nil/secret
+            if nm ~= nil and issecretvalue(nm) then nm = "<secret>" end
+            local c = ""
+            if type(n.coords) == "table" then
+                local m, x, y = firstPin(n.coords)
+                c = m and string.format(" @map %s %.1f,%.1f", tostring(m), x, y) or " coords?"
+            end
+            VWB.Log:Print(string.format("  name=%s npc=%s map=%s%s",
+                tostring(nm), tostring(n.npcID), tostring(n.mapID), c))
+            n = n.sourceParent or n.parent
+        end
+    end
 end
 
 -- Copy-a-link dialog for the Wowhead buttons (Projects + Study). Registered
