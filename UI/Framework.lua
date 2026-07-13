@@ -1312,6 +1312,52 @@ end
 -- SLIDER
 -- ============================================================================
 
+-- Compact "[-] value [+]" stepper -- the drop-in for a slider when the range
+-- is small and the value reads better as a number than a rail (Settings UI
+-- Scale / Transparency). The row LABEL is supplied by the layout (like the
+-- Theme/Font/Price rows), so this is control-only. opts: { width, height,
+-- min, max, step, default, format(v)->string, onChange(v) }.
+function VWB.UI:CreateStepper(parent, opts)
+    opts = opts or {}
+    local scheme = GetScheme()
+    local minV, maxV, step = opts.min or 0, opts.max or 1, opts.step or 0.1
+    local fmt = opts.format or tostring
+    local value = opts.default or minV
+    local w = opts.width or 120
+
+    local container = CreateFrame("Frame", nil, parent)
+    container:SetSize(w, opts.height or 22)
+
+    local minus = VWB.UI:CreateButton(container, "-", 22, 20)
+    minus:SetPoint("LEFT", 0, 0)
+    local valueText = container:CreateFontString(nil, "OVERLAY")
+    valueText:SetPoint("LEFT", minus, "RIGHT", 4, 0)
+    valueText:SetWidth(w - 22 - 22 - 8)
+    valueText:SetJustifyH("CENTER")
+    VWB.Theme.ApplyFont(valueText, scheme)
+    container.value = valueText
+    VWB.Theme:Register(valueText, "Label")
+    local plus = VWB.UI:CreateButton(container, "+", 22, 20)
+    plus:SetPoint("LEFT", valueText, "RIGHT", 4, 0)
+
+    local function repaint() valueText:SetText(fmt(value)) end
+    local function nudge(dir)
+        local v = math.max(minV, math.min(maxV, value + dir * step))
+        v = math.floor(v * 1000 + 0.5) / 1000 -- kill accumulated float drift
+        if v == value then return end
+        value = v
+        repaint()
+        if opts.onChange then opts.onChange(value) end
+    end
+    plus:SetScript("OnClick", function() nudge(1) end)
+    minus:SetScript("OnClick", function() nudge(-1) end)
+    repaint()
+
+    function container:SetValue(v) value = v; repaint() end
+    function container:GetValue() return value end
+    return container
+end
+
 function VWB.UI:CreateSlider(parent, options)
     options = options or {}
     local scheme = GetScheme()

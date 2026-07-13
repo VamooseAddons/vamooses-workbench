@@ -103,9 +103,9 @@ function Settings.buildView(container)
     local R = ns.Reactor
     local Kit = ns.ViewKit
 
-    local themePicker, fontPicker, pricePicker, modeToggle, minimapCb, ambientCb
+    local themePicker, fontPicker, pricePicker, minimapCb, ambientCb
     local debugCb, ahCutCb, pslRemoveCb
-    local uiScaleSlider, transparencySlider
+    local uiScaleStepper, transparencyStepper
     local dangerHeader, dangerDesc
 
     local function makeFrame(node, parent)
@@ -162,54 +162,36 @@ function Settings.buildView(container)
             end
             pricePicker:SetItems(items)
             return pricePicker
-        elseif node.id == "setModeLabel" then
-            return makeLabel(parent, "Materials Mode:")
-        elseif node.id == "setModeToggle" then
-            modeToggle = VWB.UI:CreateSegmentedToggle(parent, {
-                width = (node.size and node.size.w) or 160, height = (node.size and node.size.h) or 22,
-                default = ns.Store:GetState().config.materialsMode,
-                segments = { { key = "raw", label = "Raw" }, { key = "direct", label = "Direct" } },
-                onSelect = function(key)
-                    -- TOGGLE_MATERIALS_MODE is a blind flip (no target-key payload) and
-                    -- the only reducer that rebuilds crafting.shoppingList for the new
-                    -- mode -- guard so re-clicking the already-active segment can't flip
-                    -- past it.
-                    if key ~= ns.Store:GetState().config.materialsMode then
-                        ns.Store:Dispatch("TOGGLE_MATERIALS_MODE")
-                    end
-                end,
-            })
-            return modeToggle
-        elseif node.id == "setUiScaleSlider" then
-            uiScaleSlider = VWB.UI:CreateSlider(parent, {
-                width = (node.size and node.size.w) or 260,
-                label = "UI Scale", min = 0.8, max = 1.4, step = 0.1,
-                default = ns.Store:GetState().config.uiScale or 1.0, -- exception(optional): unset until the user first moves the slider
+        elseif node.id == "setUiScaleLabel" then
+            return makeLabel(parent, "UI Scale:")
+        elseif node.id == "setUiScaleStepper" then
+            uiScaleStepper = VWB.UI:CreateStepper(parent, {
+                width = (node.size and node.size.w) or 120,
+                min = 0.8, max = 1.4, step = 0.1,
+                default = ns.Store:GetState().config.uiScale or 1.0, -- exception(optional): unset until the user first steps it
                 format = function(v) return string.format("%.0f%%", v * 100) end,
                 onChange = function(value)
-                    value = math.floor(value * 10 + 0.5) / 10 -- clamp float drift from slider drag to one decimal
                     ns.Store:Dispatch("SET_CONFIG", { key = "uiScale", value = value })
-                    -- Shell.lua builds the window frame directly, naming it
-                    -- "VWB_Main" -- that global is the only live handle to
-                    -- the window, and it's guaranteed to exist here (Settings
-                    -- is mounted inside its own content host).
+                    -- Shell.lua names the window frame "VWB_Main" -- the only
+                    -- live handle to it, guaranteed to exist here.
                     _G.VWB_Main:SetScale(value)
                 end,
             })
-            return uiScaleSlider
-        elseif node.id == "setTransparencySlider" then
-            transparencySlider = VWB.UI:CreateSlider(parent, {
-                width = (node.size and node.size.w) or 260,
-                label = "Transparency", min = 0.3, max = 1.0, step = 0.1,
-                default = ns.Store:GetState().config.bgOpacity or 0.9, -- exception(optional): unset until the user first moves the slider
+            return uiScaleStepper
+        elseif node.id == "setTransparencyLabel" then
+            return makeLabel(parent, "Transparency:")
+        elseif node.id == "setTransparencyStepper" then
+            transparencyStepper = VWB.UI:CreateStepper(parent, {
+                width = (node.size and node.size.w) or 120,
+                min = 0.3, max = 1.0, step = 0.1,
+                default = ns.Store:GetState().config.bgOpacity or 0.9, -- exception(optional): unset until the user first steps it
                 format = function(v) return string.format("%.0f%%", v * 100) end,
                 onChange = function(value)
-                    value = math.floor(value * 10 + 0.5) / 10
                     ns.Store:Dispatch("SET_CONFIG", { key = "bgOpacity", value = value })
                     VWB.EventBus:Trigger("VWB_THEME_UPDATE", {}) -- re-skins every Panel-registered widget at the new opacity
                 end,
             })
-            return transparencySlider
+            return transparencyStepper
         elseif node.id == "setMinimapCb" then
             minimapCb = VWB.UI:CreateCheckbox(parent, "Show Minimap Button", function(checked)
                 ns.Store:Dispatch("SET_CONFIG", { key = "showMinimapButton", value = checked })
@@ -359,11 +341,6 @@ function Settings.buildView(container)
 
     R.effect(function()
         ns.Store:Version("config")
-        modeToggle:SetSelected(ns.Store:GetState().config.materialsMode) -- Store guarantees this key is never nil
-    end, "settings:materialsMode")
-
-    R.effect(function()
-        ns.Store:Version("config")
         minimapCb:SetChecked(ns.Store:GetState().config.showMinimapButton ~= false) -- exception(optional): unset means shown, mirrors UI/Minimap.lua's own gate
     end, "settings:minimap")
 
@@ -387,12 +364,10 @@ function Settings.buildView(container)
         pslRemoveCb:SetChecked(ns.Store:GetState().config.pslAutoRemove) -- nil IS the off default, not drift
     end, "settings:pslRemove")
 
-    -- No reactive re-sync for the 3 sliders: CreateSlider has no
-    -- suppressCallbacks guard, and WoW's Slider:SetValue() re-fires
-    -- OnValueChanged even when set programmatically, so a reactive SetValue
-    -- here would re-dispatch SET_CONFIG from inside the effect that just
-    -- read it. Nothing else writesuiScale/bgOpacity today, so the
-    -- build-time default passed to CreateSlider above is sufficient.
+    -- No reactive re-sync for the UI Scale / Transparency steppers: nothing
+    -- else writes uiScale/bgOpacity today, so the build-time default passed to
+    -- CreateStepper is sufficient. (CreateStepper:SetValue doesn't re-fire
+    -- onChange, so a re-sync would be safe here if a second writer ever lands.)
 
     -- ColorCode() bakes a hex value into the string at call time, so unlike
     -- the registry-skinned widgets above, these two need a manual repaint on

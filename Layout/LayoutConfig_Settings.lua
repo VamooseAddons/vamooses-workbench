@@ -56,16 +56,19 @@ ns.LayoutConfig.settings = {
             { type = "item", id = "setPriceLabel", size = { w = LABEL_W, h = 22 } },
             { type = "item", id = "setPricePicker", size = { w = 200, h = 22 } },
         } },
+        -- UI Scale / Transparency as compact label + [-] value [+] steppers
+        -- (owner 2026-07-13: the full-width slider rails were oversized for a
+        -- small range). Same label + control shape as the Theme/Font rows.
+        -- (Materials Mode removed -- it's a Workbench-only concept and the
+        -- Workbench already carries its own Direct/Raw toggle.)
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {
-            { type = "item", id = "setModeLabel", size = { w = LABEL_W, h = 22 } },
-            { type = "item", id = "setModeToggle", size = { w = 160, h = 22 } },
+            { type = "item", id = "setUiScaleLabel", size = { w = LABEL_W, h = 22 } },
+            { type = "item", id = "setUiScaleStepper", size = { w = 120, h = 22 } },
         } },
-        -- Direct children of this stretch-aligned stack always fill the full
-        -- content width regardless of any w given (same as setMinimapCb below
-        -- already does) -- CreateSlider's own TOPLEFT/TOPRIGHT anchors then
-        -- span whatever width Layout hands it, so no w is declared here.
-        { type = "item", id = "setUiScaleSlider", size = { h = 40 } },
-        { type = "item", id = "setTransparencySlider", size = { h = 40 } },
+        { type = "stack", dir = "row", gap = "sm", align = "center", children = {
+            { type = "item", id = "setTransparencyLabel", size = { w = LABEL_W, h = 22 } },
+            { type = "item", id = "setTransparencyStepper", size = { w = 120, h = 22 } },
+        } },
 
         { type = "item", id = "setBehaviorHeader", role = "section", size = { h = 16 } },
         { type = "item", id = "setMinimapCb", size = { h = 24 } },
