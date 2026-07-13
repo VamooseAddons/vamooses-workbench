@@ -216,9 +216,10 @@ function Shell.openWindow()
             self:SetPropagateKeyboardInput(true)
         end
     end)
-    win:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+    -- Flat 1px edge, same as every inner panel (owner 2026-07-13: the beveled
+    -- UI-Tooltip-Border texture has baked highlights, so the identical border
+    -- color rendered visibly lighter on the window than on the panels).
+    win:SetBackdrop(VWB.Theme.BACKDROP_FLAT)
     win:SetBackdropColor(s.bg.r, s.bg.g, s.bg.b, 0.97); win:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, 1)
     win:EnableMouse(true); win:SetMovable(true); win:RegisterForDrag("LeftButton")
     win:SetScript("OnDragStart", win.StartMoving); win:SetScript("OnDragStop", win.StopMovingOrSizing)
