@@ -121,6 +121,7 @@ end
 -- ATT offered instead.
 local function namedAncestorPin(obj, npcName, zoneName, seen)
     local node, unresolved, matchedNpcID = obj, false, nil
+    local zoneFallback = nil -- coords that land in zoneName's map under a DIFFERENT name (renamed/faction-variant vendor)
     while node do
         local name = node.name -- exception(boundary): triggers ATT's async name query; nil until the tooltip answers
         local hasCoords = type(node.coords) == "table"
@@ -134,7 +135,7 @@ local function namedAncestorPin(obj, npcName, zoneName, seen)
                     local uiMapID, x, y = firstPin(c.coords)
                     if uiMapID then
                         uiMapID, x, y = normalizePin(uiMapID, x, y, zoneName)
-                        return { uiMapID = uiMapID, x = x, y = y, npcID = matchedNpcID }, false
+                        return { uiMapID = uiMapID, x = x, y = y, npcID = matchedNpcID }, false, nil, nil
                     end
                 end
                 c = c.sourceParent or c.parent
@@ -146,9 +147,22 @@ local function namedAncestorPin(obj, npcName, zoneName, seen)
         elseif hasCoords then
             seen[#seen + 1] = tostring(name)
         end
+        -- Zone-anchored fallback: any coord-bearing node whose chain reaches
+        -- zoneName's map (owner 2026-07-13: ATT files some recipes' coords
+        -- under a renamed/faction-variant vendor -- Liawyn vs Aithlyn -- so
+        -- the exact-name match missed real, correct coords). Gated to
+        -- zoneName's map, so a DIFFERENT-zone vendor selling the same recipe
+        -- (Kaye/Winterspring) is never accepted -- zoneNamedAncestor rejects it.
+        if not zoneFallback and hasCoords and zoneName then
+            local uiMapID, x, y = firstPin(node.coords)
+            if uiMapID then
+                local zid, zx, zy = zoneNamedAncestor(uiMapID, x, y, zoneName)
+                if zid then zoneFallback = { uiMapID = zid, x = zx, y = zy, npcID = node.npcID } end
+            end
+        end
         node = node.sourceParent or node.parent
     end
-    return nil, unresolved, matchedNpcID
+    return nil, unresolved, matchedNpcID, zoneFallback
 end
 
 -- Boundary write half (Constitution R2/R4, ItemData shape): acquisition rides
@@ -160,21 +174,27 @@ local RETRY_DELAYS = { 0.5, 1, 2 }
 
 local function resolve(key, spellID, npcName, zoneName, attempt)
     -- defer/timer context: latching is legal here, never inside a computed
-    local anyUnresolved, seen, namedID = false, {}, nil
+    local anyUnresolved, seen, namedID, zoneFb = false, {}, nil, nil
     local results = _G.ATTC.SearchForField("spellID", spellID)
     for _, obj in ipairs(results or {}) do -- exception(boundary): ATT returns nil for unknown ids
-        local pin, unresolved, npcID = namedAncestorPin(obj, npcName, zoneName, seen)
+        local pin, unresolved, npcID, zfb = namedAncestorPin(obj, npcName, zoneName, seen)
         if pin then latch:latch(key, pin); return end
         anyUnresolved = anyUnresolved or unresolved
         namedID = namedID or npcID
+        zoneFb = zoneFb or zfb
     end
     if anyUnresolved and RETRY_DELAYS[attempt] then
         VWB.ReactorWoW.after(RETRY_DELAYS[attempt], function() resolve(key, spellID, npcName, zoneName, attempt + 1) end)
-        return -- key stays PENDING
+        return -- key stays PENDING (an exact name match may still resolve; preferred over the zone fallback)
     end
     if namedID then -- NPC identified but unpinnable (Underbelly-class vendors): Wowhead link, no Map
         VWB.Log:Debug(string.format("NpcCoords: '%s' matched (npc %d) but no coords in ATT", npcName, namedID))
         latch:latch(key, { npcID = namedID })
+        return
+    end
+    if zoneFb then -- no exact name match, but ATT put coords in our source's zone: same vendor, different ATT name
+        VWB.Log:Debug(string.format("NpcCoords: '%s' -> zone-anchored pin in %s (ATT name differs)", npcName, zoneName or "?"))
+        latch:latch(key, zoneFb)
         return
     end
     -- terminal miss is never mute: say what ATT offered so a mismatch
