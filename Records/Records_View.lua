@@ -331,8 +331,12 @@ local function buildCoverageData()
         if colTotals[i] and colTotals[i] > 0 then expansionsRepresented = expansionsRepresented + 1 end
     end
 
-    local totalRecipes = 0
-    for _ in pairs(recipeStore) do totalRecipes = totalRecipes + 1 end
+    -- Headline mirrors the coverage grid's grandTotal (owner 2026-07-13: a
+    -- raw recipeStore count read 4 higher than the grid Total). The gap is
+    -- COVERAGE_EXCLUDED professions (Fishing/Runeforging) -- on file but with
+    -- no grid row to land in; the grid is the authoritative coverage view, so
+    -- the "recipes on file" line describes the same tracked set.
+    local totalRecipes = grandTotal
 
     local professionsScanned = 0
     for _, row in ipairs(rows) do
