@@ -526,6 +526,16 @@ function Showroom.buildView(container)
         end
     end, "showroom:list")
 
+    -- Auto-select the first item so the model stage isn't blank on first show
+    -- (owner 2026-07-13). Write-once: only fills an EMPTY selection, so the
+    -- user's pick is never overridden; re-runs as items land (cold first
+    -- paint has an empty filtered list). Sets the signal DIRECTLY, not via
+    -- selectItem -- an auto-pick must not enter the recent-previews ring.
+    R.effect(function()
+        local items = model.filteredItems()
+        if R.untrack(selected) == nil and items[1] then selected(items[1]) end
+    end, "showroom:autoselect")
+
     -- Row ticks read collectedOf() at paint time (not reactively), so a collect
     -- event won't flip a visible tick on its own. collectedRes.epoch() bumps when
     -- collection changes -> re-run the row initializer on visible rows. When
