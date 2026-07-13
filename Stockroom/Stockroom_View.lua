@@ -661,9 +661,12 @@ function Stockroom.buildView(container)
     ns.EventBus:Register("VWB_INVENTORY_UPDATE", function() listWidget:Refresh() end)
 
     handle.status = function()
-        local c = classified()
-        local t = c.totals
-        return string.format("%d reagents | %d farm/buy | %d crafted", #c, t.farmbuy, t.crafted)
+        -- Match the footer's "total materials" (farm/buy + crafted), NOT
+        -- #classified() -- that raw count includes end-products (finished
+        -- craftables), which aren't reagents (owner 2026-07-13: read 9921).
+        local t = classified().totals
+        return string.format("%d materials | %d farm/buy | %d crafted",
+            t.farmbuy + t.crafted, t.farmbuy, t.crafted)
     end
     return handle
 end
