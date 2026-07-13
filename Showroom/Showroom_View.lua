@@ -57,7 +57,18 @@ local function ensureResources()
     local function deriveKind(itemID)
         -- Cache-FREE checks first (order preserved from the resource era: a
         -- mount/transmog classifies instantly even cold; the JC-mounts lesson).
-        if ns.Transmog:IsTransmoggable(itemID) then return "transmog" end
+        -- Transmog: an equippable slot is necessary but NOT sufficient -- the
+        -- item must have a real wardrobe APPEARANCE to be a collectible (owner
+        -- 2026-07-13). No-appearance crafted gear (occupies a visual slot, but
+        -- nothing to collect) was classified "transmog" and counted as
+        -- "missing", inflating the breadcrumb above the nav badge -- which
+        -- gates on IsUnknown = hasAppearance and not collected. hasAppearance
+        -- needs the item record, so this can be PENDING until it lands.
+        if ns.Transmog:IsTransmoggable(itemID) then
+            if ns.Transmog:GetStatus(itemID).hasAppearance then return "transmog" end
+            if VWB.ItemData.query(itemID) == PENDING then return PENDING end -- record still loading; re-derive on landing
+            return "none" -- equippable but no collectible appearance
+        end
         if ns.Collectibles:IsMount(itemID) then return "mount" end
         local dec = ns.DecorOwnership:IsUncollected(itemID) -- true/false/nil(cold)
         if dec ~= nil then return "decor" end
@@ -132,12 +143,21 @@ end
 -- profiler's top hotspot). corpus (not recipes): the universe is a pure function
 -- of recipe DEFINITIONS, so a known-status scan must not re-walk it. Reactor's
 -- memoization replaces a hand-rolled cache.
+-- Showroom is the ITEM-collection axis (keyed by itemID -- what you want to
+-- OWN), distinct from the Workbench's recipe axis (keyed by recipeID -- what
+-- you can MAKE). So the universe is UNIQUE ITEMS: an item craftable by two
+-- recipes is ONE collectible, counted once (owner 2026-07-13 -- the badge
+-- already dedupes by itemID, so the per-recipe list over-counted against it).
+-- First recipe seen wins the row's recipeID (rank-collapse already merged
+-- rank variants; this collapses cross-recipe itemID dupes). Pure function of
+-- definitions -> the "corpus" memoization holds.
 local universe = ns.Reactor.named("showroom:universe", function()
     ns.Store:Version("corpus")
-    local out = {}
+    local out, seen = {}, {}
     for _, e in ipairs(ns.RecipeQuery:GetFiltered({ collapseRanks = true })) do
         local r = e.recipe
-        if r.itemID then -- exception(nullable): enchant recipes have no output item -> nothing to preview/collect, and kind()/collected() would GetItemInfo(nil)
+        if r.itemID and not seen[r.itemID] then -- exception(nullable): enchant recipes have no output item -> nothing to preview/collect, and kind()/collected() would GetItemInfo(nil)
+            seen[r.itemID] = true
             out[#out + 1] = { recipeID = e.recipeID, itemID = r.itemID, name = r.name,
                 profession = r.profession, expansion = r.expansion, categoryName = r.categoryName }
         end
