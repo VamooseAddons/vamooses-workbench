@@ -65,6 +65,19 @@ function VWB.Minimap:Initialize()
                 MenuUtil.CreateContextMenu(minimapButton, function(_, rootDescription)
                     rootDescription:CreateTitle("Vamoose's Workbench")
                     rootDescription:CreateButton("Open Window", function() VWB:ToggleWindow() end)
+                    -- Recovery: if the window was dragged off-screen (its clamp
+                    -- insets allow 500px overhang), the Settings "reset" button
+                    -- is unreachable -- so the escape hatch lives HERE, on the
+                    -- always-reachable minimap menu (owner 2026-07-13).
+                    rootDescription:CreateButton("Reset Window Position", function()
+                        if _G.VWB_Main then
+                            _G.VWB_Main:ClearAllPoints()
+                            _G.VWB_Main:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 0)
+                            _G.VWB_Main:Show()
+                        else
+                            VWB:ToggleWindow() -- never opened this session -> opens centered
+                        end
+                    end)
                     rootDescription:CreateButton("Records", function()
                         if not (VWB.MainFrame and VWB.MainFrame:IsShown()) then VWB:ToggleWindow() end
                         VWB:ShowPage("data")
