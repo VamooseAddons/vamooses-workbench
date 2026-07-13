@@ -25,7 +25,7 @@ ns.LayoutConfig.shell = {
     type = "grid",
     padding = 0,
     gap = 0,
-    columns = { 150, "flex" }, -- sidebar | content (nav labels are short single words)
+    columns = { 160, "flex" }, -- sidebar | content (150 -> 160 for nav row icons, 2026-07-13)
     rows    = { "flex", 22 },  -- body | status bar
     cells = {
         { at = { col = 1, row = 1 }, child = { type = "item", id = "sidebar" } },

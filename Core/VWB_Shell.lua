@@ -36,10 +36,15 @@ end
 -- Projects is TOP of the rail (the plan board -- the addon's hero surface).
 -- Rail order groups by player intent (owner 2026-07-12): the daily loop
 -- (plan -> craft -> mats), the three commission FEEDERS (browse -> commission
--- siblings, kept adjacent), passive reference, then meta. { divider = true }
--- entries render as separator lines between the blocks.
+-- siblings, kept adjacent), passive reference, then meta. { header = "..." }
+-- entries render as small-caps section labels over each block (HDG nav
+-- treatment, owner 2026-07-13); { divider = true } stays a bare line (the
+-- Settings/Debug meta block needs no name). Icons are wrath-era stable paths,
+-- same style as Constants' profession icons.
 local VIEWS = {
+    { header = "Workshop" },
     { id = "projects",  text = "Commissions",  subtitle = "Pin items and plan your collection",
+      icon = "Interface\\Icons\\INV_Scroll_03",
       build = function(c) return ns.Projects.buildView(c) end,
       -- ACTIVE project count. The first cut counted below-par stock only
       -- ("needs attention" per the spec) -- live verdict 2026-07-11: the owner
@@ -55,39 +60,49 @@ local VIEWS = {
           return n
       end },
     { id = "workbench", text = "Workbench", subtitle = "Recipes, queue and materials",
+      icon = "Interface\\Icons\\Trade_BlackSmithing",
       build = function(c) return ns.Recipes.buildView(c) end,
       badge = function()
           ns.Store:Version("crafting")
           return #ns.Store:GetState().crafting.queuedRecipes
       end },
     { id = "stockroom", text = "Stockroom", subtitle = "Raw materials ledger",
+      icon = "Interface\\Icons\\INV_Crate_01",
       build = function(c) return ns.Stockroom.buildView(c) end },
-    { divider = true },
+    { header = "Collection" },
     { id = "showroom",  text = "Showroom",  subtitle = "Browse craftable collectibles",
+      icon = "Interface\\Icons\\INV_Chest_Cloth_04",
       build = function(c) return ns.Showroom.buildView(c) end,
       -- Global filter-independent count, live from window open (no mount needed)
       badge = function() return ns.Collectibles.UncollectedCount() end },
     { id = "study",     text = "Study",     subtitle = "Unlearned recipes and where to get them",
+      icon = "Interface\\Icons\\INV_Misc_Book_09",
       build = function(c) return ns.Study.buildView(c) end },
     { id = "achieve",   text = "Achievements",   subtitle = "Profession achievements and progress",
+      icon = "Interface\\Icons\\Achievement_Quests_Completed_08",
       build = function(c) return ns.Achieve.buildView(c) end },
-    { divider = true },
+    { header = "Books" },
     { id = "ledger",    text = "Ledger",    subtitle = "Profit and AH pricing",
+      icon = "Interface\\Icons\\INV_Misc_Coin_02",
       build = function(c) return ns.Ledger.buildView(c) end },
     { id = "roster",    text = "Roster",    subtitle = "Your characters' professions",
+      icon = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend",
       build = function(c) return ns.Roster.buildView(c) end },
     { id = "records",   text = "Records",   subtitle = "Scan coverage and history",
+      icon = "Interface\\Icons\\INV_Misc_Note_02",
       build = function(c) return ns.Records.buildView(c) end },
     { divider = true },
     { id = "settings",  text = "Settings",  subtitle = "Options",
+      icon = "Interface\\Icons\\Trade_Engineering",
       build = function(c) return ns.Settings.buildView(c) end },
     { id = "debug",     text = "Debug",     subtitle = "Developer diagnostics",
+      icon = "Interface\\Icons\\INV_Misc_Wrench_01",
       build = function(c) return ns.Debug.buildView(c) end }, -- last: nav row hides when debug off (no gap)
 }
 
--- Views only (no divider markers): the wiring/mount loops iterate this.
+-- Views only (no divider/header markers): the wiring/mount loops iterate this.
 local VIEW_LIST = {}
-for _, v in ipairs(VIEWS) do if not v.divider then VIEW_LIST[#VIEW_LIST + 1] = v end end
+for _, v in ipairs(VIEWS) do if v.id then VIEW_LIST[#VIEW_LIST + 1] = v end end
 
 -- Shell chrome frames (sidebar / content / status), themed from the scheme. ---
 local function shellMakeFrame(node, parent)
@@ -126,15 +141,37 @@ local function navMakeFrame(node, parent)
         line:SetColorTexture(s.border.r, s.border.g, s.border.b, 0.6)
         return f
     end
+    if node.role == "navheader" then -- small-caps section label over a block
+        local f = CreateFrame("Frame", nil, parent)
+        local fs = f:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
+        fs:SetPoint("BOTTOMLEFT", 8, 3)
+        fs:SetText(string.upper(node.text))
+        f.label = fs
+        return f
+    end
     local btn = CreateFrame("Button", nil, parent)
     local _d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
     local hl = btn:CreateTexture(nil, "BACKGROUND")
     hl:SetAllPoints(btn); hl:SetColorTexture(_d.selected_bar.r, _d.selected_bar.g, _d.selected_bar.b, 0.18); hl:Hide()
     btn.hl = hl
+    -- accent spine: 3px selection bar on the left edge (HDG nav treatment)
+    local spine = btn:CreateTexture(nil, "ARTWORK")
+    spine:SetWidth(3)
+    spine:SetPoint("TOPLEFT", 0, 0); spine:SetPoint("BOTTOMLEFT", 0, 0)
+    spine:SetColorTexture(_d.selected_bar.r, _d.selected_bar.g, _d.selected_bar.b, 1)
+    spine:Hide()
+    btn.spine = spine
     btn:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
     btn:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
+    if node.icon then
+        local ic = btn:CreateTexture(nil, "ARTWORK")
+        ic:SetSize(16, 16); ic:SetPoint("LEFT", 9, 0)
+        ic:SetTexture(node.icon)
+        ic:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the baked icon border
+        btn.icon = ic
+    end
     local fs = btn:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
-    fs:SetPoint("LEFT", 10, 0)
+    fs:SetPoint("LEFT", node.icon and 31 or 10, 0)
     fs:SetText(node.text or node.id)
     btn.label = fs
     -- badge pill: subtle count on the right edge; hidden when count is zero
@@ -278,22 +315,44 @@ function Shell.openWindow()
     ns.Nav._setView = Shell.setView  -- late-bind Nav's view-switch hook
     R.effect(function() if VWB_DB then VWB_DB.activeView = activeView() end end)
 
-    -- 3. sidebar nav generated from the registry (dividers between blocks)
+    -- 3. sidebar nav generated from the registry (headers/dividers between blocks)
     local navChildren = {}
     for i, v in ipairs(VIEWS) do
-        if v.divider then
+        if v.header then
+            navChildren[#navChildren + 1] = { type = "item", id = "navhdr:" .. i, role = "navheader", text = v.header, size = { h = i == 1 and 16 or 22 } }
+        elseif v.divider then
             navChildren[#navChildren + 1] = { type = "item", id = "navdiv:" .. i, role = "divider", size = { h = 7 } }
         else
-            navChildren[#navChildren + 1] = { type = "item", id = "nav:" .. v.id, role = "label", text = v.text, size = { h = 30 } }
+            navChildren[#navChildren + 1] = { type = "item", id = "nav:" .. v.id, role = "label", text = v.text, icon = v.icon, size = { h = 30 } }
         end
     end
     local nav = ns.Layout.build(sidebar,
         { type = "stack", dir = "col", gap = "xs", padding = "sm", align = "stretch", children = navChildren },
         { makeFrame = navMakeFrame, measure = measure })
+    -- section headers: dim theme-tracked labels (same epoch read as the rows)
+    for i, v in ipairs(VIEWS) do
+        if v.header then
+            R.bindColor(nav.byId["navhdr:" .. i].label, function()
+                VWB.Theme.epoch()
+                local c = VWB.UI:GetScheme().text
+                return c.r, c.g, c.b
+            end)
+        end
+    end
     for _, v in ipairs(VIEW_LIST) do
         local btn = nav.byId["nav:" .. v.id]
         btn:SetScript("OnClick", function() activeView(v.id) end)
         R.bindShown(btn.hl, function() return activeView() == v.id end)
+        R.bindShown(btn.spine, function() return activeView() == v.id end)
+        if btn.icon then
+            -- active row's icon in full color; the rest desaturate to keep the
+            -- rail quiet (HDG nav treatment)
+            R.effect(function()
+                local active = activeView() == v.id
+                btn.icon:SetDesaturated(not active)
+                btn.icon:SetAlpha(active and 1 or 0.65)
+            end)
+        end
         R.bindColor(btn.label, function()
             VWB.Theme.epoch() -- theme epoch: selected_bar derives from scheme.warning which changes per theme
             if activeView() == v.id then
