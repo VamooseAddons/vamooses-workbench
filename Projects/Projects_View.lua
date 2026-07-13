@@ -47,27 +47,12 @@ StaticPopupDialogs["VWB_REMOVE_PIECE"] = {
 }
 
 -- WoW can't open a browser: the copy-box editbox is the standard link pattern.
-StaticPopupDialogs["VWB_COPY_URL"] = {
-    text = "Ctrl+C to copy",
-    button1 = "Close",
-    hasEditBox = true, editBoxWidth = 340,
-    OnShow = function(self, url)
-        self.EditBox:SetText(url) -- 12.0.5: editBox renamed EditBox
-        self.EditBox:HighlightText()
-        self.EditBox:SetFocus()
-    end,
-    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
-    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
-}
+-- (VWB_COPY_URL StaticPopup now lives in Modules/NpcCoords.lua -- the shared
+-- source-link home, so Projects and Study both use it without owning it.)
 
--- Wowhead link for a LEARN source: precise npc page when ATT matched the
--- NPC, name search otherwise (works with no ATT at all).
+-- Wowhead link for a LEARN source (shared impl in NpcCoords -- Study uses it too).
 local function wowheadURL(st)
-    if st.pin and st.pin.npcID then
-        return "https://www.wowhead.com/npc=" .. st.pin.npcID
-    end
-    local q = st.npc:gsub("[^%w%-]", function(c) return string.format("%%%02X", string.byte(c)) end)
-    return "https://www.wowhead.com/search?q=" .. q
+    return VWB.NpcCoords.WowheadURL(st.npc, st.pin)
 end
 
 -- ============================================================================
@@ -461,7 +446,7 @@ local function paintVendorHdr(row, r, s)
     local available = VWB.NpcCoords.Available()
     row.who:SetText(mappable and string.format("%.1f, %.1f", r.pin.x, r.pin.y) or "")
     row.wh:SetShown(r.npc ~= nil)
-    row.action:SetText("Map")
+    row.action:SetText("|A:Waypoint-MapPin-Minimap-Tracked:14:14|a") -- pin icon, unified with Study's Map affordance
     -- Map only on Vendor/Trainer sources (owner 2026-07-13). ATT absent:
     -- grey Map teaches the capability; ATT present with no pin: no button
     row.action:SetShown(r.npcSource and ((mappable ~= nil) or not available) or false)

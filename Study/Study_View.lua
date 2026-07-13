@@ -41,6 +41,24 @@ local NAME_W, ZONE_W, COST_W = 250, 150, 90
 -- carries the complete text.
 local singleLine = ns.ViewKit.singleLine
 
+-- Source affordances (owner 2026-07-13): revealed on row hover for
+-- Vendor/Trainer sources -- a Map pin + a Wowhead link, matching the Projects
+-- vendor rows. They occupy the cost/zone space while shown; pin resolution is
+-- DEFERRED to click, so scrolling costs no ATT lookups. Reveal is driven by
+-- row:IsMouseOver() (true over child buttons too), so the buttons don't
+-- vanish the instant the cursor moves onto them.
+local function hideSourceButtons(row)
+    row.map:Hide(); row.wh:Hide()
+    row.cost:Show(); row.zone:Show()
+end
+local function showSourceButtons(row)
+    local e = row.data
+    if not (e and VWB.RecipeSources.IsNpcSource(e.source.kind)) then return end -- vendors/trainers only
+    row.cost:Hide(); row.zone:Hide()
+    row.wh:Show()
+    row.map:Show(); row.map:SetEnabled(VWB.NpcCoords.Available())
+end
+
 local function listRowTemplate(frame)
     local icon = frame:CreateTexture(nil, "ARTWORK"); icon:SetSize(16, 16); icon:SetPoint("LEFT", 3, 0)
     frame.icon = icon
@@ -75,6 +93,58 @@ local function listRowTemplate(frame)
     detail:SetPoint("LEFT", text, "RIGHT", 8, 0); detail:SetPoint("RIGHT", zone, "LEFT", -8, 0)
     detail:SetJustifyH("LEFT")
     frame.detail = detail
+
+    -- Hover-revealed Wowhead + Map (see the helpers above). Hidden by default.
+    frame.wh = VWB.UI:CreateButton(frame, "|TInterface\\AddOns\\VamoosesWorkbench\\textures\\wowhead_logo:14:14|t", 26, 18)
+    frame.wh:SetPoint("RIGHT", frame.plus, "LEFT", -4, 0)
+    frame.wh:Hide()
+    frame.wh:SetScript("OnClick", function(self)
+        local e = self:GetParent().data
+        local s = e.source
+        local pin = VWB.NpcCoords.ForRecipe(e.item.recipeID, s.detail, e.zone or s.zone) -- resolve on demand for a precise npc= link
+        StaticPopup_Show("VWB_COPY_URL", nil, nil, VWB.NpcCoords.WowheadURL(s.detail, pin))
+    end)
+    frame.wh:SetScript("OnEnter", function(self)
+        local T = VWB.UI.Tooltip
+        T:Begin(self, "RIGHT"); T:AddTitle("Wowhead")
+        T:AddLine("Copy a Wowhead link for this source.")
+        T:Show()
+    end)
+    frame.wh:SetScript("OnLeave", function(self)
+        VWB.UI.Tooltip:Hide(self)
+        if not self:GetParent():IsMouseOver() then hideSourceButtons(self:GetParent()) end
+    end)
+
+    frame.map = VWB.UI:CreateButton(frame, "|A:Waypoint-MapPin-Minimap-Tracked:14:14|a", 26, 18)
+    frame.map:SetPoint("RIGHT", frame.wh, "LEFT", -4, 0)
+    frame.map:Hide()
+    frame.map:SetMotionScriptsWhileDisabled(true) -- OnEnter still fires while greyed -> the teaching tooltip
+    frame.map:SetScript("OnClick", function(self)
+        local e = self:GetParent().data
+        local s = e.source
+        local pin = VWB.NpcCoords.ForRecipe(e.item.recipeID, s.detail, e.zone or s.zone)
+        if pin and pin.uiMapID then
+            VWB.NpcCoords.Waypoint(pin, s.detail)
+        else
+            VWB.Log:Print("Couldn't locate " .. (s.detail or "this source") .. " on the map.")
+        end
+    end)
+    frame.map:SetScript("OnEnter", function(self)
+        local T = VWB.UI.Tooltip
+        T:Begin(self, "RIGHT")
+        if self:IsEnabled() then
+            T:AddTitle("Show on map")
+            T:AddLine("Waypoint " .. (self:GetParent().data.source.detail or "this source") .. ".")
+        else
+            T:AddTitle("Source waypoints")
+            T:AddLine("Install the AllTheThings addon to map recipe sources -- it carries the vendor and trainer positions.")
+        end
+        T:Show()
+    end)
+    frame.map:SetScript("OnLeave", function(self)
+        VWB.UI.Tooltip:Hide(self)
+        if not self:GetParent():IsMouseOver() then hideSourceButtons(self:GetParent()) end
+    end)
 end
 
 function Study.buildView(container)
@@ -228,9 +298,16 @@ function Study.buildView(container)
                     row.detail:SetText(d)
                     row.zone:SetText(e.zone or "")
                     row.cost:SetText(s.cost or "")
+                    hideSourceButtons(row) -- pooled reuse: a row revealed before rebind must reset to cost/zone
                 end,
-                onRowEnter = onRowEnter,
-                onRowLeave = function(_, rowFrame) ns.UI.Tooltip:Hide(rowFrame) end,
+                onRowEnter = function(e, rowFrame)
+                    onRowEnter(e, rowFrame)
+                    showSourceButtons(rowFrame)
+                end,
+                onRowLeave = function(_, rowFrame)
+                    ns.UI.Tooltip:Hide(rowFrame)
+                    if not rowFrame:IsMouseOver() then hideSourceButtons(rowFrame) end
+                end,
             })
             ns.UI:AddEmptyOverlayText(listWidget)
             return listWidget

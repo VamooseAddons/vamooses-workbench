@@ -329,3 +329,30 @@ function VWB.NpcCoords.Waypoint(pin, label)
     end
     return true
 end
+
+-- Wowhead link for an NPC source: the precise npc= page when ATT matched the
+-- NPC (pin carries npcID), a name search otherwise (works with no ATT at
+-- all, and for unpinnable vendors where a waypoint can't exist). Shared by
+-- Projects and Study.
+function VWB.NpcCoords.WowheadURL(npc, pin)
+    if pin and pin.npcID then
+        return "https://www.wowhead.com/npc=" .. pin.npcID
+    end
+    local q = (npc or ""):gsub("[^%w%-]", function(c) return string.format("%%%02X", string.byte(c)) end)
+    return "https://www.wowhead.com/search?q=" .. q
+end
+
+-- Copy-a-link dialog for the Wowhead buttons (Projects + Study). Registered
+-- here, the shared source-link home, so neither view owns the other's popup.
+StaticPopupDialogs["VWB_COPY_URL"] = {
+    text = "Ctrl+C to copy",
+    button1 = "Close",
+    hasEditBox = true, editBoxWidth = 340,
+    OnShow = function(self, url)
+        self.EditBox:SetText(url) -- 12.0.5: editBox renamed EditBox
+        self.EditBox:HighlightText()
+        self.EditBox:SetFocus()
+    end,
+    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
