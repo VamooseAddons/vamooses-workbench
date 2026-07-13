@@ -44,9 +44,8 @@ local listPanel = {
             { type = "item", id = "search", grow = true, size = { h = 20 } },
             { type = "item", id = "typeToggle", size = { w = 300, h = 18 } },
         } },
-        { type = "stack", dir = "row", gap = "sm", align = "center", children = {
+        { type = "stack", dir = "row", justify = "between", align = "center", children = {
             { type = "item", id = "missingPill", size = { w = 90, h = 18 } },
-            { type = "item", id = "filterSpacer", grow = true, size = { h = 18 } },
             { type = "item", id = "resetFilters", size = { w = 100, h = 18 } }, -- shown only when a filter/category is active
         } },
         { type = "item", id = "breadcrumb", role = "section", size = { h = 16 } }, -- Items / N known / N unc

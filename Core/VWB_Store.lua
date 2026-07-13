@@ -136,6 +136,11 @@ function Store:LoadFromSavedVariables()
     state.config         = VWB_DB.config
     state.ui             = VWB_DB.ui
     state.ui.scopeCharacter = nil -- scope is session-only, never persists
+    -- Showroom category pick is session-only too (owner 2026-07-13: a
+    -- persisted "Classic" narrowed the list to 859 on every fresh login, read
+    -- as "All shows too few"). Default = no selection = whole corpus.
+    state.ui.navSelectedItem = nil
+    state.ui.navSelectedExp = "AllExps"
     VWB_DB.projects        = VWB_DB.projects or {}
     VWB_DB.projects.v      = VWB_DB.projects.v or 1
     VWB_DB.projects.items  = VWB_DB.projects.items or {}
