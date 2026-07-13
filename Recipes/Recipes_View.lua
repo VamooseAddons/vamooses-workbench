@@ -1164,6 +1164,11 @@ function Recipes.buildView(container)
     end, "recipes:materials")
     R.bindText(handle.byId.rcpMatHeader.label, function() return "Reagents for Crafting Queue" end)
 
+    handle.status = function()
+        ns.Store:Version("crafting")
+        local n = #ns.Store:GetState().crafting.queuedRecipes
+        return n == 1 and "1 recipe queued" or string.format("%d recipes queued", n)
+    end
     return handle
 end
 

@@ -660,6 +660,11 @@ function Stockroom.buildView(container)
     -- re-deriving classified/items (owned isn't part of either).
     ns.EventBus:Register("VWB_INVENTORY_UPDATE", function() listWidget:Refresh() end)
 
+    handle.status = function()
+        local c = classified()
+        local t = c.totals
+        return string.format("%d reagents | %d farm/buy | %d crafted", #c, t.farmbuy, t.crafted)
+    end
     return handle
 end
 

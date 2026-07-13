@@ -1313,6 +1313,10 @@ function Projects.buildView(container)
         stepsList:SetData(e and buildStepRows(e) or {})
     end, "projects:detail")
 
+    handle.status = function()
+        local ps = plans()
+        return string.format("%d active | %d backlog | %d done", #ps.bench, #ps.backlog, #ps.done)
+    end
     return handle
 end
 

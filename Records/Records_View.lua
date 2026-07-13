@@ -688,6 +688,12 @@ function Records.buildView(container)
 
     refreshRescanButton()
 
+    handle.status = function()
+        local d = coverageData()
+        local age = d.lastScan and ("last scan " .. FormatScanAge(d.lastScan) .. " ago") or "no scans yet"
+        return string.format("%d recipes on file | %d/%d professions | %s",
+            d.totalRecipes, d.professionsScanned, d.totalProfessions, age)
+    end
     return handle
 end
 

@@ -676,6 +676,14 @@ function Ledger.buildView(container)
         return "Avg Margin|n" .. value
     end)
 
+    handle.status = function()
+        local fr = filtered()
+        local n = #fr.rows
+        if fr.unpricedCount > 0 then
+            return string.format("%d recipes | %d unpriced", n, fr.unpricedCount)
+        end
+        return string.format("%d recipes priced", n)
+    end
     return handle
 end
 

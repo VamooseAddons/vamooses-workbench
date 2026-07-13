@@ -607,6 +607,9 @@ function Roster.buildView(container)
         VWB.UI:HideUnusedRows(root.detail.rowHost)
     end, "roster:profDetail")
 
+    handle.status = function()
+        return string.format("%d characters | %d professions tracked", #chars(), #summaryRows())
+    end
     return handle
 end
 

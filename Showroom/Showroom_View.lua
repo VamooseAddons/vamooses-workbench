@@ -766,6 +766,10 @@ function Showroom.buildView(container)
     -- Assigned once at buildView; nil until the view is first mounted.
     Showroom.UncollectedCount = function() return model.breadcrumb().uncollected end
 
+    handle.status = function()
+        local b = model.breadcrumb()
+        return string.format("%d uncollected | %d of %d collected", b.uncollected, b.known, b.total)
+    end
     return handle
 end
 

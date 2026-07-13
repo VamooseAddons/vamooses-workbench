@@ -310,6 +310,9 @@ function Study.buildView(container)
     end, "study:breadcrumb")
 
     handle.model = model
+    handle.status = function()
+        return string.format("%d recipes to learn | %d sources", model.entries().recipeCount or 0, #model.rows())
+    end
     return handle
 end
 

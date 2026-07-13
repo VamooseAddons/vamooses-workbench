@@ -1073,6 +1073,7 @@ local function buildNewCommissionDialog()
             source = d.ctx.source, pieces = d.ctx.pieces() })
         VWB.Log:Print(string.format("Commission created in %s: %s",
             d.status == "backlog" and "the Backlog" or "Active", name))
+        VWB.EventBus:Trigger("VWB_STATUS_FLASH", { text = "Commission added: " .. name })
         d:Hide()
     end)
     local cancel = VWB.UI:CreateButton(d, "Cancel", 70, 22)

@@ -355,6 +355,10 @@ function Achieve.buildView(container)
     end, "achieve:detail")
 
     handle.model = model
+    handle.status = function()
+        local t = model.tally()
+        return string.format("%d of %d earned | %d shown", t.earned, t.total, #model.rows())
+    end
     return handle
 end
 

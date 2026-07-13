@@ -407,11 +407,22 @@ function Shell.openWindow()
     local viewById = {}
     for _, v in ipairs(VIEW_LIST) do viewById[v.id] = v end
     local mounted, shownId = {}, nil
+    -- Per-view status contributors: a view's build() may return handle.status,
+    -- a reactive fn -> its bottom-rail summary string. Captured at lazy-mount;
+    -- statusEpoch bumps so the status bind re-runs once a newly-mounted view
+    -- registers its fn (avoids effect-ordering fragility on first switch).
+    local viewStatus = {}
+    local statusEpoch = R.signal(0)
     R.effect(function()
         local id = activeView()
         if shownId == id then return end
         if shownId and mounted[shownId] then mounted[shownId]:Hide() end
-        if not mounted[id] then mounted[id] = viewById[id].build(contentHost).root end
+        if not mounted[id] then
+            local h = viewById[id].build(contentHost)
+            mounted[id] = h.root
+            viewStatus[id] = h.status -- exception(nullable): Settings/Debug carry no status fn
+            statusEpoch(statusEpoch() + 1)
+        end
         mounted[id]:Show()
         shownId = id
     end, "shell:activeView")
@@ -447,18 +458,39 @@ function Shell.openWindow()
         craftableBaseline(craftableCount())
     end, "shell:craftableBaseline")
 
-    -- Left label: queued count + scan age (mats-short moved to its own button)
+    -- Transient flash channel: reducers/views fire VWB_STATUS_FLASH { text,
+    -- seconds } on notable actions ("Commission added: X", "Scan complete: N
+    -- new"); the left label shows it for `seconds`, then reverts to the active
+    -- view's summary. Token guards against an older flash clearing a newer one.
+    local flashText = R.signal(nil)
+    local flashToken = 0
+    ns.EventBus:Register("VWB_STATUS_FLASH", function(p)
+        if not (p and p.text) then return end -- exception(boundary): malformed payload
+        flashToken = flashToken + 1
+        local mine = flashToken
+        flashText(p.text)
+        VWB.ReactorWoW.after(p.seconds or 4, function()
+            if flashToken == mine then flashText(nil) end -- boundary write: timer clears its own flash unless superseded
+        end)
+    end)
+    -- Harvest completion is one event carrying the new-recipe count -> one
+    -- flash (per-profession VWB_RECIPES_SCANNED would storm during a full scan).
+    ns.EventBus:Register("VWB_HARVEST_PROGRESS", function(p)
+        if not (p and p.phase == "complete") then return end
+        local n = p.newCount or 0
+        local text = n > 0 and string.format("Scan complete: %d new recipes", n)
+            or string.format("Scan complete: %d recipes seen", p.recipesSeen or 0)
+        VWB.EventBus:Trigger("VWB_STATUS_FLASH", { text = text })
+    end)
+
+    -- Left label: a transient flash if one is live, else the ACTIVE view's own
+    -- summary (handle.status). Settings/Debug carry no status fn -> blank rail.
     R.bindText(status.label, function()
-        ns.Store:Version("crafting")
-        ns.Store:Version("corpus")
-        local st = ns.Store:GetState()
-        if not next(st.recipeStore) then return "" end -- nothing harvested yet
-        local queued = #st.crafting.queuedRecipes
-        local newest
-        for _, entry in pairs(st.recipeCoverage) do
-            if entry.lastScan and (not newest or entry.lastScan > newest) then newest = entry.lastScan end
-        end
-        return string.format("%d queued   |   %s", queued, VWB.UI:FormatScannedAgo(newest, time()))
+        local flash = flashText()
+        if flash then return VWB.UI:ColorCode("cyan") .. flash .. "|r" end
+        statusEpoch() -- dep: re-run when a lazy view mounts and registers its fn
+        local fn = viewStatus[activeView()]
+        return fn and fn() or "" -- fn() reads the view's own signals -> live updates
     end)
 
     -- Mats-short clickable button: text underlines on hover; click = Nav.Go stockroom
@@ -483,6 +515,11 @@ function Shell.openWindow()
         return short .. " mats short"
     end)
     R.bindShown(matsBtn, function()
+        -- mats-short is scoped to the crafting views (owner 2026-07-13): a
+        -- shortfall is only actionable from Workbench/Stockroom, so it no
+        -- longer competes with other views' per-view summaries.
+        local v = activeView()
+        if v ~= "workbench" and v ~= "stockroom" then return false end
         ns.Store:Version("crafting")
         local st = ns.Store:GetState()
         if not next(st.recipeStore) then return false end
