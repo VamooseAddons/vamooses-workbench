@@ -281,6 +281,12 @@ VWB.Theme.Skinners = {
         ApplyFont(fs, c, "small")
     end,
 
+    -- Title-bar close X (HDG's XMarksTheSpot treatment): dim at rest, the
+    -- button's own OnEnter/OnLeave brighten to text_header live.
+    CloseX = function(b, c)
+        b.icon:SetVertexColor(c.text.r, c.text.g, c.text.b, 1)
+    end,
+
     -- Search box (EditBox)
     SearchBox = function(f, c)
         if f.placeholder then

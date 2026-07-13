@@ -90,8 +90,8 @@ local stagePanel = {
 -- Root: profession bar (full width) over nav | list | stage. -------------------
 ns.LayoutConfig.showroom = {
     type = "grid",
-    padding = 5, -- mirrors Preview.lua profContainer/contentArea 5px inset
-    gap = 8,     -- COL_GAP
+    padding = 4,
+    gap = 6,     -- COL_GAP
     columns = { 240, "flex", 380 }, -- NAV_PANEL_WIDTH | list | MODEL_AREA_WIDTH_INIT
     rows    = { 22, "flex" },       -- profbar height | body
     cells = {

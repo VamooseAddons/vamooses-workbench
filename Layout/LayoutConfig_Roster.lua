@@ -12,10 +12,10 @@ ns = ns or {}
 ns.LayoutConfig = ns.LayoutConfig or {}
 
 ns.LayoutConfig.roster = {
-    type = "stack", dir = "col", gap = "sm", padding = 6, align = "stretch", chrome = "Panel",
+    type = "stack", dir = "col", gap = "sm", padding = 4, align = "stretch", chrome = "Panel",
     children = {
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {
-            { type = "item", id = "rosTitle", role = "title", grow = true, size = { h = 24 } },
+            { type = "item", id = "rosTitle", role = "title", grow = true, size = { h = 20 } },
             { type = "item", id = "rosScopeHint", role = "label", size = { w = 220, h = 20 } },
             { type = "item", id = "rosPlanBtn", size = { w = 130, h = 20 } },
         } },

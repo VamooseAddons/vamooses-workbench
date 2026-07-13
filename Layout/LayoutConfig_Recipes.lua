@@ -52,7 +52,7 @@ local rightPanel = {
 
 ns.LayoutConfig.recipes = {
     type = "grid",
-    padding = 5,
+    padding = 4,
     gap = 6,
     columns = { "flex" },
     rows    = { 24, 28, "flex" }, -- filter bar | profession bar | body

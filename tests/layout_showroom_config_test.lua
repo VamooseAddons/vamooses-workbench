@@ -28,10 +28,10 @@ local root = Layout.resolveNode(LC.showroom, 1000, 600, measure)
 do
     local profbar = deep(root, "profbar")
     local nav, list, stage = find(root, "navCol"), find(root, "listCol"), find(root, "stageCol")
-    check("profbar spans full inner width", near(profbar.rect.w, 990) and near(profbar.rect.h, 22))
+    check("profbar spans full inner width", near(profbar.rect.w, 992) and near(profbar.rect.h, 22))
     check("nav column fixed 240", near(nav.rect.w, 240))
     check("stage column fixed 380", near(stage.rect.w, 380))
-    check("list column flexes", near(list.rect.w, 354)) -- 990 - 240 - 380 - 16
+    check("list column flexes", near(list.rect.w, 360)) -- 992 - 240 - 380 - 2x6 gaps (spacing pass 2026-07-13)
     check("nav/list/stage share body row", near(nav.rect.y, list.rect.y) and near(list.rect.y, stage.rect.y))
     check("body sits below profbar", nav.rect.y > profbar.rect.y)
 end

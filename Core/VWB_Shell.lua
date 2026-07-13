@@ -200,8 +200,27 @@ function Shell.openWindow()
     title:SetTexCoord(0, 1423 / 2048, 0, 194 / 256)
     title:SetSize(191, 26) -- 1423x194 art at native aspect
     title:SetPoint("LEFT", brandLogo, "RIGHT", 6, 0)
-    local close = CreateFrame("Button", nil, win, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -4, -4)
+    -- HDG's close treatment (owner 2026-07-13): bare square button with the
+    -- XMarksTheSpot atlas, dim at rest / header-bright on hover -- not
+    -- Blizzard's red UIPanelCloseButton circle.
+    local close = CreateFrame("Button", nil, win)
+    close:SetSize(20, 20)
+    close:SetPoint("TOPRIGHT", -6, -6)
+    local closeIcon = close:CreateTexture(nil, "ARTWORK")
+    closeIcon:SetSize(14, 14)
+    closeIcon:SetPoint("CENTER")
+    closeIcon:SetAtlas("XMarksTheSpot")
+    close.icon = closeIcon
+    close:SetScript("OnClick", function() win:Hide() end)
+    close:SetScript("OnEnter", function(self)
+        local c = VWB.UI:GetScheme()
+        self.icon:SetVertexColor(c.text_header.r, c.text_header.g, c.text_header.b, 1)
+    end)
+    close:SetScript("OnLeave", function(self)
+        local c = VWB.UI:GetScheme()
+        self.icon:SetVertexColor(c.text.r, c.text.g, c.text.b, 1)
+    end)
+    VWB.Theme:Register(close, "CloseX")
 
     -- HDG launcher (tester request, reganart test1): top right, next to the
     -- close button. Gated on the companion addon being installed AND loaded
@@ -231,8 +250,10 @@ function Shell.openWindow()
         win.hdgBtn = hdgBtn
     end
 
+    -- 4px window margin + 32px title band (spacing pass 2026-07-13: was
+    -- 10/-34 -- double HDG's edge margins; wordmark needs 32, close sits -4)
     local content = CreateFrame("Frame", nil, win)
-    content:SetPoint("TOPLEFT", 10, -34); content:SetSize(1320, 700)
+    content:SetPoint("TOPLEFT", 4, -32); content:SetSize(1332, 704)
 
     -- 1. shell chrome
     local shell = ns.Layout.build(content, ns.LayoutConfig.shell, { makeFrame = shellMakeFrame, measure = measure })

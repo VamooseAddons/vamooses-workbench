@@ -17,14 +17,14 @@ local function byId(rc, id)
     for _, c in ipairs(rc.children) do if c.id == id then return c end end
 end
 
--- 1. spacing tokens flow through grid (padding "sm"=4, gap "md"=8) -----------
+-- 1. spacing tokens flow through grid (padding "sm"=4, gap "md"=6) -----------
 do
     local cfg = { padding = "sm", gap = "md", columns = { 100, "flex" }, rows = { "flex" },
         cells = { a = { col = 1, row = 1 }, b = { col = 2, row = 1 } } }
     local r = Layout.computeGrid(cfg, 400, 100)
-    -- innerW = 400-8 = 392; fixed 100, gap 8 -> flex = 284; offsets {0, 108}
+    -- innerW = 400-8 = 392; fixed 100, gap 6 -> flex = 286; offsets {0, 106}
     check("token pad offsets cell a", near(r.a.x, 4) and near(r.a.y, 4))
-    check("token gap + flex width", near(r.b.w, 284) and near(r.b.x, 4 + 108))
+    check("token gap + flex width", near(r.b.w, 286) and near(r.b.x, 4 + 106))
 end
 
 -- 2. percent tracks ----------------------------------------------------------

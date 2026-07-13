@@ -39,9 +39,9 @@ ns.LayoutConfig = ns.LayoutConfig or {}
 local LABEL_W = 140 -- shared left column so Theme/Price Source/Materials Mode rows line up
 
 ns.LayoutConfig.settings = {
-    type = "stack", dir = "col", gap = "sm", padding = 6, align = "stretch", chrome = "Panel",
+    type = "stack", dir = "col", gap = "sm", padding = 4, align = "stretch", chrome = "Panel",
     children = {
-        { type = "item", id = "setTitle", role = "title", size = { h = 24 } },
+        { type = "item", id = "setTitle", role = "title", size = { h = 20 } },
 
         { type = "item", id = "setAppearanceHeader", role = "section", size = { h = 16 } },
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {

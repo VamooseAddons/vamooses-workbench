@@ -12,7 +12,7 @@ ns = ns or {}
 ns.LayoutConfig = ns.LayoutConfig or {}
 
 ns.LayoutConfig.records = {
-    type = "stack", dir = "col", gap = "sm", padding = 6, align = "stretch", chrome = "Panel",
+    type = "stack", dir = "col", gap = "sm", padding = 4, align = "stretch", chrome = "Panel",
     children = {
         { type = "item", id = "recStats", role = "section", size = { h = 40 } },
         -- Tall enough to show ALL 12 professions without scrolling: Coverage header

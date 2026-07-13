@@ -11,7 +11,7 @@ ns = ns or {}
 ns.LayoutConfig = ns.LayoutConfig or {}
 
 ns.LayoutConfig.ledger = {
-    type = "stack", dir = "col", gap = "sm", padding = 6, align = "stretch", chrome = "Panel",
+    type = "stack", dir = "col", gap = "sm", padding = 4, align = "stretch", chrome = "Panel",
     children = {
         -- KPI hierarchy (item 5): Session Profit is the primary metric (taller h=56,
         -- bigger font via LayoutConfig), Rate + Margin are secondaries at h=44.

@@ -38,8 +38,8 @@ local listPanel = {
 
 ns.LayoutConfig.achieve = {
     type = "grid",
-    padding = 5,
-    gap = 8,
+    padding = 4,
+    gap = 6,
     columns = { 240, "flex" },
     rows    = { "flex" },
     cells = {

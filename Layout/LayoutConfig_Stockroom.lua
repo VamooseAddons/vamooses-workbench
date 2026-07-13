@@ -25,9 +25,9 @@ ns = ns or {}
 ns.LayoutConfig = ns.LayoutConfig or {}
 
 ns.LayoutConfig.stockroom = {
-    type = "stack", dir = "col", gap = "sm", padding = 6, align = "stretch", chrome = "Panel",
+    type = "stack", dir = "col", gap = "sm", padding = 4, align = "stretch", chrome = "Panel",
     children = {
-        { type = "item", id = "stkTitle", role = "title", size = { h = 24 } },
+        { type = "item", id = "stkTitle", role = "title", size = { h = 20 } },
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {
             { type = "item", id = "stkSearch", grow = true, size = { h = 20 } },
             { type = "item", id = "stkExpansion", size = { w = 160, h = 22 } }, -- multi-select expansion filter (Blizzard chrome wants ~22px; search grows into the rest)

@@ -17,10 +17,10 @@ ns = ns or {}
 ns.LayoutConfig = ns.LayoutConfig or {}
 
 ns.LayoutConfig.projects = {
-    type = "stack", dir = "col", gap = "sm", padding = 6, align = "stretch", chrome = "Panel",
+    type = "stack", dir = "col", gap = "sm", padding = 4, align = "stretch", chrome = "Panel",
     children = {
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {
-            { type = "item", id = "prjTitle", role = "title", grow = true, size = { h = 24 } },
+            { type = "item", id = "prjTitle", role = "title", grow = true, size = { h = 20 } },
             { type = "item", id = "prjNewStock", size = { w = 150, h = 22 } },
         } },
         -- Board = GRID with fixed side tracks (rail 210 | plan flex | mats 380).

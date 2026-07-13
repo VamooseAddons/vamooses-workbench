@@ -52,7 +52,7 @@ function Layout.setDefaultFactory(fn) defaultFactory = fn end
 -- ---------------------------------------------------------------------------
 -- Spacing tokens: one scale to tune. A value is a number or a token string.
 -- ---------------------------------------------------------------------------
-local SPACE = { xs = 2, sm = 4, md = 8, lg = 12, xl = 16 }
+local SPACE = { xs = 2, sm = 4, md = 6, lg = 8, xl = 10 } -- HDG's ramp (spacing pass 2026-07-13: md 8 / lg 12 / xl 16 read airy at panel scale)
 
 local function resolveSpace(v)
     if v == nil then return 0 end -- exception(optional): omitted padding/gap = 0

@@ -121,7 +121,7 @@ function Achieve.buildView(container)
 
     local filters = {
         search = R.signal(""), navKey = R.signal(nil),
-        hideEarned = R.signal(false), collapsed = R.signal({}),
+        hideEarned = R.signal(true), collapsed = R.signal({}), -- unearned-only by default (owner 2026-07-13): the work list, not the trophy case
     }
     local model = Achieve.buildModel({
         source = {
@@ -172,9 +172,11 @@ function Achieve.buildView(container)
             -- pill, not checkbox (binary row filters are pills addon-wide);
             -- "Unearned only" says the affirmative direction, matching Study's
             -- "Unlearned only" and Showroom's "Missing" (review 2026-07-13)
-            return ns.UI:CreateFilterPill(parent, "Unearned only", function(checked)
+            local pill = ns.UI:CreateFilterPill(parent, "Unearned only", function(checked)
                 filters.hideEarned(checked and true or false)
             end)
+            pill:SetChecked(true) -- matches the signal default (Study's Unlearned-only idiom)
+            return pill
         elseif node.id == "navLabel" then
             local fs = parent:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
             fs:SetText(ns.UI:ColorCode("cyan") .. "Professions|r")

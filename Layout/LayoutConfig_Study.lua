@@ -43,8 +43,8 @@ local listPanel = {
 
 ns.LayoutConfig.study = {
     type = "grid",
-    padding = 5,
-    gap = 8,
+    padding = 4,
+    gap = 6,
     columns = { 240, "flex" }, -- NAV_PANEL_WIDTH | list
     rows    = { 22, "flex" },  -- profbar height | body
     cells = {
