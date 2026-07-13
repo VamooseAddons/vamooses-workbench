@@ -8,6 +8,8 @@ local _, ns = ...
 -- _G.VWB is the shared namespace established in VWB_Namespace.lua (ns == _G.VWB),
 -- so every module -- signals-native or ported from VPC -- lives on this table.
 
+local clock = _G.debugprofilestop -- exception(boundary): WoW sub-ms clock, for the boot-timeline marks below
+
 local boot = CreateFrame("Frame")
 boot:RegisterEvent("ADDON_LOADED") -- exception(false-positive): single bootstrap frame; VWB is Reactor, not Lattice, so there is no BlizzardEvents engine to route through. Filtered to own name + self-unregisters below.
 boot:RegisterEvent("PLAYER_LOGIN") -- exception(false-positive): same bootstrap frame; self-unregisters after module registration.
@@ -16,6 +18,7 @@ boot:SetScript("OnEvent", function(self, event, name)
         if name ~= "VamoosesWorkbench" then return end
         self:UnregisterEvent("ADDON_LOADED")
         ns.Debug:SetEpoch() -- t-zero for the boot timeline, before anything derives
+        local bootT0 = clock()
         VWB_DB = VWB_DB or {}
         -- Signals store FIRST: aliases VWB_DB slices onto state.config. Must precede
         -- Theme:Initialize -- otherwise Theme reads the Store's empty default config
@@ -39,8 +42,14 @@ boot:SetScript("OnEvent", function(self, event, name)
         -- Re-arm profiling if debug was left on across sessions (Store loaded the
         -- persisted config just above). Cheap no-op when off.
         if VWB_DB.config.debug then ns.Debug:Enable() end
+        -- Boot-timeline anchor: the imperative init above is plain function
+        -- calls (not dispatches/events/flushes), so the probes are blind to it
+        -- -- mark the phase explicitly. Lands only if Enable() just turned the
+        -- timeline on (debug persisted); a no-op otherwise.
+        ns.Debug:Mark("ADDON_LOADED: Store/Theme/Reactor init", clock() - bootT0)
     elseif event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
+        local loginT0 = clock()
         -- Data-layer event REGISTRATION only (needs the player logged in for
         -- C_TradeSkillUI). No scanning happens here -- the own-profession
         -- harvest fires when a profession window opens (TRADE_SKILL_LIST_UPDATE).
@@ -55,6 +64,7 @@ boot:SetScript("OnEvent", function(self, event, name)
         ns.GuildCrafters:Initialize() -- guild-crafter roster + "who can craft this" tooltips
         ns.PSLBridge:Initialize() -- listen for PSL tracked-list changes -> VWB_PSL_TRACKED_CHANGED (inert if PSL lacks the event)
         ns.ProjectPlanner:Initialize() -- collect auto-complete + stock refill watchers (registration only)
+        ns.Debug:Mark("PLAYER_LOGIN: module registration", clock() - loginT0) -- all registration -- expect sub-ms
         -- Graph + ReagentSource are lazy, no init.
         -- Rebuild the crafting queue's derived tables (expandedQueue/shoppingList)
         -- from the persisted queuedRecipes -- the reducer that does this only
