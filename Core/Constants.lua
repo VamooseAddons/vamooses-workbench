@@ -188,10 +188,17 @@ function VWB.Constants:GetDerivedColors(scheme)
     local b = scheme.border
     -- sunken: one perceptual step BELOW bg for inset scroll areas (HDG's
     -- per-theme "sunken" role, derived here so all 11 themes get it without
-    -- new data). Light themes step down gently; dark themes drop to crust.
+    -- new data). Ratios calibrated against HDG's hand-picked palettes:
+    -- dark themes cluster at sunken ~ bg x0.78-0.85, light at x0.93-0.96
+    -- (first cut x0.55 read near-black, owner 2026-07-13).
     local g = scheme.bg
     local luma = 0.299 * g.r + 0.587 * g.g + 0.114 * g.b
-    local k = luma > 0.5 and 0.93 or 0.55
+    local k = luma > 0.5 and 0.93 or 0.80
+    -- band: header-row band ABOVE bg (HDG's panel_header). The surface ramp
+    -- is monotonic by lightness on light AND dark themes, so band always
+    -- lifts toward white; light canvases need the bigger fractional lift
+    -- (parchment panel_header sits ~half way to white, dark ~12%).
+    local t = luma > 0.5 and 0.50 or 0.12
     return {
         selected_glow = { r = w.r, g = w.g, b = w.b, a = 0.60 },
         selected_fill = { r = w.r, g = w.g, b = w.b, a = 0.18 },
@@ -199,6 +206,7 @@ function VWB.Constants:GetDerivedColors(scheme)
         border_glow   = { r = math.min(b.r * 1.4, 1), g = math.min(b.g * 1.4, 1), b = math.min(b.b * 1.4, 1), a = 1.0 },
         selected_bar  = { r = w.r, g = w.g, b = w.b, a = 1.0 },
         sunken        = { r = g.r * k, g = g.g * k, b = g.b * k, a = 1.0 },
+        band          = { r = g.r + (1 - g.r) * t, g = g.g + (1 - g.g) * t, b = g.b + (1 - g.b) * t, a = 1.0 },
     }
 end
 

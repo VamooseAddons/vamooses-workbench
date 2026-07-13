@@ -1180,12 +1180,12 @@ function Projects.buildView(container)
         end
         if #blocks > 0 then
             if #mats > 0 then
-                table.insert(mats, 1, { kind = "hdr", label = "Materials" })
-                mats[#mats + 1] = { kind = "hdr", label = "Sources" }
+                table.insert(mats, 1, { kind = "hdr", label = "Materials", hdrBand = true })
+                mats[#mats + 1] = { kind = "hdr", label = "Sources", hdrBand = true }
             end
             for _, b in ipairs(blocks) do
                 if #blocks > 1 then
-                    mats[#mats + 1] = { kind = "hdr", label = liveName(b.pc.itemID, b.pc.name) }
+                    mats[#mats + 1] = { kind = "hdr", label = liveName(b.pc.itemID, b.pc.name), hdrBand = true }
                 end
                 for _, ln in ipairs(b.lines) do
                     mats[#mats + 1] = { kind = "src", line = ln }
@@ -1242,7 +1242,7 @@ function Projects.buildView(container)
                 end
             else
                 local expanded = not collapsed[pc.id]
-                rows[#rows + 1] = { pieceHdr = true, piece = pc, piecePlan = pp, expandKey = pc.id,
+                rows[#rows + 1] = { pieceHdr = true, hdrBand = true, piece = pc, piecePlan = pp, expandKey = pc.id,
                     name = liveName(pc.itemID, pc.name), expanded = expanded,
                     selected = selId == pc.id, removable = removable, projectId = e.p.id }
                 if expanded then
@@ -1265,7 +1265,7 @@ function Projects.buildView(container)
             local g = groups[key]
             local expandKey = "v:" .. key
             local expanded = not collapsed[expandKey]
-            rows[#rows + 1] = { vendorHdr = true, expandKey = expandKey, expanded = expanded,
+            rows[#rows + 1] = { vendorHdr = true, hdrBand = true, expandKey = expandKey, expanded = expanded,
                 title = g.title, name = g.name or g.title, zone = g.zone, npc = g.npc,
                 kind = "LEARN", pin = g.pin, count = #g.recipes, npcSource = g.npcSource,
                 learnedGroup = key == "\1learned" }

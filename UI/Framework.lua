@@ -352,13 +352,21 @@ function VWB.UI:CreateVirtualizedList(parent, options)
         initializer = function(row, elementData, scheme)
             row.data = elementData -- factory's own click/hover handlers read row.data; latch it so callers need not
             -- zebra parity: even data rows tint a half-step back toward bg;
-            -- odd rows let the sunken well show through (HDG's stripe model)
-            local idx = row.GetOrderIndex and row:GetOrderIndex() -- exception(boundary): ScrollBox mixin method, absent under the headless test mock
-            if idx and idx % 2 == 0 then
-                row._zebra:SetColorTexture(scheme.bg.r, scheme.bg.g, scheme.bg.b, 0.45)
+            -- odd rows let the sunken well show through (HDG's stripe model).
+            -- Header rows (elementData.hdrBand) get the band color instead --
+            -- a lift ABOVE bg that wins over parity, HDG's panel_header.
+            if elementData.hdrBand then
+                local band = VWB.Constants:GetDerivedColors(scheme).band
+                row._zebra:SetColorTexture(band.r, band.g, band.b, band.a)
                 row._zebra:Show()
             else
-                row._zebra:Hide()
+                local idx = row.GetOrderIndex and row:GetOrderIndex() -- exception(boundary): ScrollBox mixin method, absent under the headless test mock
+                if idx and idx % 2 == 0 then
+                    row._zebra:SetColorTexture(scheme.bg.r, scheme.bg.g, scheme.bg.b, 0.45)
+                    row._zebra:Show()
+                else
+                    row._zebra:Hide()
+                end
             end
             if updateRow then updateRow(row, elementData, nil) end
             if not row._rowHooked then
