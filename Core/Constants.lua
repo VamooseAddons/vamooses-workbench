@@ -275,7 +275,7 @@ VWB.Constants.Harvest = {
 }
 
 VWB.Constants.Projects = {
-    MAX_PIECES = 20,   -- per commission; achievement imports hit this scale, and each piece costs a Graph plan walk
+    MAX_PIECES = 200,  -- per commission; vendor/achievement imports hit this scale (20 silently truncated real vendors, owner 2026-07-13). Each piece costs a plan walk, but study pieces (the bulk-import kind) derive from the recipe's source list -- no graph walk
     DEFAULT_PAR = 20,  -- stock-piece par when the creator doesn't set one (v1 default preserved)
 }
 
