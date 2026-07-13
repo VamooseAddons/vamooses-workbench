@@ -11,9 +11,9 @@
 --      scanned skill) and a hover tooltip with that character's full
 --      profession x expansion skill breakdown.
 --   2. an Account Summary grid (CreateVirtualizedList, one row per profession,
---      one column per expansion showing the account-wide BEST current/max),
---      with a row hover tooltip naming which character holds the best value
---      per expansion.
+--      one column per expansion showing the account-wide BEST current/max);
+--      hovering a row paints its per-expansion breakdown (+ who holds each
+--      best) into the inspector panel below the grid -- sticky, not a tooltip.
 --   3. an empty state when no character has been scanned yet.
 -- Both lists re-derive off Store:Version("characters") ONLY -- a queue/config
 -- dispatch elsewhere never touches this view.
@@ -120,34 +120,23 @@ local function paintSummaryRow(row, item)
     end
 end
 
--- Row-level hover: full per-expansion breakdown + which character holds the
--- account-wide best value there ("auto hover" via CreateVirtualizedList's own
--- OnLeave -> GameTooltip:Hide when the mouse leaves the row).
-local function onSummaryRowEnter(item, rowFrame)
-    local _d = VWB.Constants:GetDerivedColors(VWB.UI:GetScheme())
-    GameTooltip:SetOwner(rowFrame, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(item.profName, _d.selected_bar.r, _d.selected_bar.g, _d.selected_bar.b)
-    local any = false
-    for _, expInfo in ipairs(ED.EXPANSION_ORDER) do
-        local best = item.best[expInfo.display]
-        if best then
-            any = true
-            GameTooltip:AddDoubleLine(expInfo.display,
-                string.format("%d/%d  (%s)", best.current, best.max, best.charKey),
-                1, 1, 1, 0.7, 0.7, 0.7)
-        end
-    end
-    local flat = item.best.Overall -- exception(optional): flat-skill profs (Archaeology) only
-    if flat then
-        any = true
-        GameTooltip:AddDoubleLine("Overall (no expansion bands)",
-            string.format("%d/%d  (%s)", flat.current, flat.max, flat.charKey),
-            1, 1, 1, 0.7, 0.7, 0.7)
-    end
-    if not any then
-        GameTooltip:AddLine("No characters have scanned this profession yet.", 0.6, 0.6, 0.6)
-    end
-    GameTooltip:Show()
+-- Row-level hover paints the profession's per-expansion breakdown into the
+-- inspector panel UNDER the summary grid (owner 2026-07-13: the old row
+-- tooltip was a wall of data floating over dead space that could hold it).
+-- Sticky: the last-hovered profession stays up for reading; nothing clears
+-- on mouse-leave.
+local DETAIL_ROW_H = 16
+
+local function createDetailRow(parent)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetHeight(DETAIL_ROW_H)
+    row.exp = row:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
+    row.exp:SetPoint("LEFT", 10, 0); row.exp:SetWidth(170); row.exp:SetJustifyH("LEFT")
+    row.val = row:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
+    row.val:SetPoint("LEFT", 186, 0); row.val:SetWidth(80); row.val:SetJustifyH("LEFT")
+    row.who = row:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
+    row.who:SetPoint("LEFT", 272, 0); row.who:SetPoint("RIGHT", -8, 0); row.who:SetJustifyH("LEFT")
+    return row
 end
 
 -- Static expansion column header (built once; no per-frame data, never repainted).
@@ -417,6 +406,10 @@ function Roster.buildView(container)
 
     local root, stripScroll, stripContent, summaryList, planBtn
 
+    -- last-hovered profession; drives the inspector panel (sticky on leave)
+    local hoverProf = R.signal(nil)
+    local function onSummaryRowEnter(item) hoverProf(item.profName) end
+
     local function makeFrame(node, parent)
         if node.id == "rosPlanBtn" then
             planBtn = VWB.UI:CreateButton(parent, "Plan in Workbench", 130, 20)
@@ -466,9 +459,24 @@ function Roster.buildView(container)
             root.expHdr:SetPoint("TOPLEFT", root.summaryHeader, "BOTTOMLEFT", 0, -4)
             root.expHdr:SetHeight(16)
 
+            -- Summary well hugs its rows (height set reactively per data);
+            -- the inspector panel below takes whatever height remains.
             root.summaryHost = CreateFrame("Frame", nil, root)
             root.summaryHost:SetPoint("TOPLEFT", root.expHdr, "BOTTOMLEFT", 0, -2)
-            root.summaryHost:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", 0, 0)
+            root.summaryHost:SetPoint("RIGHT", root, "RIGHT", 0, 0)
+            root.summaryHost:SetHeight(1)
+
+            root.detail = CreateFrame("Frame", nil, root, "BackdropTemplate")
+            root.detail:SetBackdrop(VWB.Theme.BACKDROP_PANEL)
+            root.detail:SetPoint("TOPLEFT", root.summaryHost, "BOTTOMLEFT", 0, -8)
+            root.detail:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", 0, 0)
+            root.detail.title = root.detail:CreateFontString(nil, "OVERLAY", "VWBFontNormal")
+            root.detail.title:SetPoint("TOPLEFT", 10, -8)
+            root.detail.hint = root.detail:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
+            root.detail.hint:SetPoint("TOPLEFT", 10, -10)
+            root.detail.rowHost = CreateFrame("Frame", nil, root.detail)
+            root.detail.rowHost:SetPoint("TOPLEFT", 0, -30)
+            root.detail.rowHost:SetPoint("BOTTOMRIGHT", 0, 6)
 
             summaryList = VWB.UI:CreateVirtualizedList(root.summaryHost, {
                 rowHeight = 20, rowTemplate = summaryRowTemplate,
@@ -515,6 +523,7 @@ function Roster.buildView(container)
     R.bindShown(root.summaryHeader, hasChars)
     R.bindShown(root.expHdr, hasChars)
     R.bindShown(root.summaryHost, hasChars)
+    R.bindShown(root.detail, hasChars)
 
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled card rows on switch
@@ -540,8 +549,61 @@ function Roster.buildView(container)
 
     R.effect(function()
         VWB.Theme.epoch() -- theme epoch: repaint pooled summary rows on switch
-        summaryList:SetData(summaryRows())
+        local rows = summaryRows()
+        root.summaryHost:SetHeight(#rows * 20 + 6) -- well hugs the table; the inspector below absorbs the rest
+        summaryList:SetData(rows)
     end, "roster:summary")
+
+    -- Inspector panel: per-expansion breakdown of the last-hovered profession.
+    R.effect(function()
+        VWB.Theme.epoch() -- theme epoch: repaint panel chrome + rows on switch
+        local s = VWB.UI:GetScheme()
+        local d = VWB.Constants:GetDerivedColors(s)
+        root.detail:SetBackdropColor(d.sunken.r, d.sunken.g, d.sunken.b, d.sunken.a)
+        root.detail:SetBackdropBorderColor(s.border.r, s.border.g, s.border.b, s.border.a)
+        root.detail.hint:SetTextColor(s.text.r, s.text.g, s.text.b)
+        local prof = hoverProf()
+        local item
+        for _, r in ipairs(summaryRows()) do
+            if r.profName == prof then item = r; break end
+        end
+        VWB.UI:ResetRows(root.detail.rowHost)
+        if not item then
+            root.detail.title:SetText("")
+            root.detail.hint:SetText("Hover a profession row for its per-expansion breakdown.")
+            root.detail.hint:Show()
+        else
+            root.detail.title:SetText("|T" .. item.icon .. ":16|t  " .. item.profName)
+            root.detail.title:SetTextColor(d.selected_bar.r, d.selected_bar.g, d.selected_bar.b)
+            local n = 0
+            local function addRow(label, color, best)
+                n = n + 1
+                local row = VWB.UI:AcquireRow(root.detail.rowHost, "rosdetail", createDetailRow)
+                row:SetPoint("TOPLEFT", root.detail.rowHost, "TOPLEFT", 0, -(n - 1) * DETAIL_ROW_H)
+                row:SetPoint("RIGHT", root.detail.rowHost, "RIGHT", 0, 0)
+                row.exp:SetText(label)
+                row.exp:SetTextColor(color.r, color.g, color.b)
+                local vc = (best.current >= best.max) and s.success or s.accent
+                row.val:SetTextColor(1, 1, 1) -- the "/max" tail after |r renders in this
+                row.val:SetText(string.format("|cFF%s%d|r/%d", VWB.UI:ToHex(vc), best.current, best.max))
+                row.who:SetText(best.charKey)
+                row.who:SetTextColor(s.text.r, s.text.g, s.text.b)
+            end
+            for _, expInfo in ipairs(ED.EXPANSION_ORDER) do
+                local best = item.best[expInfo.display]
+                if best then addRow(expInfo.display, expInfo.color, best) end
+            end
+            local flat = item.best.Overall -- exception(optional): flat-skill profs (Archaeology) only
+            if flat then addRow("Overall (no expansion bands)", s.text_header, flat) end
+            if n == 0 then
+                root.detail.hint:SetText("No characters have scanned this profession yet.")
+                root.detail.hint:Show()
+            else
+                root.detail.hint:Hide()
+            end
+        end
+        VWB.UI:HideUnusedRows(root.detail.rowHost)
+    end, "roster:profDetail")
 
     return handle
 end

@@ -86,32 +86,48 @@ end
 
 local TOOLTIP_PIECE_CAP = 8
 
+-- Structured layout (owner 2026-07-13: the flat AddLine list read as a wall):
+-- task names left, their status right-aligned + state-colored, dim hint last.
 local function cardTooltip(card)
     local e = card.entry
     local T = VWB.UI.Tooltip
+    local s = VWB.UI:GetScheme()
+    local d = VWB.Constants:GetDerivedColors(s)
     T:Begin(card, "RIGHT")
-    T:AddTitle(e.p.name)
+    T:AddTitle(e.p.name, d.selected_bar.r, d.selected_bar.g, d.selected_bar.b)
     if e.p.completedAt then
-        T:AddLine("Completed " .. VWB.UI:FormatScannedAgo(e.p.completedAt, time()))
+        T:AddLine("Completed " .. VWB.UI:FormatScannedAgo(e.p.completedAt, time()),
+            s.success.r, s.success.g, s.success.b)
     else
-        T:AddLine(string.format("Commission -- %d task(s), %d done", e.plan.total, e.plan.done))
+        local dc = e.plan.done > 0 and s.success or s.text
+        T:AddDoubleLine("Commission", string.format("%d of %d tasks done", e.plan.done, e.plan.total),
+            s.text.r, s.text.g, s.text.b, dc.r, dc.g, dc.b)
     end
+    T:AddLine(" ")
     for i = 1, math.min(#e.p.pieces, TOOLTIP_PIECE_CAP) do
         local pc, pp = e.p.pieces[i], e.plan.pieces[i]
         local name = pc.itemID and (C_Item.GetItemInfo(pc.itemID)) or ("task " .. i) -- exception(boundary): cold item name; tooltip re-opens warm
         if pp.status == "complete" then
-            T:AddLine(name .. "  --  done")
+            T:AddDoubleLine(name, "done", 1, 1, 1, s.success.r, s.success.g, s.success.b)
         elseif pc.kind == "stock" then
-            T:AddLine(string.format("%s  --  par %d (%d on hand)", name, pp.par or pc.par, pp.level or 0))
+            local ok = (pp.level or 0) >= (pp.par or pc.par)
+            local c = ok and s.success or s.warning
+            T:AddDoubleLine(name, string.format("%d/%d par", pp.level or 0, pp.par or pc.par),
+                1, 1, 1, c.r, c.g, c.b)
         else
-            T:AddLine(string.format("%s  --  %d/%d steps", name, pp.done, pp.total))
+            T:AddDoubleLine(name, string.format("%d/%d steps", pp.done, pp.total),
+                1, 1, 1, s.accent.r, s.accent.g, s.accent.b)
         end
     end
     if #e.p.pieces > TOOLTIP_PIECE_CAP then
-        T:AddLine("... and " .. (#e.p.pieces - TOOLTIP_PIECE_CAP) .. " more")
+        T:AddLine("... and " .. (#e.p.pieces - TOOLTIP_PIECE_CAP) .. " more", s.text.r, s.text.g, s.text.b)
     end
-    if e.plan.buyCost > 0 then T:AddLine("Missing mats on the AH: " .. VWB.UI:FormatMoney(e.plan.buyCost)) end
-    T:AddLine("Right-click: move / remove")
+    if e.plan.buyCost > 0 then
+        T:AddDoubleLine("Missing mats on the AH", VWB.UI:FormatMoney(e.plan.buyCost),
+            s.text.r, s.text.g, s.text.b, s.warning.r, s.warning.g, s.warning.b)
+    end
+    T:AddLine(" ")
+    T:AddLine("Right-click: move / remove", 0.45, 0.5, 0.55)
     T:Show()
 end
 
