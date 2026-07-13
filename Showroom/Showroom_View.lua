@@ -196,6 +196,28 @@ function Showroom.buildView(container)
     local listWidget, navTree, recentStripFrame, addToQueueBtn, startProjectBtn
     local modelDressFrame, modelCreatureFrame, modelSceneFrame
     local itemNameFS, itemDetailsFS, undressWidget
+    local searchBox, typeToggleWidget, profBar, missingPillWidget
+
+    -- Any category pick or non-default filter (owner 2026-07-13: "All/All"
+    -- read as several-thousand but showed 859 -- a category was silently
+    -- selected). This drives the Reset button's visibility AND is the honest
+    -- answer to "why so few": a category narrows the list, the badge counts
+    -- the whole corpus.
+    local function anyFilterActive()
+        ns.Store:Version("nav")
+        return filters.search() ~= "" or filters.profession() ~= "all"
+            or filters.typeMode() ~= "all" or filters.missingMode()
+            or ns.Store:GetState().ui.navSelectedItem ~= nil
+    end
+    local function resetFilters()
+        filters.profession("all"); filters.typeMode("all"); filters.missingMode(false)
+        ns.Store:Dispatch("SET_NAV_SELECTION", { exp = nil, item = nil })
+        if searchBox then searchBox:Clear() end -- Clear() also writes filters.search("")
+        if profBar then profBar:Select("all") end
+        if typeToggleWidget then typeToggleWidget:SetSelected("all") end
+        if missingPillWidget then missingPillWidget:SetChecked(false) end
+        if navTree then navTree:Select(nil) end
+    end
 
     -- Selecting an item captures it for the model-preview effect AND records
     -- it in the persisted recent-previews ring (Store dedupes+caps; the
@@ -271,20 +293,28 @@ function Showroom.buildView(container)
 
     local function makeFrame(node, parent)
         if node.id == "search" then
-            return ns.UI:CreateSearchBox(parent, { placeholder = "Search items...",
+            searchBox = ns.UI:CreateSearchBox(parent, { placeholder = "Search items...",
                 onChange = function(text) filters.search((text or ""):lower()) end })
+            return searchBox
         elseif node.id == "typeToggle" then
-            return ns.UI:CreateSegmentedToggle(parent, {
+            typeToggleWidget = ns.UI:CreateSegmentedToggle(parent, {
                 width = (node.size and node.size.w) or 300, height = (node.size and node.size.h) or 18,
                 segments = TYPE_SEGMENTS, default = "all", onSelect = function(key) filters.typeMode(key) end })
+            return typeToggleWidget
         elseif node.id == "missingPill" then
-            return ns.UI:CreateFilterPill(parent, "Missing", function(checked) filters.missingMode(checked and true or false) end)
+            missingPillWidget = ns.UI:CreateFilterPill(parent, "Missing", function(checked) filters.missingMode(checked and true or false) end)
+            return missingPillWidget
+        elseif node.id == "resetFilters" then
+            local btn = ns.UI:CreateButton(parent, "Reset filters", 100, 18)
+            btn:SetScript("OnClick", resetFilters)
+            R.bindShown(btn, anyFilterActive)
+            return btn
         elseif node.id == "profbar" then
             local profs = { { key = "all", label = "All Professions", abbrev = "All", icon = "Interface\\Icons\\INV_Misc_Book_09" } }
             for _, p in ipairs(ns.RecipeQuery:GetProfessions()) do profs[#profs + 1] = p end
-            local bar = ns.UI:CreateProfessionTabBar(parent, profs, function(key) filters.profession(key) end)
-            bar:Select("all")
-            return bar
+            profBar = ns.UI:CreateProfessionTabBar(parent, profs, function(key) filters.profession(key) end)
+            profBar:Select("all")
+            return profBar
         elseif node.id == "navLabel" then
             local f = CreateFrame("Frame", nil, parent)
             local fs = f:CreateFontString(nil, "OVERLAY", "VWBFontNormalSmall")
