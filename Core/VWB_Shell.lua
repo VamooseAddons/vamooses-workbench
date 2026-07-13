@@ -155,7 +155,30 @@ function Shell.openWindow()
 
     local s = VWB.UI:GetScheme()
     local win = CreateFrame("Frame", "VWB_Main", UIParent, "BackdropTemplate")
-    win:SetSize(1340, 740); win:SetPoint("CENTER"); win:SetFrameStrata("HIGH")
+    win:SetSize(1340, 740); win:SetPoint("CENTER")
+    -- Window handling, HDG parity (owner 2026-07-13): MEDIUM strata so the
+    -- Workbench layers as a PEER to the character sheet / housing editor /
+    -- other addon windows instead of covering them (HIGH did); SetToplevel
+    -- still pops it to the front of its strata on click. Clamping keeps the
+    -- title bar grabbable while allowing drags off the left/right/bottom.
+    win:SetFrameStrata("MEDIUM")
+    win:SetToplevel(true)
+    win:SetClampedToScreen(true)
+    win:SetClampRectInsets(500, -500, 0, 500)
+    -- Escape closes the window; every other key propagates untouched so
+    -- gameplay keybinds and editbox typing are unaffected (a focused EditBox
+    -- consumes Escape itself; the New Commission overlay's own handler --
+    -- a child at a higher frame level -- eats Escape first while it's open).
+    win:EnableKeyboard(true)
+    win:SetPropagateKeyboardInput(true)
+    win:SetScript("OnKeyDown", function(self, key)
+        if key == "ESCAPE" then
+            self:SetPropagateKeyboardInput(false)
+            self:Hide()
+        else
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
     win:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
         insets = { left = 3, right = 3, top = 3, bottom = 3 } })
@@ -163,15 +186,20 @@ function Shell.openWindow()
     win:EnableMouse(true); win:SetMovable(true); win:RegisterForDrag("LeftButton")
     win:SetScript("OnDragStart", win.StartMoving); win:SetScript("OnDragStop", win.StopMovingOrSizing)
 
-    -- Title wordmark (art by Boggle): 1363x154 art on a 2048x256 pot canvas,
-    -- cropped by texcoord, drawn at its native aspect. NOT win.title -- the
-    -- Frame skinner's title re-color path expects a FontString; art is
-    -- theme-independent.
+    -- Title-bar brand, left-justified (owner 2026-07-13): Madailein's logo
+    -- leads, Boggle's wordmark follows. Wordmark is 1423x194 art on a
+    -- 2048x256 pot canvas, texcoord-cropped, drawn at native aspect. NOT
+    -- win.title -- the Frame skinner's title re-color path expects a
+    -- FontString; art is theme-independent.
+    local brandLogo = win:CreateTexture(nil, "OVERLAY")
+    brandLogo:SetTexture("Interface\\AddOns\\VamoosesWorkbench\\textures\\Vamoose_VWB_400")
+    brandLogo:SetSize(24, 24)
+    brandLogo:SetPoint("TOPLEFT", 8, -4)
     local title = win:CreateTexture(nil, "OVERLAY")
     title:SetTexture("Interface\\AddOns\\VamoosesWorkbench\\textures\\workbench_title")
-    title:SetTexCoord(0, 1363 / 2048, 0, 154 / 256)
-    title:SetSize(230, 26)
-    title:SetPoint("TOP", 0, -5)
+    title:SetTexCoord(0, 1423 / 2048, 0, 194 / 256)
+    title:SetSize(191, 26) -- 1423x194 art at native aspect
+    title:SetPoint("LEFT", brandLogo, "RIGHT", 6, 0)
     local close = CreateFrame("Button", nil, win, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
 

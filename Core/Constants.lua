@@ -132,13 +132,13 @@ VWB.Constants.FontFiles = {
 
 -- Get current font family file path
 function VWB.Constants:GetFontFile()
-    local family = "ARIALN"
+    local family = "FRIZQT__" -- default per owner 2026-07-13 (was ARIALN)
     if VWB.Store and VWB.Store.state and VWB.Store.state.config then
-        family = VWB.Store.state.config.fontFamily or "ARIALN"
+        family = VWB.Store.state.config.fontFamily or "FRIZQT__"
     elseif VWB_DB and VWB_DB.config and VWB_DB.config.fontFamily then
         family = VWB_DB.config.fontFamily
     end
-    return self.FontFiles[family] or self.FontFiles.ARIALN
+    return self.FontFiles[family] or self.FontFiles.FRIZQT__
 end
 
 -- ============================================================================

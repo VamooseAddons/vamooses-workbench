@@ -347,7 +347,7 @@ function Settings.buildView(container)
 
     R.effect(function()
         ns.Store:Version("config")
-        local key = ns.Store:GetState().config.fontFamily or "ARIALN" -- exception(optional): unset until the user first picks a font
+        local key = ns.Store:GetState().config.fontFamily or "FRIZQT__" -- exception(optional): unset until the user first picks a font
         fontPicker:SetSelected(key, { label = VWB.Constants.FontDisplayNames[key] or key })
     end, "settings:font")
 
