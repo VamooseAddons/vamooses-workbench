@@ -103,7 +103,7 @@ function Settings.buildView(container)
     local R = ns.Reactor
     local Kit = ns.ViewKit
 
-    local themePicker, pricePicker, modeToggle, minimapCb, ambientCb
+    local themePicker, fontPicker, pricePicker, modeToggle, minimapCb, ambientCb
     local debugCb, ahCutCb, pslRemoveCb
     local uiScaleSlider, transparencySlider
     local dangerHeader, dangerDesc
@@ -127,6 +127,23 @@ function Settings.buildView(container)
             end
             themePicker:SetItems(items)
             return themePicker
+        elseif node.id == "setFontLabel" then
+            return makeLabel(parent, "Font:")
+        elseif node.id == "setFontPicker" then
+            fontPicker = VWB.UI:CreateDropdown(parent, {
+                width = (node.size and node.size.w) or 200, height = (node.size and node.size.h) or 22,
+                onSelect = function(key, data)
+                    ns.Store:Dispatch("SET_CONFIG", { key = "fontFamily", value = key })
+                    VWB.EventBus:Trigger("VWB_THEME_UPDATE", {}) -- ApplyFontObjects re-fonts every VWBFont* string live
+                    VWB.Log:Print("Font: " .. (data.label or key))
+                end,
+            })
+            local items = {}
+            for _, key in ipairs(VWB.Constants.FontOrder) do
+                items[#items + 1] = { key = key, label = VWB.Constants.FontDisplayNames[key] or key }
+            end
+            fontPicker:SetItems(items)
+            return fontPicker
         elseif node.id == "setPriceLabel" then
             return makeLabel(parent, "Price Source:")
         elseif node.id == "setPricePicker" then
@@ -327,6 +344,12 @@ function Settings.buildView(container)
         local key = ns.Store:GetState().config.theme or "solarizeddark" -- exception(optional): unset until the user first picks/toggles a theme
         themePicker:SetSelected(key, { label = VWB.Constants.ThemeDisplayNames[key] or key })
     end, "settings:theme")
+
+    R.effect(function()
+        ns.Store:Version("config")
+        local key = ns.Store:GetState().config.fontFamily or "ARIALN" -- exception(optional): unset until the user first picks a font
+        fontPicker:SetSelected(key, { label = VWB.Constants.FontDisplayNames[key] or key })
+    end, "settings:font")
 
     R.effect(function()
         ns.Store:Version("config")

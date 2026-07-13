@@ -321,7 +321,7 @@ function Showroom.buildView(container)
                 rowTemplate = listRowTemplate,
                 updateRow = function(row, item)
                     row.data = item
-                    row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or VWB.Constants.ClassificationIcons.Misc)
+                    row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or VWB.Constants.ICON_QUESTION)
                     row.text:SetText(item.name or ("item:" .. tostring(item.itemID)))
                     row.tick:SetShown(model.collectedOf.peek(item.itemID) == true) -- peek: untracked, so updateRow doesn't link per-row deps into showroom:list (collectionTick drives repaint)
                     -- Item 6a: shimmer while kind is PENDING (row is in the list but
@@ -518,7 +518,7 @@ function Showroom.buildView(container)
             local chip = recentChips[i] or acquireRecentChip()
             recentChips[i] = chip
             chip._data = data
-            chip.icon:SetTexture(data.itemID and C_Item.GetItemIconByID(data.itemID) or VWB.Constants.ClassificationIcons.Misc)
+            chip.icon:SetTexture(data.itemID and C_Item.GetItemIconByID(data.itemID) or VWB.Constants.ICON_QUESTION)
             chip:ClearAllPoints()
             chip:SetPoint("LEFT", recentStripFrame, "LEFT", xOff, 0)
             chip:Show()

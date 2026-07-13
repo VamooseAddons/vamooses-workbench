@@ -619,7 +619,7 @@ function Recipes.buildView(container)
                 rowHeight = 22, rowTemplate = rowTemplate,
                 updateRow = function(row, item)
                     row.data = item
-                    row.icon:SetTexture(item.icon or C_Item.GetItemIconByID(item.itemID) or VWB.Constants.ClassificationIcons.Misc)
+                    row.icon:SetTexture(item.icon or C_Item.GetItemIconByID(item.itemID) or VWB.Constants.ICON_QUESTION)
                     local c = ns.UI:GetScheme()
                     -- F1 FIX: pass effectiveCharKey() live so scope changes re-eval chips
                     local specs = ComputeRecipeChips(item, c, effectiveCharKey())
@@ -769,7 +769,7 @@ function Recipes.buildView(container)
                 rowHeight = 18, rowTemplate = matRowTemplate,
                 updateRow = function(row, item)
                     row.data = item
-                    row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or VWB.Constants.ClassificationIcons.Misc)
+                    row.icon:SetTexture(C_Item.GetItemIconByID(item.itemID) or VWB.Constants.ICON_QUESTION)
                     row.text:SetText(item.name or ("item:" .. tostring(item.itemID)))
                     row.countText:SetText((item.owned or 0) .. "/" .. (item.required or 0))
                     local c = ns.UI:GetScheme()
@@ -1114,7 +1114,7 @@ function Recipes.buildView(container)
             end
             b._recipeID, b._itemID, b._name = entry.recipeID, entry.itemID, entry.name
             local rec = entry.recipeID and ns.Database:GetRecipe(entry.recipeID)
-            b.icon:SetTexture((rec and rec.icon) or (entry.itemID and C_Item.GetItemIconByID(entry.itemID)) or VWB.Constants.ClassificationIcons.Misc)
+            b.icon:SetTexture((rec and rec.icon) or (entry.itemID and C_Item.GetItemIconByID(entry.itemID)) or VWB.Constants.ICON_QUESTION)
             b:ClearAllPoints()
             b:SetPoint("LEFT", mruContainer, "LEFT", xOff, 0)
             b:Show()

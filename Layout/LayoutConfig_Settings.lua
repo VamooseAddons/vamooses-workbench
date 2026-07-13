@@ -49,6 +49,10 @@ ns.LayoutConfig.settings = {
             { type = "item", id = "setThemePicker", size = { w = 200, h = 22 } },
         } },
         { type = "stack", dir = "row", gap = "sm", align = "center", children = {
+            { type = "item", id = "setFontLabel", size = { w = LABEL_W, h = 22 } },
+            { type = "item", id = "setFontPicker", size = { w = 200, h = 22 } },
+        } },
+        { type = "stack", dir = "row", gap = "sm", align = "center", children = {
             { type = "item", id = "setPriceLabel", size = { w = LABEL_W, h = 22 } },
             { type = "item", id = "setPricePicker", size = { w = 200, h = 22 } },
         } },

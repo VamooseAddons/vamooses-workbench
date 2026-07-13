@@ -243,20 +243,6 @@ VWB.Constants.ProfessionIcons = {
 -- 134400 -- one constant, one spelling).
 VWB.Constants.ICON_QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 
-VWB.Constants.ClassificationIcons = {
-    All = "Interface\\Buttons\\UI-CheckBox-Check",
-    Armor = "Interface\\Icons\\INV_Chest_Plate01",
-    Weapons = "Interface\\Icons\\INV_Sword_04",
-    Consumables = "Interface\\Icons\\INV_Potion_54",
-    Enchants = "Interface\\Icons\\Trade_Engraving",
-    Gems = "Interface\\Icons\\INV_Misc_Gem_01",
-    Profession = "Interface\\Icons\\INV_Misc_EngGizmos_01",
-    Mounts = "Interface\\Icons\\Ability_Mount_RidingHorse",
-    Pets = "Interface\\Icons\\INV_Box_PetCarrier_01",
-    Toys = "Interface\\Icons\\INV_Misc_Toy_07",
-    Decor = "Interface\\Icons\\INV_Misc_Flower_02",
-    Misc = "Interface\\Icons\\INV_Misc_QuestionMark",
-}
 
 -- ============================================================================
 -- 9. GUILD RECIPE HARVEST + GUILD CRAFTERS QUERY (Modules/RecipeHarvest.lua,
