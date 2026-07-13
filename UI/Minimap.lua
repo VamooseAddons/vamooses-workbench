@@ -45,18 +45,15 @@ function VWB.Minimap:Initialize()
     minimapButton:RegisterForDrag("LeftButton")
     minimapButton:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
-    -- Icon
+    -- Icon fills the button, NO tracking-border ring or round background
+    -- (HDG's emblem treatment, owner 2026-07-13): Madailein's logo is round
+    -- art with its own alpha, so the gold ring and circle-crop would only
+    -- shrink and cage it.
     local icon = minimapButton:CreateTexture(nil, "BACKGROUND")
-    icon:SetSize(20, 20)
+    icon:SetSize(30, 30)
     icon:SetPoint("CENTER", 0, 0)
     icon:SetTexture(ICON)
     minimapButton.icon = icon
-
-    -- Border
-    local overlay = minimapButton:CreateTexture(nil, "OVERLAY")
-    overlay:SetSize(52, 52)
-    overlay:SetPoint("TOPLEFT", 0, 0)
-    overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
     -- Click
     minimapButton:SetScript("OnClick", function(_, button)
