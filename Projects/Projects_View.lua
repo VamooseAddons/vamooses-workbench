@@ -40,7 +40,7 @@ StaticPopupDialogs["VWB_REMOVE_PROJECT"] = {
 }
 
 StaticPopupDialogs["VWB_REMOVE_PIECE"] = {
-    text = "Remove piece '%s'?",
+    text = "Remove task '%s'?",
     button1 = "Remove", button2 = "Cancel",
     OnAccept = function(self, d) VWB.Store:Dispatch("REMOVE_PIECE", { projectId = d.projectId, pieceId = d.pieceId }) end,
     timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
@@ -94,11 +94,11 @@ local function cardTooltip(card)
     if e.p.completedAt then
         T:AddLine("Completed " .. VWB.UI:FormatScannedAgo(e.p.completedAt, time()))
     else
-        T:AddLine(string.format("Commission -- %d piece(s), %d done", e.plan.total, e.plan.done))
+        T:AddLine(string.format("Commission -- %d task(s), %d done", e.plan.total, e.plan.done))
     end
     for i = 1, math.min(#e.p.pieces, TOOLTIP_PIECE_CAP) do
         local pc, pp = e.p.pieces[i], e.plan.pieces[i]
-        local name = pc.itemID and (C_Item.GetItemInfo(pc.itemID)) or ("piece " .. i) -- exception(boundary): cold item name; tooltip re-opens warm
+        local name = pc.itemID and (C_Item.GetItemInfo(pc.itemID)) or ("task " .. i) -- exception(boundary): cold item name; tooltip re-opens warm
         if pp.status == "complete" then
             T:AddLine(name .. "  --  done")
         elseif pc.kind == "stock" then
@@ -284,16 +284,16 @@ local function paintProjectCard(card, entry, isSelected)
         end
     elseif p.status == "done" or (plan.total > 0 and plan.done == plan.total) then
         card.bar:SetProgress(1, 1)
-        card.sub:SetText(p.completedAt and ("done " .. VWB.UI:FormatScannedAgo(p.completedAt, time())) or "all pieces done")
+        card.sub:SetText(p.completedAt and ("done " .. VWB.UI:FormatScannedAgo(p.completedAt, time())) or "all tasks done")
         card.sub:SetTextColor(s.success.r, s.success.g, s.success.b)
     elseif plan.total == 0 then
         card.bar:SetProgress(0, 1)
-        card.sub:SetText("no pieces yet -- use Add piece... in the plan panel")
+        card.sub:SetText("no tasks yet -- use Add task... in the plan panel")
         card.sub:SetTextColor(s.text.r, s.text.g, s.text.b)
     else
         card.bar:SetProgress(plan.done, plan.total)
         card.sub:SetText(string.format("%d %s  --  %d/%d done",
-            plan.total, plan.total == 1 and "piece" or "pieces", plan.done, plan.total))
+            plan.total, plan.total == 1 and "task" or "tasks", plan.done, plan.total))
         card.sub:SetTextColor(s.text.r, s.text.g, s.text.b)
     end
 
@@ -551,7 +551,7 @@ local function onStepRowEnter(st, rowFrame)
         end
     elseif st.vendorRecipe then
         T:AddTitle(st.name)
-        T:AddLine("Learn the recipe to complete this piece.")
+        T:AddLine("Learn the recipe to complete this task.")
         if st.cost then T:AddLine("Cost: " .. st.cost) end
         if st.faction then T:AddLine("Requires: " .. st.faction) end
     elseif st.kind == "CRAFT" then
@@ -789,7 +789,7 @@ function Projects.buildView(container)
         -- The picker serves TWO flows: new stock project (header button) and
         -- add-piece-to-commission (the pieces list row) -- the hint names which
         R.bindText(hint, function()
-            if addPieceTarget() then return "Click a recipe to add it as a piece" end
+            if addPieceTarget() then return "Click a recipe to add it as a task" end
             return "Click a recipe to track it (par 20, adjust on the card)"
         end)
 
@@ -816,7 +816,7 @@ function Projects.buildView(container)
                     -- the commission from ever completing -- UX review M1)
                     VWB.Store:Dispatch("ADD_PIECE", { projectId = target,
                         piece = { itemID = r.itemID, recipeID = r.recipeID, kind = "collect" } })
-                    VWB.Log:Print("Added piece: " .. r.name)
+                    VWB.Log:Print("Added task: " .. r.name)
                 else
                     VWB.Store:Dispatch("ADD_PROJECT", {
                         name = r.name, source = { type = "manual" },
@@ -968,7 +968,7 @@ function Projects.buildView(container)
                     if r.vendorRecipe then paintVendorRecipe(row, r, s); return end
                     if r.addRow then
                         row.hIcon:SetTexture("Interface\\Buttons\\UI-PlusButton-Up")
-                        row.hName:SetText("Add piece...")
+                        row.hName:SetText("Add task...")
                         row.hName:SetTextColor(s.accent.r, s.accent.g, s.accent.b)
                         return
                     end

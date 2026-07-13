@@ -974,7 +974,7 @@ local function commissionMenu(root, ctx)
                         if #prj.pieces > before then added = added + 1 end
                     end
                     local note = added < offered and string.format(" (%d duplicate/over-cap skipped)", offered - added) or ""
-                    VWB.Log:Print(string.format("Added %d piece(s) to '%s'%s", added, prj.name, note))
+                    VWB.Log:Print(string.format("Added %d task(s) to '%s'%s", added, prj.name, note))
                 end)
             end
         end
@@ -993,7 +993,7 @@ local function commissionMenu(root, ctx)
         end
         if not titled then
             root:CreateTitle("Queue from -- no Active commissions")
-            root:CreateTitle("(promote one from the Projects tab)")
+            root:CreateTitle("(promote one from the Commissions tab)")
         end
     end
 end
@@ -1014,7 +1014,7 @@ function VWB.UI:CreateCommissionDropdown(parent, opts)
         local T = VWB.UI.Tooltip
         T:Begin(self, "RIGHT")
         T:AddTitle("Commission")
-        T:AddLine("Save these as a commission on the board -- pieces, mats, and")
+        T:AddLine("Save these as a commission on the board -- tasks, mats, and")
         T:AddLine("progress tracked across all your characters.")
         T:Show()
     end)
@@ -1087,7 +1087,7 @@ function VWB.UI:ShowNewCommissionDialog(ctx)
     ncDialog.status = ctx.defaultStatus or "backlog"
     ncDialog.seg:SetSelected(ncDialog.status)
     ncDialog.edit:SetText(ctx.name or "")
-    ncDialog.count:SetText((ctx.count or 0) .. " piece(s)")
+    ncDialog.count:SetText((ctx.count or 0) .. " task(s)")
     ncDialog:Show()
     ncDialog.edit:SetFocus()
     ncDialog.edit:HighlightText()
