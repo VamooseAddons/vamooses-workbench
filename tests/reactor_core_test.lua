@@ -109,5 +109,59 @@ do
     check("batch: final value correct", sum == 50)
 end
 
+-- 7. effect-throw boundary: with a host handler set, one throwing effect must
+--    not wedge the flush -- siblings run, flags reset, later writes flush ----
+do
+    local caught = 0
+    R.setEffectErrorHandler(function(err) caught = caught + 1; return err end)
+    local a = R.signal(1)
+    local goodRuns = 0
+    R.effect(function()
+        if a() == 2 then error("deliberate effect throw") end
+    end, "thrower")
+    R.effect(function() a(); goodRuns = goodRuns + 1 end)
+    check("boundary: initial runs clean", caught == 0 and goodRuns == 1)
+    a(2)  -- thrower errors; sibling + engine must survive
+    -- deterministic bug = initial report + ONE capped auto-retry, then quiet
+    check("boundary: reported twice (initial + capped retry)", caught == 2)
+    check("boundary: sibling effect still ran", goodRuns == 2)
+    a(3)  -- the wedge test: a dead flush flag would swallow this write
+    check("boundary: flush alive after throw", goodRuns == 3)
+    check("boundary: no further reports once sources change", caught == 2)
+    R.setEffectErrorHandler(nil)
+end
+
+-- 7b. capped retry heals a TRANSIENT error within the same write ------------
+do
+    local caught = 0
+    R.setEffectErrorHandler(function(err) caught = caught + 1; return err end)
+    local a = R.signal(1)
+    local threwOnce, out = false, nil
+    R.effect(function()
+        local v = a()
+        if v == 2 and not threwOnce then
+            threwOnce = true
+            error("transient")
+        end
+        out = v
+    end, "transient")
+    a(2)  -- first run throws; the auto-retry succeeds immediately
+    check("retry: transient healed by auto-retry", out == 2)
+    check("retry: one report for a healed transient", caught == 1)
+    a(3)
+    check("retry: effect fully relinked after heal", out == 3)
+    R.setEffectErrorHandler(nil)
+end
+
+-- 8. no handler (headless default): effect throws propagate untouched -------
+do
+    local a = R.signal(1)
+    R.effect(function()
+        if a() == 2 then error("loud headless throw") end
+    end)
+    local ok, err = pcall(function() a(2) end)
+    check("no-handler: throw propagates", not ok and tostring(err):find("loud headless throw") ~= nil)
+end
+
 print(string.format("Reactor core: %d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

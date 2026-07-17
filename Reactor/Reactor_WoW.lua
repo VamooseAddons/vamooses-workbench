@@ -48,6 +48,13 @@ function ReactorWoW.install(opts)
         driver:Show()
     end)
 
+    -- Effect-throw boundary: CallErrorHandler routes the error to the normal
+    -- WoW Lua-error machinery (error frame / BugSack, full traceback) while
+    -- the flush finishes and its flags reset -- one broken effect no longer
+    -- kills all reactivity. Headless installs pass no handler (or their own),
+    -- so test runs still die loud on effect throws.
+    Reactor.setEffectErrorHandler(opts.effectErrorHandler or CallErrorHandler)
+
     -- Event source: bridge Reactor resources to WoW events. subscribe(event,
     -- handler) -> unsub. One shared frame; handlers[event] is a fan-out list.
     local eventFrame = mk("Frame")

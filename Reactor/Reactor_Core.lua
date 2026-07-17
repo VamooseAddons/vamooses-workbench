@@ -224,6 +224,7 @@ end
 ---@field bindShown fun(frame:any, fn:function):function
 ---@field bindColor fun(fs:any, fn:function):function
 ---@field setLogger fun(fn:function)
+---@field setEffectErrorHandler fun(fn?:function)
 ---@field setScheduler fun(deferFn:function)
 ---@field setInstrument fun(fn?:function)
 ---@field setFlushObserver fun(fn?:function)
@@ -238,12 +239,25 @@ local Reactor = {}
 local logger = nil
 local function log(level, msg) if logger then logger(level, msg) end end
 
+-- Engine/app error boundary for the flush loop (owner ruling 2026-07-17,
+-- refines the 2026-07-06 no-pcall ruling: effect bodies are APP code --
+-- foreign to the engine -- so the flush must survive their throws the same
+-- way WoW's event dispatcher survives an addon handler's). The handler runs
+-- as the xpcall message handler, i.e. with the throw-site stack still live:
+-- WoW's CallErrorHandler surfaces a full traceback, exactly as loud as an
+-- unhandled error. With NO handler set (headless tests), effects run
+-- unwrapped and a throw propagates untouched -- fail-loud unchanged.
+local effectErrorHandler = nil
+
 local flushing = false
 -- Vue-style PER-EFFECT recursion detection: if one effect re-runs more than
 -- this many times inside a single flush it's mutating its own dependencies
 -- (directly or via a mutual-write loop). Naming the count is more precise than
 -- a coarse global iteration cap.
 local RECURSION_LIMIT = 100
+
+local scheduleFlush -- fwd: assigned below (default immediate); runFlush's
+                    -- capped-retry path re-schedules through it
 
 local function runFlush()
     -- Synchronous-scheduler safety: an effect that writes a signal during its
@@ -261,6 +275,7 @@ local function runFlush()
     local flushDone = flushObserver and flushObserver() or nil -- host brackets flush timing
     local flushCount = 0
     local runCounts = {}
+    local retries = nil  -- effects granted their one capped auto-retry
     local i = 1
     while i <= #pendingEffects do
         local e = pendingEffects[i]; i = i + 1
@@ -277,7 +292,29 @@ local function runFlush()
                 log("error", msg) -- durable, before the throw
                 error(msg)
             end
-            updateIfNecessary(e)
+            if effectErrorHandler then
+                -- Contained: the failed effect keeps its already-linked
+                -- sources, so it retries on their next invalidation; the
+                -- rest of the flush runs and the flags reset normally.
+                if xpcall(updateIfNecessary, effectErrorHandler, e) then
+                    if e.failedRuns then e.failedRuns = nil end
+                else
+                    log("error", "Reactor: effect '" .. (e.label or "?")
+                        .. "' threw -- flush continued, error sent to host handler")
+                    -- ONE capped automatic retry on the next flush: a transient
+                    -- heals in a frame (success fully re-links sources); a
+                    -- deterministic bug reports twice, then waits for its
+                    -- sources. State is still DIRTY/CHECK (updateIfNecessary
+                    -- never reached its CLEAN line), so re-queue suffices.
+                    e.failedRuns = (e.failedRuns or 0) + 1
+                    if e.failedRuns == 1 then
+                        retries = retries or {}
+                        retries[#retries + 1] = e
+                    end
+                end
+            else
+                updateIfNecessary(e)
+            end
             flushCount = flushCount + 1
         end
     end
@@ -285,12 +322,17 @@ local function runFlush()
     currentObserver, currentScope = savedObserver, savedScope
     flushing = false
     if flushDone then flushDone(flushCount) end
+    if retries then
+        for k = 1, #retries do pendingEffects[#pendingEffects + 1] = retries[k] end
+        scheduleFlush()  -- immediate scheduler recurses safely: 2nd failure caps
+    end
 end
 
-local scheduleFlush = runFlush -- default immediate; overridable
+scheduleFlush = runFlush -- default immediate; overridable
 
 -- Host wires this to its Log (e.g. VWB.Log:Error). See `log` above.
 function Reactor.setLogger(fn) logger = fn end
+function Reactor.setEffectErrorHandler(fn) effectErrorHandler = fn end
 
 -- WoW hooks a deferred flusher here: fn(runFlush) should arrange for runFlush
 -- to be called once, later this frame (e.g. C_Timer.After(0, runFlush) or an
